@@ -1,0 +1,486 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{A04570A2-1943-4D13-8544-074203A4B4B3}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>vvTSLtools</RootNamespace>
+    <AssemblyName>vvTSLtools</AssemblyName>
+    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="TSLab.Script" />
+    <Reference Include="TSLab.Script.Handlers" />
+    <Reference Include="System.Core" />
+    <Reference Include="TSLab.DataSource" />
+    <Reference Include="System" />
+  </ItemGroup>
+  <ItemGroup>
+    <AppDesigner Include="Properties\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="ABTR.cs" />
+    <Compile Include="AccelerationBands.cs" />
+    <Compile Include="ActiveLongsCount.cs" />
+    <Compile Include="ActivePositionsCount.cs" />
+    <Compile Include="ActivePositionsCount2.cs" />
+    <Compile Include="ActivePosName.cs" />
+    <Compile Include="ActiveShortsCount.cs" />
+    <Compile Include="AdRSI.cs" />
+    <Compile Include="ADX.cs" />
+    <Compile Include="ADXVMA.cs" />
+    <Compile Include="ADXxBB.cs" />
+    <Compile Include="ADX_WA.cs" />
+    <Compile Include="AllAverages.cs" />
+    <Compile Include="AllPositionsCount.cs" />
+    <Compile Include="ALMA.cs" />
+    <Compile Include="AMA.cs" />
+    <Compile Include="AMAext.cs" />
+    <Compile Include="AMASlope.cs" />
+    <Compile Include="AMMA.cs" />
+    <Compile Include="Aroon.cs" />
+    <Compile Include="AroonOsc.cs" />
+    <Compile Include="Asymmetry.cs" />
+    <Compile Include="ATR.cs" />
+    <Compile Include="ATRnorm.cs" />
+    <Compile Include="ATRnorm2.cs" />
+    <Compile Include="ATRpct.cs" />
+    <Compile Include="ATRratio.cs" />
+    <Compile Include="ATRratioExt.cs" />
+    <Compile Include="BandPassIndicator.cs" />
+    <Compile Include="BarsFromEntry.cs" />
+    <Compile Include="BarsFromEntrySrc.cs" />
+    <Compile Include="BarsFromLastLongClosed12.cs" />
+    <Compile Include="BarsFromLastPositionClosed12.cs" />
+    <Compile Include="BarsFromLastPositionOpen.cs" />
+    <Compile Include="BarsFromLastShortClosed12.cs" />
+    <Compile Include="BaseAMA.cs" />
+    <Compile Include="BaseSen.cs" />
+    <Compile Include="BB.cs" />
+    <Compile Include="BBands.cs" />
+    <Compile Include="BBands3In.cs" />
+    <Compile Include="BBands4In.cs" />
+    <Compile Include="BBandsHL.cs" />
+    <Compile Include="BBandsHL3HLC.cs" />
+    <Compile Include="BBStop.cs" />
+    <Compile Include="BBWidth.cs" />
+    <Compile Include="BearsBullsPower.cs" />
+    <Compile Include="BearsPower.cs" />
+    <Compile Include="Bezier.cs" />
+    <Compile Include="BollingerBands.cs" />
+    <Compile Include="BullsPower.cs" />
+    <Compile Include="Camarilla.cs" />
+    <Compile Include="CandleAverage.cs" />
+    <Compile Include="CCI.cs" />
+    <Compile Include="ChaikinOscillator.cs" />
+    <Compile Include="ChaikinsVolty.cs" />
+    <Compile Include="CheckBigBar.cs" />
+    <Compile Include="CheckMaxLimit.cs" />
+    <Compile Include="CheckMinLimit.cs" />
+    <Compile Include="Chinkou.cs" />
+    <Compile Include="CMI.cs" />
+    <Compile Include="CoGoscillator.cs" />
+    <Compile Include="CorrectedMA.cs" />
+    <Compile Include="CRS.cs" />
+    <Compile Include="CumulatedLoss.cs" />
+    <Compile Include="CurrentAsk.cs" />
+    <Compile Include="CurrentAsk2.cs" />
+    <Compile Include="CurrentBarNum.cs" />
+    <Compile Include="CurrentBid.cs" />
+    <Compile Include="CurrentBid2.cs" />
+    <Compile Include="CurrentBuyCount.cs" />
+    <Compile Include="CurrentSellCount.cs" />
+    <Compile Include="CyberCycle.cs" />
+    <Compile Include="DayMax.cs" />
+    <Compile Include="DayMin.cs" />
+    <Compile Include="DaysInPosition.cs" />
+    <Compile Include="Delay.cs" />
+    <Compile Include="DEMA.cs" />
+    <Compile Include="DeMarker.cs" />
+    <Compile Include="DigitalMACD.cs" />
+    <Compile Include="DPO.cs" />
+    <Compile Include="DrowdownCount.cs" />
+    <Compile Include="DSMA.cs" />
+    <Compile Include="DSS.cs" />
+    <Compile Include="DSS2.cs" />
+    <Compile Include="DSS22.cs" />
+    <Compile Include="DynamicZoneRSI.cs" />
+    <Compile Include="d_MA.cs" />
+    <Compile Include="D_RSI.cs" />
+    <Compile Include="EhlersLeading.cs" />
+    <Compile Include="EMA.cs" />
+    <Compile Include="EmaAtrRatioAdaptive.cs" />
+    <Compile Include="EMASlope.cs" />
+    <Compile Include="EmaStDevAdaptive.cs" />
+    <Compile Include="EMA_DoubleSmoothed.cs" />
+    <Compile Include="EMA_TA.cs" />
+    <Compile Include="EntryBarNum.cs" />
+    <Compile Include="EntryBarNumFromSrc.cs" />
+    <Compile Include="EntryPrice.cs" />
+    <Compile Include="Envelops.cs" />
+    <Compile Include="Ergodic.cs" />
+    <Compile Include="evwma.cs" />
+    <Compile Include="EWO.cs" />
+    <Compile Include="ExitBarNum.cs" />
+    <Compile Include="ExitBarNumFromSrc.cs" />
+    <Compile Include="ExitPrice.cs" />
+    <Compile Include="ExtTrailStopOnBarsExtremums.cs" />
+    <Compile Include="FAMA.cs" />
+    <Compile Include="FATL.cs" />
+    <Compile Include="FATL_SATL.cs" />
+    <Compile Include="FDI.cs" />
+    <Compile Include="FIR_MA.cs" />
+    <Compile Include="FisherCyberCycle.cs" />
+    <Compile Include="FisherRVI.cs" />
+    <Compile Include="FisherTransform.cs" />
+    <Compile Include="Fisher_m11.cs" />
+    <Compile Include="Fisher_Yur4ik.cs" />
+    <Compile Include="ForceIndex.cs" />
+    <Compile Include="FRAMA.cs" />
+    <Compile Include="FRASMA.cs" />
+    <Compile Include="fRSI.cs" />
+    <Compile Include="FTLM.cs" />
+    <Compile Include="FTLM_STLM.cs" />
+    <Compile Include="GaussFilter.cs" />
+    <Compile Include="GeoMean.cs" />
+    <Compile Include="GetTimeframe.cs" />
+    <Compile Include="HeikenAshi.cs" />
+    <Compile Include="HeikenAshiMA.cs" />
+    <Compile Include="HeikenAshiSmoothed.cs" />
+    <Compile Include="HighestForXX.cs" />
+    <Compile Include="HighestPos.cs" />
+    <Compile Include="HiLoChannel_FO.cs" />
+    <Compile Include="HLVolty.cs" />
+    <Compile Include="HoldSignal.cs" />
+    <Compile Include="HoldSignal_v2.cs" />
+    <Compile Include="HoltWintersMA.cs" />
+    <Compile Include="HullMA.cs" />
+    <Compile Include="HullMAdn.cs" />
+    <Compile Include="IBS.cs" />
+    <Compile Include="IchimokuCloud.cs" />
+    <Compile Include="IchimokuCloudDn.cs" />
+    <Compile Include="IchimokuCloudUp.cs" />
+    <Compile Include="ILRS.cs" />
+    <Compile Include="InstantaneousTrendline.cs" />
+    <Compile Include="iVAR.cs" />
+    <Compile Include="JFatl.cs" />
+    <Compile Include="JFatlSpeed.cs" />
+    <Compile Include="JMA.cs" />
+    <Compile Include="JsMA.cs" />
+    <Compile Include="KalmanFilter.cs" />
+    <Compile Include="KaufmanVolty.cs" />
+    <Compile Include="KBWidth.cs" />
+    <Compile Include="KeltnerBands.cs" />
+    <Compile Include="KER.cs" />
+    <Compile Include="KijunSen.cs" />
+    <Compile Include="Laguerre.cs" />
+    <Compile Include="LaguerreACS.cs" />
+    <Compile Include="LaguerreCCI.cs" />
+    <Compile Include="LaguerreFilter.cs" />
+    <Compile Include="LaguerreRSI.cs" />
+    <Compile Include="LaguerreRSInFilter2.cs" />
+    <Compile Include="LaguerreRSIvar.cs" />
+    <Compile Include="Last2LossedLongs.cs" />
+    <Compile Include="Last2LossedShorts.cs" />
+    <Compile Include="Last2ProfitLongs.cs" />
+    <Compile Include="Last2ProfitShorts.cs" />
+    <Compile Include="Last2TradesWereLong.cs" />
+    <Compile Include="Last2TradesWereShort.cs" />
+    <Compile Include="Last3LossedLongs.cs" />
+    <Compile Include="Last3LossedShorts.cs" />
+    <Compile Include="Last3ProfitLongs.cs" />
+    <Compile Include="Last3ProfitShorts.cs" />
+    <Compile Include="LastClosedNamedPositionProfit.cs" />
+    <Compile Include="LastClosedNamePositionExitDate.cs" />
+    <Compile Include="LastClosedNamePositionExitTime.cs" />
+    <Compile Include="LastClosedPositionDate.cs" />
+    <Compile Include="LastClosedPositionExitDate.cs" />
+    <Compile Include="LastClosedPositionExitTime.cs" />
+    <Compile Include="LastClosedPositionTime.cs" />
+    <Compile Include="LastDealProfit.cs" />
+    <Compile Include="LeaderMACD.cs" />
+    <Compile Include="LeManTrend.cs" />
+    <Compile Include="Line.cs" />
+    <Compile Include="LinearRegSlope.cs" />
+    <Compile Include="LinearRegSlopeMS.cs" />
+    <Compile Include="LossIn2LastTrades.cs" />
+    <Compile Include="LossIn3LastTrades.cs" />
+    <Compile Include="LossInLastTrade.cs" />
+    <Compile Include="LotsInLastTrade.cs" />
+    <Compile Include="LowestForXX.cs" />
+    <Compile Include="LowestPos.cs" />
+    <Compile Include="LRMA.cs" />
+    <Compile Include="LWMA.cs" />
+    <Compile Include="LWMAslope.cs" />
+    <Compile Include="MACD.cs" />
+    <Compile Include="MACDadv.cs" />
+    <Compile Include="MACDBase.cs" />
+    <Compile Include="MACDDemaDiNapoli.cs" />
+    <Compile Include="MACDHistoAdv.cs" />
+    <Compile Include="MacdRsiAdaptive.cs" />
+    <Compile Include="MACDSig.cs" />
+    <Compile Include="MACD_2MA.cs" />
+    <Compile Include="MaDev.cs" />
+    <Compile Include="MAMA.cs" />
+    <Compile Include="MaRsiAdaptive.cs" />
+    <Compile Include="MARSICD.cs" />
+    <Compile Include="Max_v.cs" />
+    <Compile Include="McGinleyDynamic.cs" />
+    <Compile Include="MedianPrice.cs" />
+    <Compile Include="MEMA.cs" />
+    <Compile Include="MFI.cs" />
+    <Compile Include="MFI_Williams_max.cs" />
+    <Compile Include="MinutesInPosition.cs" />
+    <Compile Include="MOEF.cs" />
+    <Compile Include="Momentum.cs" />
+    <Compile Include="MomentumAnchored.cs" />
+    <Compile Include="MomentumOsc.cs" />
+    <Compile Include="MomentumPct.cs" />
+    <Compile Include="MomentumReg.cs" />
+    <Compile Include="MovingMedian.cs" />
+    <Compile Include="NavelEma.cs" />
+    <Compile Include="NavelSma.cs" />
+    <Compile Include="NBarsDown.cs" />
+    <Compile Include="NBarsEqual.cs" />
+    <Compile Include="NBarsGrouth.cs" />
+    <Compile Include="NBlackBarsInARow.cs" />
+    <Compile Include="NEMA.cs" />
+    <Compile Include="newMACD.cs" />
+    <Compile Include="NLastDealProfit.cs" />
+    <Compile Include="NMA.cs" />
+    <Compile Include="NoActivePosition.cs" />
+    <Compile Include="NoCrossesCount.cs" />
+    <Compile Include="NoLossAbs.cs" />
+    <Compile Include="NoLossAbsSL.cs" />
+    <Compile Include="NoLossPct.cs" />
+    <Compile Include="NoLossPctSL.cs" />
+    <Compile Include="NonLagMA.cs" />
+    <Compile Include="Normalizer.cs" />
+    <Compile Include="Normalizer01.cs" />
+    <Compile Include="NRMA.cs" />
+    <Compile Include="NRTRWATR.cs" />
+    <Compile Include="NWhiteBarsInARow.cs" />
+    <Compile Include="OBV.cs" />
+    <Compile Include="OMA.cs" />
+    <Compile Include="OnBarsStopLoss.cs" />
+    <Compile Include="OnBarsStopLossPct.cs" />
+    <Compile Include="OsMA.cs" />
+    <Compile Include="OTFilter.cs" />
+    <Compile Include="Parabolic.cs" />
+    <Compile Include="ParabolicBest.cs" />
+    <Compile Include="ParabolicOnMA.cs" />
+    <Compile Include="ParabolicSAR.cs" />
+    <Compile Include="PatternFinder.cs" />
+    <Compile Include="PCCI.cs" />
+    <Compile Include="PCU.cs" />
+    <Compile Include="PFE.cs" />
+    <Compile Include="PFEv2.cs" />
+    <Compile Include="PFEv3.cs" />
+    <Compile Include="Pifagor.cs" />
+    <Compile Include="PosHighPrice.cs" />
+    <Compile Include="PosIsActive.cs" />
+    <Compile Include="PosLowPrice.cs" />
+    <Compile Include="PPO.cs" />
+    <Compile Include="PrevBarStop.cs" />
+    <Compile Include="PrevDayMax.cs" />
+    <Compile Include="PrevDayMin.cs" />
+    <Compile Include="ProfitDealsCount.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Properties\Resources.Designer.cs">
+      <DependentUpon>Resources.resx</DependentUpon>
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+    </Compile>
+    <Compile Include="PVT.cs" />
+    <Compile Include="QQE.cs" />
+    <Compile Include="QuickMA.cs" />
+    <Compile Include="RandomGen.cs" />
+    <Compile Include="RapidRSI.cs" />
+    <Compile Include="RAVI.cs" />
+    <Compile Include="RaviFxFisher.cs" />
+    <Compile Include="RaviFxFisher2.cs" />
+    <Compile Include="RBCI.cs" />
+    <Compile Include="REMA.cs" />
+    <Compile Include="RFTL_RSTL.cs" />
+    <Compile Include="RMI.cs" />
+    <Compile Include="ROC.cs" />
+    <Compile Include="RSI.cs" />
+    <Compile Include="RSIacc.cs" />
+    <Compile Include="RSIFilter.cs" />
+    <Compile Include="RSI_Attar_Def.cs" />
+    <Compile Include="RSI_MA.cs" />
+    <Compile Include="RSquared.cs" />
+    <Compile Include="RSRank.cs" />
+    <Compile Include="RSX.cs" />
+    <Compile Include="RVI.cs" />
+    <Compile Include="RWI.cs" />
+    <Compile Include="Sadukey.cs" />
+    <Compile Include="SATL.cs" />
+    <Compile Include="SenkouA.cs" />
+    <Compile Include="SenkouB.cs" />
+    <Compile Include="SessionClose.cs" />
+    <Compile Include="SessionHeld.cs" />
+    <Compile Include="SessionHigh.cs" />
+    <Compile Include="SessionLow.cs" />
+    <Compile Include="SessionMidPrice.cs" />
+    <Compile Include="SessionOpen.cs" />
+    <Compile Include="SGMAR.cs" />
+    <Compile Include="ShaffTrend.cs" />
+    <Compile Include="ShiftedLine.cs" />
+    <Compile Include="ShiftedLine2.cs" />
+    <Compile Include="Silversen.cs" />
+    <Compile Include="Sinewave.cs" />
+    <Compile Include="SineWMA.cs" />
+    <Compile Include="SlowStoch.cs" />
+    <Compile Include="SlowStochDbl.cs" />
+    <Compile Include="SMA.cs" />
+    <Compile Include="SMMA.cs" />
+    <Compile Include="SqW_MA.cs" />
+    <Compile Include="SRSI_IFT.cs" />
+    <Compile Include="SSL.cs" />
+    <Compile Include="STARCBands.cs" />
+    <Compile Include="StdErrBWidth.cs" />
+    <Compile Include="StdErrorBands.cs" />
+    <Compile Include="StDev.cs" />
+    <Compile Include="StDevNrm.cs" />
+    <Compile Include="StDevRatio.cs" />
+    <Compile Include="StepEMA.cs" />
+    <Compile Include="StepRSI1.cs" />
+    <Compile Include="StepRSI2.cs" />
+    <Compile Include="STLM.cs" />
+    <Compile Include="Stochastic.cs" />
+    <Compile Include="StochasticDbl.cs" />
+    <Compile Include="StochCC.cs" />
+    <Compile Include="StochDiNapoli.cs" />
+    <Compile Include="StochK.cs" />
+    <Compile Include="StochNR2.cs" />
+    <Compile Include="StochRSI.cs" />
+    <Compile Include="StochRSIehlers.cs" />
+    <Compile Include="StopLossAbs.cs" />
+    <Compile Include="StopLossAtr.cs" />
+    <Compile Include="StopLossPct.cs" />
+    <Compile Include="SummFor.cs" />
+    <Compile Include="SuperTrailStopOnATR.cs" />
+    <Compile Include="SuperTrend.cs" />
+    <Compile Include="SVE_RSI_IFT.cs" />
+    <Compile Include="SyntRSI2.cs" />
+    <Compile Include="SyntSmoothRSI.cs" />
+    <Compile Include="T3CCI.cs" />
+    <Compile Include="T3RSI.cs" />
+    <Compile Include="T3Tilson.cs" />
+    <Compile Include="TakeProfitAbs.cs" />
+    <Compile Include="TakeProfitPct.cs" />
+    <Compile Include="tATR.cs" />
+    <Compile Include="TEMA.cs" />
+    <Compile Include="TenkanSen.cs" />
+    <Compile Include="TenKiHisto.cs" />
+    <Compile Include="ThirdGenMA.cs" />
+    <Compile Include="ThreeLineBreak.cs" />
+    <Compile Include="ThreePoleButterworthFilter.cs" />
+    <Compile Include="ThreePoleSuperSmootherFilter.cs" />
+    <Compile Include="TotalBars.cs" />
+    <Compile Include="TrailOnShadowsAER.cs" />
+    <Compile Include="TrailOnShadowsDecr.cs" />
+    <Compile Include="TrailOnShadowsS.cs" />
+    <Compile Include="TrailOnShadowsT.cs" />
+    <Compile Include="TrailStop.cs" />
+    <Compile Include="TrailStopAbs.cs" />
+    <Compile Include="TrailStopAbsCP.cs" />
+    <Compile Include="TrailStopAbsSimple.cs" />
+    <Compile Include="TrailStopOnATR.cs" />
+    <Compile Include="TrailStopOnATRsimple.cs" />
+    <Compile Include="TrailStopOnATRsimple_v2.cs" />
+    <Compile Include="TrailStopOnATR_var2.cs" />
+    <Compile Include="TrailStopOnBarsExtremums.cs" />
+    <Compile Include="TrailStopOnBarsExtremumsCP.cs" />
+    <Compile Include="TrailStopP1000a.cs" />
+    <Compile Include="TrailStopP1000a2.cs" />
+    <Compile Include="TrailStopP1000r.cs" />
+    <Compile Include="TrailStopP1000r2.cs" />
+    <Compile Include="TrailStopStdCP.cs" />
+    <Compile Include="TrendMagic.cs" />
+    <Compile Include="TrendValue.cs" />
+    <Compile Include="TriMA.cs" />
+    <Compile Include="TriMAgen.cs" />
+    <Compile Include="TRIX.cs" />
+    <Compile Include="TrueAtrTrailStop.cs" />
+    <Compile Include="TrueRange.cs" />
+    <Compile Include="TrueSI.cs" />
+    <Compile Include="TSI.cs" />
+    <Compile Include="TSIndicator.cs" />
+    <Compile Include="TSMA.cs" />
+    <Compile Include="TTMTrend.cs" />
+    <Compile Include="TwoPoleButterworthFilter.cs" />
+    <Compile Include="TwoPoleSuperSmootherFilter.cs" />
+    <Compile Include="TypicalPrice.cs" />
+    <Compile Include="UllMA.cs" />
+    <Compile Include="UltimateOscillator.cs" />
+    <Compile Include="vaMA.cs" />
+    <Compile Include="vBasePeriodIndicatorHandler.cs" />
+    <Compile Include="VHF.cs" />
+    <Compile Include="VIDYA.cs" />
+    <Compile Include="VininCyberCycle.cs" />
+    <Compile Include="VininImpulse.cs" />
+    <Compile Include="VininI_RSI_FO.cs" />
+    <Compile Include="VininI_WPR_FO.cs" />
+    <Compile Include="VKWBandsIBS.cs" />
+    <Compile Include="Volatility.cs" />
+    <Compile Include="VolatilityMA.cs" />
+    <Compile Include="Vortex.cs" />
+    <Compile Include="vTrend.cs" />
+    <Compile Include="vvHelper.cs" />
+    <Compile Include="vvSeries.cs" />
+    <Compile Include="WAD.cs" />
+    <Compile Include="WATrend.cs" />
+    <Compile Include="WeightedClose.cs" />
+    <Compile Include="WilderMA.cs" />
+    <Compile Include="WilliamsAC.cs" />
+    <Compile Include="WilliamsAO.cs" />
+    <Compile Include="WPR.cs" />
+    <Compile Include="WPRfastslow.cs" />
+    <Compile Include="xMAchange.cs" />
+    <Compile Include="xMASlope.cs" />
+    <Compile Include="xPrice.cs" />
+    <Compile Include="xPrice2.cs" />
+    <Compile Include="ZeroLagEMA.cs" />
+    <Compile Include="ZeroLagMACD.cs" />
+    <Compile Include="ZeroLagOsMA.cs" />
+    <Compile Include="ZigZag.cs" />
+    <Compile Include="ZigZagMS.cs" />
+    <Compile Include="ZLEC.cs" />
+    <Compile Include="ZLEMA.cs" />
+    <Compile Include="zlMACD_RSI.cs" />
+    <Compile Include="zlStoch.cs" />
+    <Compile Include="ZoneTrade.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Properties\Resources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
