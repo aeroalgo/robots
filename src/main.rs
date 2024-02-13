@@ -13,8 +13,8 @@ async fn main() {
     let all_data: Vec<TickerCandle> = ticker.get_all().await;
     let mut m5 = Source::new(all_data).await;
     let mut x = SourceIndicators::new(&m5).await;
-    let data = x.get_super_trend(10, 2, false).await;
-    println!("{:?}", data.data);
+    let data = x.get_stochastic(10, false).await;
+    // println!("{:?}", data.data);
     // h60.compres().await;
     // h60.get_sma(Element::Close, 20).await;
     // x.get_ema(Element::Close, 20).await;

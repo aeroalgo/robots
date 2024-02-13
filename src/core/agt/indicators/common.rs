@@ -12,6 +12,7 @@ pub struct IndicatorsMeta {
     pub name: String,
     pub name_param: Vec<String>,
     pub value_param: Vec<i16>,
+    pub multi_indicator: bool,
 }
 #[derive(Debug, Clone)]
 pub struct IndicatorData {

@@ -1,4 +1,6 @@
-use std::{array, cmp::min, collections::HashMap, convert::TryInto, intrinsics::ceilf32, ops::Index};
+use std::{
+    array, cmp::min, collections::HashMap, convert::TryInto, ops::Index,
+};
 use try_partialord::*;
 extern crate chrono;
 use crate::core::agt::indicators::common::{IndicatorData, IndicatorsMeta, OptimizationParam};
@@ -27,6 +29,7 @@ impl MovingAverage {
             result: vec![],
             meta: IndicatorsMeta {
                 current_param: HashMap::new(),
+                multi_indicator: false,
                 optimization_param: HashMap::from([(
                     "default".to_string(),
                     OptimizationParam {
@@ -41,18 +44,24 @@ impl MovingAverage {
             },
         };
     }
-    pub async fn get_sma(& mut self, period: i16, meta: bool) -> MovingAverage {
+    pub async fn get_sma(&mut self, period: i16, meta: bool) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
         self.meta.name = String::from("SMA");
         self.meta.name_param = vec!["period".to_string()];
         self.meta.value_param = vec![period];
         if meta {
-            return self.clone()
+            return IndicatorData {
+                data: self.result.clone(),
+                meta: self.meta.clone(),
+            };
         }
         self.calculate_sma(period).await;
-        self.clone()
+        return IndicatorData {
+            data: self.result.clone(),
+            meta: self.meta.clone(),
+        };
     }
-    async fn calculate_sma(& mut self, period: i16) {
+    async fn calculate_sma(&mut self, period: i16) {
         let data = &self.data;
         let count = self.data.len();
         let mut num2: f32 = 0.0;
@@ -71,18 +80,24 @@ impl MovingAverage {
         }
         self.result = result;
     }
-    pub async fn get_maxfor(& mut self, period: i16, meta: bool) -> MovingAverage {
+    pub async fn get_maxfor(&mut self, period: i16, meta: bool) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
         self.meta.name = String::from("MAX_FOR");
         self.meta.name_param = vec!["period".to_string()];
         self.meta.value_param = vec![period];
         if meta {
-            return self.clone()
+            return IndicatorData {
+                data: self.result.clone(),
+                meta: self.meta.clone(),
+            };
         }
         self.calculate_maxfor(period).await;
-        return self.clone()
+        return IndicatorData {
+            data: self.result.clone(),
+            meta: self.meta.clone(),
+        };
     }
-    async fn calculate_maxfor(& mut self, period: i16) {
+    async fn calculate_maxfor(&mut self, period: i16) {
         let data = &self.data;
         let count = data.len();
         let num = min(count, period.try_into().unwrap());
@@ -102,18 +117,24 @@ impl MovingAverage {
         self.result = result;
     }
 
-    pub async fn get_minfor(& mut self, period: i16, meta: bool) -> MovingAverage {
+    pub async fn get_minfor(&mut self, period: i16, meta: bool) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
         self.meta.name = String::from("MIN_FOR");
         self.meta.name_param = vec!["period".to_string()];
         self.meta.value_param = vec![period];
         if meta {
-            return self.clone()
+            return IndicatorData {
+                data: self.result.clone(),
+                meta: self.meta.clone(),
+            };
         }
-        let result = self.calculate_minfor(period).await;
-        return self.clone()
+        self.calculate_minfor(period).await;
+        return IndicatorData {
+            data: self.result.clone(),
+            meta: self.meta.clone(),
+        };
     }
-    async fn calculate_minfor(& mut self, period: i16) {
+    async fn calculate_minfor(&mut self, period: i16) {
         let data = &self.data;
         let count = data.len();
         let num = min(count, period.try_into().unwrap());
@@ -132,33 +153,25 @@ impl MovingAverage {
         }
         self.result = result;
     }
-    pub async fn get_vtrand(&self, period: i16, meta: bool) -> IndicatorData {
-        let metadata = IndicatorsMeta {
-            current_param: HashMap::from([("period".to_string(), period)]),
-            optimization_param: HashMap::from([(
-                "period".to_string(),
-                OptimizationParam {
-                    start: 10,
-                    stop: 300,
-                    step: 10,
-                },
-            )]),
-            name: String::from("GEOMEAN"),
-            name_param: vec!["period".to_string()],
-            value_param: vec![period],
-        };
+    pub async fn get_vtrand(&mut self, period: i16, meta: bool) -> IndicatorData {
+        self.meta.current_param = HashMap::from([("period".to_string(), period)]);
+        self.meta.name = String::from("GEOMEAN");
+        self.meta.name_param = vec!["period".to_string()];
+        self.meta.value_param = vec![period];
         if meta {
             return IndicatorData {
-                data: Vec::new(),
-                meta: metadata,
+                data: self.result.clone(),
+                meta: self.meta.clone(),
             };
         }
-        let llv = self.calculate_minfor(period).await;
-        let hhv = self.calculate_maxfor(period).await;
-        let result = self.calculate_vtrand(hhv, llv, period).await;
+        self.calculate_minfor(period).await;
+        let llv = self.result.clone();
+        self.calculate_maxfor(period).await;
+        let hhv = self.result.clone();
+        self.result = self.calculate_vtrand(hhv, llv, period).await;
         return IndicatorData {
-            data: result,
-            meta: metadata,
+            data: self.result.clone(),
+            meta: self.meta.clone(),
         };
     }
     async fn calculate_vtrand(&self, hhv: Vec<f32>, llv: Vec<f32>, period: i16) -> Vec<f32> {
@@ -168,35 +181,25 @@ impl MovingAverage {
             .collect()
     }
 
-    pub async fn get_geomean(&self, period: i16, meta: bool) -> IndicatorData {
-        let metadata = IndicatorsMeta {
-            current_param: HashMap::from([("period".to_string(), period)]),
-            optimization_param: HashMap::from([(
-                "period".to_string(),
-                OptimizationParam {
-                    start: 10,
-                    stop: 300,
-                    step: 10,
-                },
-            )]),
-            name: String::from("GEOMEAN"),
-            name_param: vec!["period".to_string()],
-            value_param: vec![period],
-        };
+    pub async fn get_geomean(&mut self, period: i16, meta: bool) -> IndicatorData {
+        self.meta.current_param = HashMap::from([("period".to_string(), period)]);
+        self.meta.name = String::from("GEOMEAN");
+        self.meta.name_param = vec!["period".to_string()];
+        self.meta.value_param = vec![period];
         if meta {
             return IndicatorData {
-                data: Vec::new(),
-                meta: metadata,
+                data: self.result.clone(),
+                meta: self.meta.clone(),
             };
         }
-        let result = self.calculate_geomean(&self.data, period).await;
-        println!("{:?}", result);
+        self.calculate_geomean(period).await;
         return IndicatorData {
-            data: result,
-            meta: metadata,
+            data: self.result.clone(),
+            meta: self.meta.clone(),
         };
     }
-    async fn calculate_geomean(&self, data: &Vec<f32>, period: i16) -> Vec<f32> {
+    async fn calculate_geomean(&mut self, period: i16) {
+        let data = &self.data;
         let count = data.len();
         let mut result: Vec<f32> = Vec::new();
         for i in 0..count {
@@ -210,37 +213,29 @@ impl MovingAverage {
                 result.push(num);
             }
         }
-        return result;
+        self.result = result;
     }
 
-    pub async fn get_amma(&self, period: i16, meta: bool) -> IndicatorData {
-        let metadata = IndicatorsMeta {
-            current_param: HashMap::from([("period".to_string(), period)]),
-            optimization_param: HashMap::from([(
-                "period".to_string(),
-                OptimizationParam {
-                    start: 10,
-                    stop: 300,
-                    step: 10,
-                },
-            )]),
-            name: String::from("AMMA"),
-            name_param: vec!["period".to_string()],
-            value_param: vec![period],
-        };
+    pub async fn get_amma(&mut self, period: i16, meta: bool) -> IndicatorData {
+        self.meta.current_param = HashMap::from([("period".to_string(), period)]);
+        self.meta.name = String::from("AMMA");
+        self.meta.name_param = vec!["period".to_string()];
+        self.meta.value_param = vec![period];
+
         if meta {
             return IndicatorData {
-                data: Vec::new(),
-                meta: metadata,
+                data: self.result.clone(),
+                meta: self.meta.clone(),
             };
         }
-        let result = self.calculate_amma(&self.data, period).await;
+        self.calculate_amma(period).await;
         return IndicatorData {
-            data: result,
-            meta: metadata,
+            data: self.result.clone(),
+            meta: self.meta.clone(),
         };
     }
-    async fn calculate_amma(&self, data: &Vec<f32>, period: i16) -> Vec<f32> {
+    async fn calculate_amma(&mut self, period: i16) {
+        let data = &self.data;
         let count = data.len();
         let mut result: Vec<f32> = Vec::new();
         for i in 0..count {
@@ -251,37 +246,28 @@ impl MovingAverage {
                 result.push(num);
             }
         }
-        return result;
+        self.result = result;
     }
 
-    pub async fn get_sqwma(&self, period: i16, meta: bool) -> IndicatorData {
-        let metadata = IndicatorsMeta {
-            current_param: HashMap::from([("period".to_string(), period)]),
-            optimization_param: HashMap::from([(
-                "period".to_string(),
-                OptimizationParam {
-                    start: 10,
-                    stop: 300,
-                    step: 10,
-                },
-            )]),
-            name: String::from("SQWMA"),
-            name_param: vec!["period".to_string()],
-            value_param: vec![period],
-        };
+    pub async fn get_sqwma(&mut self, period: i16, meta: bool) -> IndicatorData {
+        self.meta.current_param = HashMap::from([("period".to_string(), period)]);
+        self.meta.name = String::from("SQWMA");
+        self.meta.name_param = vec!["period".to_string()];
+        self.meta.value_param = vec![period];
         if meta {
             return IndicatorData {
-                data: Vec::new(),
-                meta: metadata,
+                data: self.result.clone(),
+                meta: self.meta.clone(),
             };
         }
-        let result = self.calculate_sqwma(&self.data, period).await;
+        self.calculate_sqwma(period).await;
         return IndicatorData {
-            data: result,
-            meta: metadata,
+            data: self.result.clone(),
+            meta: self.meta.clone(),
         };
     }
-    async fn calculate_sqwma(&self, data: &Vec<f32>, period: i16) -> Vec<f32> {
+    async fn calculate_sqwma(&mut self, period: i16) {
+        let data = &self.data;
         let count = data.len();
         let mut result: Vec<f32> = Vec::new();
         let num = period as f32 * (period - 1) as f32 / 2.0;
@@ -303,37 +289,27 @@ impl MovingAverage {
                 result.push(num8);
             }
         }
-        return result;
+        self.result = result;
     }
-    pub async fn get_sinewma(&self, period: i16, meta: bool) -> IndicatorData {
-        let metadata = IndicatorsMeta {
-            current_param: HashMap::from([("period".to_string(), period)]),
-            optimization_param: HashMap::from([(
-                "period".to_string(),
-                OptimizationParam {
-                    start: 10,
-                    stop: 300,
-                    step: 10,
-                },
-            )]),
-            name: String::from("SINEWMA"),
-            name_param: vec!["period".to_string()],
-            value_param: vec![period],
-        };
+    pub async fn get_sinewma(&mut self, period: i16, meta: bool) -> IndicatorData {
+        self.meta.current_param = HashMap::from([("period".to_string(), period)]);
+        self.meta.name = String::from("SINEWMA");
+        self.meta.name_param = vec!["period".to_string()];
+        self.meta.value_param = vec![period];
         if meta {
             return IndicatorData {
-                data: Vec::new(),
-                meta: metadata,
+                data: self.result.clone(),
+                meta: self.meta.clone(),
             };
         }
-        let result = self.calculate_sinewma(&self.data, period).await;
-        println!("{:?}", result);
+        self.calculate_sinewma(period).await;
         return IndicatorData {
-            data: result,
-            meta: metadata,
+            data: self.result.clone(),
+            meta: self.meta.clone(),
         };
     }
-    async fn calculate_sinewma(&self, data: &Vec<f32>, period: i16) -> Vec<f32> {
+    async fn calculate_sinewma(&mut self, period: i16) {
+        let data = &self.data;
         let count = data.len();
         let mut result: Vec<f32> = Vec::new();
         for i in 0..count {
@@ -355,38 +331,28 @@ impl MovingAverage {
                 result.push(result2 as f32);
             }
         }
-        return result;
+        self.result = result;
     }
 
-    pub async fn get_ama(&self, period: i16, meta: bool) -> IndicatorData {
-        let metadata = IndicatorsMeta {
-            current_param: HashMap::from([("period".to_string(), period)]),
-            optimization_param: HashMap::from([(
-                "period".to_string(),
-                OptimizationParam {
-                    start: 10,
-                    stop: 300,
-                    step: 10,
-                },
-            )]),
-            name: String::from("AMA"),
-            name_param: vec!["period".to_string()],
-            value_param: vec![period],
-        };
+    pub async fn get_ama(&mut self, period: i16, meta: bool) -> IndicatorData {
+        self.meta.current_param = HashMap::from([("period".to_string(), period)]);
+        self.meta.name = String::from("AMA");
+        self.meta.name_param = vec!["period".to_string()];
+        self.meta.value_param = vec![period];
         if meta {
             return IndicatorData {
-                data: Vec::new(),
-                meta: metadata,
+                data: self.result.clone(),
+                meta: self.meta.clone(),
             };
         }
-        let result = self.calculate_ama(&self.data, period).await;
-        println!("{:?}", result);
+        self.calculate_ama(period).await;
         return IndicatorData {
-            data: result,
-            meta: metadata,
+            data: self.result.clone(),
+            meta: self.meta.clone(),
         };
     }
-    async fn calculate_ama(&self, data: &Vec<f32>, period: i16) -> Vec<f32> {
+    async fn calculate_ama(&mut self, period: i16) {
+        let data = &self.data;
         let count = data.len();
         let mut result: Vec<f32> = Vec::new();
         let mut num: f64 = if count < period as usize {
@@ -413,34 +379,24 @@ impl MovingAverage {
                 num = num6;
             }
         }
-        return result;
+        self.result = result;
     }
-    pub async fn get_zlema(&self, period: i16, meta: bool) -> IndicatorData {
-        let metadata = IndicatorsMeta {
-            current_param: HashMap::from([("period".to_string(), period)]),
-            optimization_param: HashMap::from([(
-                "period".to_string(),
-                OptimizationParam {
-                    start: 10,
-                    stop: 300,
-                    step: 10,
-                },
-            )]),
-            name: String::from("ZLEMA"),
-            name_param: vec!["period".to_string()],
-            value_param: vec![period],
-        };
+    pub async fn get_zlema(&mut self, period: i16, meta: bool) -> IndicatorData {
+        self.meta.current_param = HashMap::from([("period".to_string(), period)]);
+        self.meta.name = String::from("ZLEMA");
+        self.meta.name_param = vec!["period".to_string()];
+        self.meta.value_param = vec![period];
         if meta {
             return IndicatorData {
-                data: Vec::new(),
-                meta: metadata,
+                data: self.result.clone(),
+                meta: self.meta.clone(),
             };
         }
         let result = self.calculate_zlema(&self.data, period).await;
         println!("{:?}", result);
         return IndicatorData {
-            data: result,
-            meta: metadata,
+            data: self.result.clone(),
+            meta: self.meta.clone(),
         };
     }
     async fn calculate_zlema(&self, data: &Vec<f32>, period: i16) -> Vec<f32> {
@@ -461,34 +417,25 @@ impl MovingAverage {
         return result;
     }
 
-    pub async fn get_ema(&self, period: i16, meta: bool) -> IndicatorData {
-        let metadata = IndicatorsMeta {
-            current_param: HashMap::from([("period".to_string(), period)]),
-            optimization_param: HashMap::from([(
-                "period".to_string(),
-                OptimizationParam {
-                    start: 10,
-                    stop: 300,
-                    step: 10,
-                },
-            )]),
-            name: String::from("EMA"),
-            name_param: vec!["period".to_string()],
-            value_param: vec![period],
-        };
+    pub async fn get_ema(&mut self, period: i16, meta: bool) -> IndicatorData {
+        self.meta.current_param = HashMap::from([("period".to_string(), period)]);
+        self.meta.name = String::from("EMA");
+        self.meta.name_param = vec!["period".to_string()];
+        self.meta.value_param = vec![period];
         if meta {
             return IndicatorData {
-                data: Vec::new(),
-                meta: metadata,
+                data: self.result.clone(),
+                meta: self.meta.clone(),
             };
         }
-        let result: Vec<f32> = self.calculate_ema(&self.data, period).await;
+        self.calculate_ema(period).await;
         return IndicatorData {
-            data: result,
-            meta: metadata,
+            data: self.result.clone(),
+            meta: self.meta.clone(),
         };
     }
-    async fn calculate_ema(&self, data: &Vec<f32>, period: i16) -> Vec<f32> {
+    async fn calculate_ema(&mut self, period: i16) {
+        let data = &self.data;
         let count = data.len();
         let mut result: Vec<f32> = Vec::new();
         // let mut num: f32 = 2.0 / (period as f32 + 1.0);
@@ -500,40 +447,29 @@ impl MovingAverage {
                 result.push(result[i - 1] + num * (data[i] - result[i - 1]))
             }
         }
-        return result;
+        self.result = result;
     }
-    pub async fn get_tpbf(&self, period: i16, meta: bool) -> IndicatorData {
+    pub async fn get_tpbf(&mut self, period: i16, meta: bool) -> IndicatorData {
         // Сделать версию для инструмента h l
-        let metadata = IndicatorsMeta {
-            current_param: HashMap::from([("period".to_string(), period)]),
-            optimization_param: HashMap::from([(
-                "period".to_string(),
-                OptimizationParam {
-                    start: 10,
-                    stop: 300,
-                    step: 10,
-                },
-            )]),
-            name: String::from("TPBF"),
-            name_param: vec!["period".to_string()],
-            value_param: vec![period],
-        };
+        self.meta.current_param = HashMap::from([("period".to_string(), period)]);
+        self.meta.name = String::from("TPBF");
+        self.meta.name_param = vec!["period".to_string()];
+        self.meta.value_param = vec![period];
         if meta {
             return IndicatorData {
-                data: Vec::new(),
-                meta: metadata,
+                data: self.result.clone(),
+                meta: self.meta.clone(),
             };
         }
         let h = self.get_maxfor(period, false).await;
         let l = self.get_minfor(period, false).await;
-        let result = self.calculate_tpbf(&h.data, &l.data, period).await;
-        println!("{:?}", result);
+        self.calculate_tpbf(&h.data, &l.data, period).await;
         return IndicatorData {
-            data: result,
-            meta: metadata,
+            data: self.result.clone(),
+            meta: self.meta.clone(),
         };
     }
-    async fn calculate_tpbf(&self, h: &Vec<f32>, l: &Vec<f32>, period: i16) -> Vec<f32> {
+    async fn calculate_tpbf(&mut self, h: &Vec<f32>, l: &Vec<f32>, period: i16) {
         let count = h.len();
         let mut result: Vec<f32> = Vec::new();
         let num = 1.0_f32.atan() as f64;
@@ -564,37 +500,28 @@ impl MovingAverage {
                 )
             }
         }
-        return result;
+        self.result = result;
     }
-    pub async fn get_wma(&self, period: i16, meta: bool) -> IndicatorData {
-        let metadata = IndicatorsMeta {
-            current_param: HashMap::from([("period".to_string(), period)]),
-            optimization_param: HashMap::from([(
-                "period".to_string(),
-                OptimizationParam {
-                    start: 10,
-                    stop: 300,
-                    step: 10,
-                },
-            )]),
-            name: String::from("WMA"),
-            name_param: vec!["period".to_string()],
-            value_param: vec![period],
-        };
+    pub async fn get_wma(&mut self, period: i16, meta: bool) -> IndicatorData {
+        self.meta.current_param = HashMap::from([("period".to_string(), period)]);
+        self.meta.name = String::from("WMA");
+        self.meta.name_param = vec!["period".to_string()];
+        self.meta.value_param = vec![period];
         if meta {
             return IndicatorData {
-                data: Vec::new(),
-                meta: metadata,
+                data: self.result.clone(),
+                meta: self.meta.clone(),
             };
         }
-        let result = self.calculate_wma(&self.data, period).await;
+        self.calculate_wma(period).await;
         // println!("{:?}", result);
         return IndicatorData {
-            data: result,
-            meta: metadata,
+            data: self.result.clone(),
+            meta: self.meta.clone(),
         };
     }
-    async fn calculate_wma(&self, data: &Vec<f32>, period: i16) -> Vec<f32> {
+    async fn calculate_wma(&mut self, period: i16) {
+        let data = &self.data;
         let count = data.len();
         let mut result: Vec<f32> = vec![0.0; count];
         let mut num: f32 = 0.0;
@@ -611,7 +538,7 @@ impl MovingAverage {
             result.push(num / num2);
             num = 0.0
         }
-        return result;
+        self.result = result;
     }
     // pub async fn get_ma_to_hl(
     //     &self,
