@@ -1,1 +1,161 @@
-/target
+# ========================
+# OS-specific files
+# ========================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Icon?
+Desktop.ini
+*.swp
+*.swo
+
+# ========================
+# Git
+# ========================
+*.orig
+*.patch
+*.rej
+*.log
+*.lock
+
+# ========================
+# Rust
+# ========================
+target/
+**/*.rs.bk
+Cargo.lock # если это библиотека, лучше включать
+
+# ========================
+# Python
+# ========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.env
+.env.local
+.venv
+*.sqlite3
+*.db
+pip-log.txt
+
+# ========================
+# Node.js / JavaScript / TypeScript
+# ========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+package-lock.json
+yarn.lock
+dist/
+coverage/
+.next/
+out/
+.vercel/
+
+# ========================
+# Java
+# ========================
+*.class
+*.jar
+*.war
+*.ear
+*.iml
+.idea/
+out/
+target/
+
+# ========================
+# C / C++
+# ========================
+*.o
+*.obj
+*.so
+*.exe
+*.dll
+*.pdb
+*.a
+*.lib
+*.dSYM/
+build/
+
+# ========================
+# Go
+# ========================
+bin/
+*.exe
+*.test
+*.out
+vendor/
+
+# ========================
+# C#
+# ========================
+bin/
+obj/
+*.user
+*.suo
+*.csproj.user
+*.dbmdl
+
+# ========================
+# IDEs and editors
+# ========================
+
+# VSCode
+.vscode/
+.history/
+
+# JetBrains (IntelliJ, PyCharm, CLion, etc.)
+.idea/
+*.iml
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Vim
+*.swp
+*.swo
+
+# ========================
+# Archives
+# ========================
+*.zip
+*.tar.gz
+*.rar
+*.7z
+*.gz
+
+# ========================
+# Logs and temp
+# ========================
+*.log
+*.tmp
+*.bak
+*.old
+
+# ========================
+# Docker
+# ========================
+**/.dockerignore
+**/Dockerfile
+docker-compose.yml
+.env
+
+# ========================
+# Test coverage
+# ========================
+coverage/
+*.lcov
+
+# ========================
+# Misc
+# ========================
+*.env.*
+*.local

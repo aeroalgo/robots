@@ -1,18 +1,25 @@
-use std::{
-    array, cmp::min, collections::HashMap, convert::TryInto, ops::Index,
-};
+use std::{array, cmp::min, collections::HashMap, convert::TryInto, ops::Index};
 use try_partialord::*;
 extern crate chrono;
-use crate::core::agt::indicators::common::{IndicatorData, IndicatorsMeta, OptimizationParam};
+use crate::core::agt::{
+    candles,
+    indicators::common::{IndicatorData, IndicatorsMeta, OptimizationParam},
+};
+use enum_iterator::{all, cardinality, first, last, next, previous, reverse_all, Sequence};
+
 #[derive(Clone, Debug)]
-pub struct MovingAverage {
+pub struct SimpleIndicators {
     data: Vec<f32>,
     result: Vec<f32>,
     meta: IndicatorsMeta,
 }
-
-pub enum MAIndicators {
+#[derive(Debug, PartialEq, Sequence, Clone)]
+pub enum SimpleIndicatorsEnum {
+    RSI,
     SMA,
+    MAXFOR,
+    MINFOR,
+    VTRAND,
     GEOMEAN,
     AMMA,
     SQWMA,
@@ -20,29 +27,172 @@ pub enum MAIndicators {
     AMA,
     ZLEMA,
     EMA,
+    TPBF,
+    WMA,
+    SUPERTRAND,
+    SIGNALLINE,
 }
 
-impl MovingAverage {
+impl SimpleIndicators {
     pub async fn new(data: Vec<f32>) -> Self {
-        return MovingAverage {
+        return SimpleIndicators {
             data: data,
             result: vec![],
             meta: IndicatorsMeta {
                 current_param: HashMap::new(),
                 multi_indicator: false,
-                optimization_param: HashMap::from([(
-                    "default".to_string(),
-                    OptimizationParam {
-                        start: 10,
-                        stop: 300,
-                        step: 10,
-                    },
-                )]),
+                optimization_param: HashMap::from([
+                    (
+                        "period".to_string(),
+                        OptimizationParam {
+                            start: 10.0,
+                            stop: 300.0,
+                            step: 10.0,
+                        },
+                    ),
+                    (
+                        "coeff_atr".to_string(),
+                        OptimizationParam {
+                            start: 1.0,
+                            stop: 8.0,
+                            step: 0.5,
+                        },
+                    ),
+                ]),
                 name: String::from(""),
                 name_param: vec![],
                 value_param: vec![],
             },
         };
+    }
+    pub async fn get_indicator(
+        &mut self,
+        name: SimpleIndicatorsEnum,
+        period: i16,
+        coeff_atr: f32,
+        meta: bool,
+    ) -> IndicatorData {
+        let result = match name {
+            SimpleIndicatorsEnum::RSI => self.get_rsi(period, meta).await,
+            SimpleIndicatorsEnum::SMA => self.get_sma(period, meta).await,
+            SimpleIndicatorsEnum::MAXFOR => self.get_maxfor(period, meta).await,
+            SimpleIndicatorsEnum::MINFOR => self.get_minfor(period, meta).await,
+            SimpleIndicatorsEnum::VTRAND => self.get_vtrand(period, meta).await,
+            SimpleIndicatorsEnum::GEOMEAN => self.get_geomean(period, meta).await,
+            SimpleIndicatorsEnum::AMMA => self.get_amma(period, meta).await,
+            SimpleIndicatorsEnum::SQWMA => self.get_sqwma(period, meta).await,
+            SimpleIndicatorsEnum::SINEWMA => self.get_sinewma(period, meta).await,
+            SimpleIndicatorsEnum::AMA => self.get_ama(period, meta).await,
+            SimpleIndicatorsEnum::ZLEMA => self.get_zlema(period, meta).await,
+            SimpleIndicatorsEnum::EMA => self.get_ema(period, meta).await,
+            SimpleIndicatorsEnum::TPBF => self.get_tpbf(period, meta).await,
+            SimpleIndicatorsEnum::WMA => self.get_wma(period, meta).await,
+            SimpleIndicatorsEnum::SUPERTRAND => self.get_super_trend(period, coeff_atr, meta).await,
+            SimpleIndicatorsEnum::SIGNALLINE => self.get_super_trend(period, coeff_atr, meta).await,
+        };
+        return result;
+    }
+    pub async fn get_super_trend(
+        &mut self,
+        period: i16,
+        coeff_atr: f32,
+        meta: bool,
+    ) -> IndicatorData {
+        self.meta.current_param = HashMap::from([
+            ("period".to_string(), period),
+            // ("coeff_atr".to_string(), coeff_atr),
+        ]);
+        self.meta.name = String::from("SUPERTREND");
+        self.meta.name_param = vec!["period".to_string()];
+        self.meta.value_param = vec![period];
+        if meta {
+            return IndicatorData {
+                data: Vec::new(),
+                meta: self.meta.clone(),
+            };
+        }
+        println!("{:?}", coeff_atr);
+        let result = self.calculate_super_trend(period, coeff_atr).await;
+        return IndicatorData {
+            data: result,
+            meta: self.meta.clone(),
+        };
+    }
+    async fn calculate_super_trend(&self, period: i16, coeff_atr: f32) -> Vec<f32> {
+        let list = self.calculate_atr(period).await;
+        let data = &self.data;
+        let count = *&self.data.len();
+        let mut array = vec![0.0; count];
+        for i in 2..count {
+            let num = data[i] + list[i] * coeff_atr;
+            let num2 = data[i] - list[i] * coeff_atr;
+            if self.data[i] >= array[i - 1] {
+                if self.data[i - 1] < array[i - 1] {
+                    array[i] = num2;
+                } else {
+                    array[i] = if num2 > array[i - 1] {
+                        num2
+                    } else {
+                        array[i - 1]
+                    }
+                }
+            } else if self.data[i] < array[i - 1] {
+                if self.data[i - 1] > array[i - 1] {
+                    array[i] = num;
+                } else {
+                    array[i] = if num < array[i - 1] {
+                        num
+                    } else {
+                        array[i - 1]
+                    }
+                }
+            }
+        }
+        return array;
+    }
+
+    pub async fn get_atr(&mut self, period: i16, meta: bool) -> IndicatorData {
+        self.meta.current_param = HashMap::from([("period".to_string(), period)]);
+        self.meta.name = String::from("ATR");
+        self.meta.name_param = vec!["period".to_string()];
+        self.meta.value_param = vec![period];
+        if meta {
+            return IndicatorData {
+                data: Vec::new(),
+                meta: self.meta.clone(),
+            };
+        }
+        let result = self.calculate_atr(period).await;
+        return IndicatorData {
+            data: result,
+            meta: self.meta.clone(),
+        };
+    }
+    async fn calculate_atr(&self, period: i16) -> Vec<f32> {
+        let period = period;
+        let count = *&self.data.len();
+        let mut array = vec![0.0; count];
+        for i in 0..count {
+            let list = self.true_range(period as usize, i).await;
+            let mut list2 = SimpleIndicators::new(list.clone()).await;
+            let list2 = list2.get_sma(period as i16, false).await;
+            array[i] = list2.data[list2.data.len() - 1]
+        }
+        // println!("{:?}", array);
+        return array;
+    }
+    async fn true_range(&self, period: usize, bar_num: usize) -> Vec<f32> {
+        let mut list = vec![0.0; period as usize];
+        let mut new_period = period;
+        if bar_num < period {
+            new_period = bar_num
+        }
+        for i in bar_num - new_period + 1..bar_num + 1 {
+            let num = (self.data[i - 1] - self.data[i]).abs();
+            list.push(num);
+        }
+
+        return list;
     }
     pub async fn get_sma(&mut self, period: i16, meta: bool) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
@@ -82,7 +232,7 @@ impl MovingAverage {
     }
     pub async fn get_maxfor(&mut self, period: i16, meta: bool) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
-        self.meta.name = String::from("MAX_FOR");
+        self.meta.name = String::from("MAXFOR");
         self.meta.name_param = vec!["period".to_string()];
         self.meta.value_param = vec![period];
         if meta {
@@ -119,7 +269,7 @@ impl MovingAverage {
 
     pub async fn get_minfor(&mut self, period: i16, meta: bool) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
-        self.meta.name = String::from("MIN_FOR");
+        self.meta.name = String::from("MINFOR");
         self.meta.name_param = vec!["period".to_string()];
         self.meta.value_param = vec![period];
         if meta {
@@ -537,6 +687,66 @@ impl MovingAverage {
             }
             result.push(num / num2);
             num = 0.0
+        }
+        self.result = result;
+    }
+    pub async fn get_rsi(&mut self, period: i16, meta: bool) -> IndicatorData {
+        self.meta.current_param = HashMap::from([("period".to_string(), period)]);
+        self.meta.name = String::from("RSI");
+        self.meta.name_param = vec!["period".to_string()];
+        self.meta.value_param = vec![period];
+        if meta {
+            return IndicatorData {
+                data: self.result.clone(),
+                meta: self.meta.clone(),
+            };
+        }
+        self.calculate_rsi(period).await;
+        // println!("{:?}", result);
+        return IndicatorData {
+            data: self.result.clone(),
+            meta: self.meta.clone(),
+        };
+    }
+    async fn calculate_rsi(&mut self, period: i16) {
+        let data = &self.data;
+        let count = data.len();
+        let mut result: Vec<f32> = vec![0.0; count];
+        if count > 0 {
+            let mut array2 = vec![0.0; count];
+            let mut array3 = vec![0.0; count];
+            array2[0] = 0.0;
+            array3[0] = 0.0;
+            for i in 1..count {
+                let mut num = 0.0;
+                let mut num2 = 0.0;
+                if self.data[i - 1] < self.data[i] {
+                    num = self.data[i] - self.data[i - 1]
+                } else if self.data[i - 1] > self.data[i] {
+                    num2 = self.data[i - 1] - self.data[i]
+                }
+                array2[i] = num;
+                array3[i] = num2;
+            }
+            let list = SimpleIndicators::new(array2)
+                .await
+                .get_ema(period, false)
+                .await
+                .data;
+            let list2 = SimpleIndicators::new(array3)
+                .await
+                .get_ema(period, false)
+                .await
+                .data;
+            for i in 0..count {
+                if list2[i] == 0.0 {
+                    result[i] = 100.0;
+                } else if list[i] / list2[i] == 1.0 {
+                    result[i] = 0.0;
+                } else {
+                    result[i] = 100.0 - 100.0 / (1.0 + list[i] / list2[i])
+                }
+            }
         }
         self.result = result;
     }
