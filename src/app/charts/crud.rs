@@ -55,12 +55,7 @@ impl TickerRepository {
     //     return result;
 
     // }
-    pub fn get_session(&self) -> Collection<TickerCandle> {
-        return self
-            .client
-            .database(&self.db_name)
-            .collection(&self.collection);
-    }
+
     pub async fn get_count(&self, filter: Document) -> u64 {
         let x = self
             .session

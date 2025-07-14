@@ -1,5 +1,5 @@
-use mongodb::{Client, Collection};
 use crate::core::settings::Settings;
+use mongodb::{Client, Collection};
 #[derive(Debug)]
 pub struct MongoDbClient {
     pub db_name: String,

@@ -8,11 +8,11 @@ pub struct OptimizationParam {
 }
 #[derive(Debug, Clone)]
 pub struct IndicatorsMeta {
-    pub current_param: HashMap<String, i16>,
+    pub current_param: HashMap<String, f32>,
     pub optimization_param: HashMap<String, OptimizationParam>,
     pub name: String,
     pub name_param: Vec<String>,
-    pub value_param: Vec<i16>,
+    pub value_param: Vec<f32>,
     pub multi_indicator: bool,
 }
 #[derive(Debug, Clone)]

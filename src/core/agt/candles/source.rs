@@ -38,7 +38,7 @@ pub enum MAIndicators {
 
 impl Source {
     pub async fn new(data: Vec<TickerCandle>) -> Self {
-        let timeframe = data[0].tf;
+        let _timeframe = data[0].tf; // Префикс _ для неиспользуемой переменной
         let mut open: Vec<f32> = Vec::new();
         let mut high: Vec<f32> = Vec::new();
         let mut low: Vec<f32> = Vec::new();

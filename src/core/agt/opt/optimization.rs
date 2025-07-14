@@ -25,13 +25,28 @@ impl MainOptimization {
     ) {
         let source_data = Source::new(source_data).await;
         let mut source_indicators = SourceIndicators::new(&source_data).await;
-        let source_indicatiors_combination: Vec<Vec<IndicatorsEnum>> =
-            SourceCombinationIndicators::execute(&quntity_source_indicators).await;
-        let z: Vec<Vec<SimpleIndicatorsEnum>> =
-            SimpleCombinationIndicators::execute(quntity_simple_indicators).await;
 
-        let source_conditions =
-            SourceCombinationCondition::execute(quntity_source_indicators).await;
+        // Конвертируем QuantityIndicators в usize
+        let source_quantity = match quntity_source_indicators {
+            QuantityIndicators::One => 1,
+            QuantityIndicators::Two => 2,
+            QuantityIndicators::Three => 3,
+            QuantityIndicators::Four => 4,
+        };
+
+        let simple_quantity = match quntity_simple_indicators {
+            QuantityIndicators::One => 1,
+            QuantityIndicators::Two => 2,
+            QuantityIndicators::Three => 3,
+            QuantityIndicators::Four => 4,
+        };
+
+        let source_indicatiors_combination: Vec<Vec<IndicatorsEnum>> =
+            SourceCombinationIndicators::execute(source_quantity);
+        let z: Vec<Vec<SimpleIndicatorsEnum>> =
+            SimpleCombinationIndicators::execute(simple_quantity);
+
+        let source_conditions = SourceCombinationCondition::execute(source_quantity);
         let mut x = 0;
         for indicators in source_indicatiors_combination.iter() {
             for condition in source_conditions.iter() {
