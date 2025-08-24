@@ -26,9 +26,7 @@ impl ConditionFactory {
                 let period = parameters.get("period").copied().unwrap_or(20.0);
                 Ok(Box::new(RisingTrendCondition::new(period)?))
             }
-            "GREATERPERCENT" => {
-                Ok(Box::new(GreaterPercentCondition::new()?))
-            }
+            "GREATERPERCENT" => Ok(Box::new(GreaterPercentCondition::new()?)),
 
             _ => Err(ConditionError::UnknownCondition(name.to_string())),
         }
@@ -77,7 +75,8 @@ impl ConditionFactory {
             }),
             "GREATERPERCENT" => Some(ConditionConfig {
                 name: "GreaterPercent".to_string(),
-                description: "Проверяет, что первый вектор выше второго на указанный процент".to_string(),
+                description: "Проверяет, что первый вектор выше второго на указанный процент"
+                    .to_string(),
                 condition_type: crate::condition::types::ConditionType::Percentage,
                 category: crate::condition::types::ConditionCategory::Filter,
                 min_data_points: 2,
@@ -153,7 +152,7 @@ impl ConditionRegistry {
         if let Ok(rising_trend) = RisingTrendCondition::new(20.0) {
             self.register_condition("RisingTrend", Box::new(rising_trend));
         }
-        
+
         if let Ok(greater_percent) = GreaterPercentCondition::new() {
             self.register_condition("GreaterPercent", Box::new(greater_percent));
         }
