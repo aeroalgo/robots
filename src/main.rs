@@ -8,6 +8,8 @@ use crate::core::agt::strategy::{
 use app::charts::model::TickerCandle;
 mod app;
 mod core;
+mod indicators;
+mod condition;
 
 #[tokio::main]
 async fn main() {
