@@ -334,8 +334,8 @@ impl IndicatorFactory {
                 Ok(Box::new(SuperTrend::new(period, coeff_atr)?))
             }
             "STOCHASTIC" => {
-                let period = parameters.get("period").copied().unwrap_or(14.0);
-                Ok(Box::new(Stochastic::new(period)?))
+                let k_period = parameters.get("k_period").copied().unwrap_or(14.0);
+                Ok(Box::new(Stochastic::new(k_period)?))
             }
             "WATR" => {
                 let period = parameters.get("period").copied().unwrap_or(14.0);
@@ -486,6 +486,7 @@ impl IndicatorFactory {
     /// Получить информацию об индикаторе
     pub fn get_indicator_info(name: &str) -> Option<IndicatorInfo> {
         match name.to_uppercase().as_str() {
+            // OHLC индикаторы
             "ATR" => Some(IndicatorInfo {
                 name: "ATR".to_string(),
                 category: IndicatorCategory::Volatility,
@@ -500,11 +501,56 @@ impl IndicatorFactory {
                 description: "SuperTrend - трендовый индикатор с полосами ATR".to_string(),
                 parameters: vec!["period".to_string(), "coeff_atr".to_string()],
             }),
+            "STOCHASTIC" => Some(IndicatorInfo {
+                name: "Stochastic".to_string(),
+                category: IndicatorCategory::Oscillator,
+                indicator_type: IndicatorType::OHLC,
+                description: "Stochastic Oscillator - стохастический осциллятор".to_string(),
+                parameters: vec!["k_period".to_string()],
+            }),
+            "WATR" => Some(IndicatorInfo {
+                name: "WATR".to_string(),
+                category: IndicatorCategory::Volatility,
+                indicator_type: IndicatorType::OHLC,
+                description: "Weighted Average True Range - взвешенный ATR".to_string(),
+                parameters: vec!["period".to_string()],
+            }),
+            "VTRAND" => Some(IndicatorInfo {
+                name: "VTRAND".to_string(),
+                category: IndicatorCategory::Volatility,
+                indicator_type: IndicatorType::OHLC,
+                description: "Volatility True Range Random - случайный волатильность".to_string(),
+                parameters: vec!["period".to_string()],
+            }),
+            "MAXFOR" => Some(IndicatorInfo {
+                name: "MAXFOR".to_string(),
+                category: IndicatorCategory::Trend,
+                indicator_type: IndicatorType::OHLC,
+                description: "Maximum For Period - максимальное значение за период".to_string(),
+                parameters: vec!["period".to_string()],
+            }),
+            "MINFOR" => Some(IndicatorInfo {
+                name: "MINFOR".to_string(),
+                category: IndicatorCategory::Trend,
+                indicator_type: IndicatorType::OHLC,
+                description: "Minimum For Period - минимальное значение за период".to_string(),
+                parameters: vec!["period".to_string()],
+            }),
+
+            // Простые индикаторы
             "SMA" => Some(IndicatorInfo {
                 name: "SMA".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::Simple,
                 description: "Simple Moving Average - простое скользящее среднее".to_string(),
+                parameters: vec!["period".to_string()],
+            }),
+            "EMA" => Some(IndicatorInfo {
+                name: "EMA".to_string(),
+                category: IndicatorCategory::Trend,
+                indicator_type: IndicatorType::Simple,
+                description: "Exponential Moving Average - экспоненциальное скользящее среднее"
+                    .to_string(),
                 parameters: vec!["period".to_string()],
             }),
             "RSI" => Some(IndicatorInfo {
@@ -514,6 +560,69 @@ impl IndicatorFactory {
                 description: "Relative Strength Index - индекс относительной силы".to_string(),
                 parameters: vec!["period".to_string()],
             }),
+            "WMA" => Some(IndicatorInfo {
+                name: "WMA".to_string(),
+                category: IndicatorCategory::Trend,
+                indicator_type: IndicatorType::Simple,
+                description: "Weighted Moving Average - взвешенное скользящее среднее".to_string(),
+                parameters: vec!["period".to_string()],
+            }),
+            "AMA" => Some(IndicatorInfo {
+                name: "AMA".to_string(),
+                category: IndicatorCategory::Trend,
+                indicator_type: IndicatorType::Simple,
+                description: "Adaptive Moving Average - адаптивное скользящее среднее".to_string(),
+                parameters: vec!["period".to_string()],
+            }),
+            "ZLEMA" => Some(IndicatorInfo {
+                name: "ZLEMA".to_string(),
+                category: IndicatorCategory::Trend,
+                indicator_type: IndicatorType::Simple,
+                description: "Zero Lag Exponential Moving Average - EMA с нулевым лагом"
+                    .to_string(),
+                parameters: vec!["period".to_string()],
+            }),
+            "GEOMEAN" => Some(IndicatorInfo {
+                name: "GEOMEAN".to_string(),
+                category: IndicatorCategory::Trend,
+                indicator_type: IndicatorType::Simple,
+                description: "Geometric Mean - геометрическое среднее".to_string(),
+                parameters: vec!["period".to_string()],
+            }),
+            "AMMA" => Some(IndicatorInfo {
+                name: "AMMA".to_string(),
+                category: IndicatorCategory::Trend,
+                indicator_type: IndicatorType::Simple,
+                description:
+                    "Adaptive Moving Average Modified - модифицированное адаптивное среднее"
+                        .to_string(),
+                parameters: vec!["period".to_string()],
+            }),
+            "SQWMA" => Some(IndicatorInfo {
+                name: "SQWMA".to_string(),
+                category: IndicatorCategory::Trend,
+                indicator_type: IndicatorType::Simple,
+                description: "Square Weighted Moving Average - квадратично взвешенное среднее"
+                    .to_string(),
+                parameters: vec!["period".to_string()],
+            }),
+            "SINEWMA" => Some(IndicatorInfo {
+                name: "SINEWMA".to_string(),
+                category: IndicatorCategory::Trend,
+                indicator_type: IndicatorType::Simple,
+                description: "Sine Weighted Moving Average - синусоидально взвешенное среднее"
+                    .to_string(),
+                parameters: vec!["period".to_string()],
+            }),
+            "TPBF" => Some(IndicatorInfo {
+                name: "TPBF".to_string(),
+                category: IndicatorCategory::Trend,
+                indicator_type: IndicatorType::Simple,
+                description: "Triple Exponential Moving Average - тройное экспоненциальное среднее"
+                    .to_string(),
+                parameters: vec!["period".to_string()],
+            }),
+
             // Bollinger Bands компоненты
             "BBMIDDLE" => Some(IndicatorInfo {
                 name: "BBMiddle".to_string(),
@@ -536,6 +645,7 @@ impl IndicatorFactory {
                 description: "Bollinger Bands Lower Line (SMA - deviation)".to_string(),
                 parameters: vec!["period".to_string(), "deviation".to_string()],
             }),
+
             // Keltner Channel компоненты
             "KCMIDDLE" => Some(IndicatorInfo {
                 name: "KCMiddle".to_string(),

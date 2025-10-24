@@ -1,5 +1,5 @@
 use crate::condition::types::{
-    ConditionConfig, ConditionError, ConditionResult, ConditionResult as ConditionResultData,
+    ConditionConfig, ConditionError, ConditionResult, ConditionResultData,
     SignalStrength, TrendDirection,
 };
 use async_trait::async_trait;

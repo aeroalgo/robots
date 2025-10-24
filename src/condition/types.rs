@@ -74,7 +74,7 @@ pub struct ConditionConfig {
 
 /// Результат условия
 #[derive(Debug, Clone)]
-pub struct ConditionResult {
+pub struct ConditionResultData {
     pub signals: Vec<bool>,
     pub strengths: Vec<SignalStrength>,
     pub directions: Vec<TrendDirection>,

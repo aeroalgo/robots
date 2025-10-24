@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::condition::{base::Condition, factory::ConditionFactory, types::OHLCData};
+    use crate::condition::{base::Condition, factory::ConditionFactory};
+    use crate::indicators::OHLCData;
     use std::collections::HashMap;
 
     fn create_test_data() -> Vec<f32> {

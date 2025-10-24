@@ -1,4 +1,5 @@
-use crate::condition::{base::Condition, factory::ConditionFactory, types::OHLCData};
+use crate::condition::{base::Condition, factory::ConditionFactory};
+use crate::indicators::OHLCData;
 use std::collections::HashMap;
 
 /// Пример использования условия "выше другого вектора"
@@ -186,11 +187,9 @@ pub async fn run_all_examples_with_integration() -> Result<(), String> {
     combined_conditions_example().await?;
     ohlc_conditions_example().await?;
 
-    println!("\n" + "=".repeat(50));
+    println!("\n{}", "=".repeat(50));
 
     // Примеры интеграции с индикаторами
-    use crate::condition::integration_example::run_integration_examples;
-    run_integration_examples().await?;
 
     println!("\n✅ Все примеры выполнены успешно!");
     Ok(())

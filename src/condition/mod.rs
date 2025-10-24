@@ -2,7 +2,6 @@ pub mod base;
 pub mod conditions;
 pub mod examples;
 pub mod factory;
-pub mod integration_example;
 pub mod types;
 
 #[cfg(test)]

@@ -1,0 +1,86 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- Основные настройки -->
+    <listen_host>0.0.0.0</listen_host>
+    <http_port>8123</http_port>
+    <tcp_port>9000</tcp_port>
+    
+    <!-- Производительность -->
+    <max_connections>1000</max_connections>
+    <max_concurrent_queries>100</max_concurrent_queries>
+    <max_thread_pool_size>10000</max_thread_pool_size>
+    
+    <!-- Память -->
+    <max_memory_usage>0</max_memory_usage>
+    <max_bytes_before_external_group_by>20000000000</max_bytes_before_external_group_by>
+    <max_bytes_before_external_sort>20000000000</max_bytes_before_external_sort>
+    
+    <!-- Логирование -->
+    <logger>
+        <level>information</level>
+        <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+        <size>1000M</size>
+        <count>10</count>
+    </logger>
+    
+    <!-- Пользователи -->
+    <users_config>users.xml</users_config>
+    
+    <!-- Профили -->
+    <profiles>
+        <default>
+            <max_memory_usage>10000000000</max_memory_usage>
+            <use_uncompressed_cache>0</use_uncompressed_cache>
+            <load_balancing>random</load_balancing>
+        </default>
+        
+        <trading_profile>
+            <max_memory_usage>20000000000</max_memory_usage>
+            <max_execution_time>300</max_execution_time>
+            <max_rows_to_read>1000000000</max_rows_to_read>
+            <max_bytes_to_read>100000000000</max_bytes_to_read>
+        </trading_profile>
+    </profiles>
+    
+    <!-- Квоты -->
+    <quotas>
+        <default>
+            <interval>
+                <duration>3600</duration>
+                <queries>0</queries>
+                <errors>0</errors>
+                <result_rows>0</result_rows>
+                <read_rows>0</read_rows>
+                <execution_time>0</execution_time>
+            </interval>
+        </default>
+    </quotas>
+    
+    <!-- Сжатие -->
+    <compression>
+        <case>
+            <min_part_size>10000000000</min_part_size>
+            <min_part_size_ratio>0.01</min_part_size_ratio>
+            <method>lz4</method>
+        </case>
+    </compression>
+    
+    <!-- Дисковая политика -->
+    <storage_configuration>
+        <disks>
+            <default>
+                <path>/var/lib/clickhouse/</path>
+            </default>
+        </disks>
+        <policies>
+            <default>
+                <volumes>
+                    <default>
+                        <disk>default</disk>
+                    </default>
+                </volumes>
+            </default>
+        </policies>
+    </storage_configuration>
+</clickhouse>

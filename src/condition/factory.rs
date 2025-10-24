@@ -17,16 +17,23 @@ impl ConditionFactory {
         match name.to_uppercase().as_str() {
             // Условия сравнения
             "ABOVE" => Ok(Box::new(AboveCondition::new()?)),
+            "BELOW" => Ok(Box::new(BelowCondition::new()?)),
 
             // Условия пересечения
             "CROSSESABOVE" => Ok(Box::new(CrossesAboveCondition::new()?)),
+            "CROSSESBELOW" => Ok(Box::new(CrossesBelowCondition::new()?)),
 
             // Трендовые условия
             "RISINGTREND" => {
                 let period = parameters.get("period").copied().unwrap_or(20.0);
                 Ok(Box::new(RisingTrendCondition::new(period)?))
             }
+            "FALLINGTREND" => {
+                let period = parameters.get("period").copied().unwrap_or(20.0);
+                Ok(Box::new(FallingTrendCondition::new(period)?))
+            }
             "GREATERPERCENT" => Ok(Box::new(GreaterPercentCondition::new()?)),
+            "LOWERPERCENT" => Ok(Box::new(LowerPercentCondition::new()?)),
 
             _ => Err(ConditionError::UnknownCondition(name.to_string())),
         }
@@ -37,12 +44,16 @@ impl ConditionFactory {
         vec![
             // Условия сравнения
             "Above",
+            "Below",
             // Условия пересечения
             "CrossesAbove",
+            "CrossesBelow",
             // Трендовые условия
             "RisingTrend",
+            "FallingTrend",
             // Процентные условия
             "GreaterPercent",
+            "LowerPercent",
         ]
     }
 
@@ -57,9 +68,25 @@ impl ConditionFactory {
                 min_data_points: 2,
                 is_reversible: true,
             }),
+            "BELOW" => Some(ConditionConfig {
+                name: "Below".to_string(),
+                description: "Проверяет, что первый вектор ниже второго".to_string(),
+                condition_type: crate::condition::types::ConditionType::Comparison,
+                category: crate::condition::types::ConditionCategory::Filter,
+                min_data_points: 2,
+                is_reversible: true,
+            }),
             "CROSSESABOVE" => Some(ConditionConfig {
                 name: "CrossesAbove".to_string(),
                 description: "Проверяет пересечение линии выше".to_string(),
+                condition_type: crate::condition::types::ConditionType::Crossover,
+                category: crate::condition::types::ConditionCategory::Entry,
+                min_data_points: 2,
+                is_reversible: false,
+            }),
+            "CROSSESBELOW" => Some(ConditionConfig {
+                name: "CrossesBelow".to_string(),
+                description: "Проверяет пересечение линии ниже".to_string(),
                 condition_type: crate::condition::types::ConditionType::Crossover,
                 category: crate::condition::types::ConditionCategory::Entry,
                 min_data_points: 2,
@@ -73,9 +100,26 @@ impl ConditionFactory {
                 min_data_points: 20,
                 is_reversible: true,
             }),
+            "FALLINGTREND" => Some(ConditionConfig {
+                name: "FallingTrend".to_string(),
+                description: "Проверяет падающий тренд".to_string(),
+                condition_type: crate::condition::types::ConditionType::Trend,
+                category: crate::condition::types::ConditionCategory::Filter,
+                min_data_points: 20,
+                is_reversible: true,
+            }),
             "GREATERPERCENT" => Some(ConditionConfig {
                 name: "GreaterPercent".to_string(),
                 description: "Проверяет, что первый вектор выше второго на указанный процент"
+                    .to_string(),
+                condition_type: crate::condition::types::ConditionType::Percentage,
+                category: crate::condition::types::ConditionCategory::Filter,
+                min_data_points: 2,
+                is_reversible: true,
+            }),
+            "LOWERPERCENT" => Some(ConditionConfig {
+                name: "LowerPercent".to_string(),
+                description: "Проверяет, что первый вектор ниже второго на указанный процент"
                     .to_string(),
                 condition_type: crate::condition::types::ConditionType::Percentage,
                 category: crate::condition::types::ConditionCategory::Filter,
@@ -101,9 +145,13 @@ impl ConditionFactory {
         // Создаем условие с параметрами по умолчанию
         match config.name.to_uppercase().as_str() {
             "ABOVE" => Ok(Box::new(AboveCondition::new()?)),
+            "BELOW" => Ok(Box::new(BelowCondition::new()?)),
             "CROSSESABOVE" => Ok(Box::new(CrossesAboveCondition::new()?)),
+            "CROSSESBELOW" => Ok(Box::new(CrossesBelowCondition::new()?)),
             "RISINGTREND" => Ok(Box::new(RisingTrendCondition::new(20.0)?)),
+            "FALLINGTREND" => Ok(Box::new(FallingTrendCondition::new(20.0)?)),
             "GREATERPERCENT" => Ok(Box::new(GreaterPercentCondition::new()?)),
+            "LOWERPERCENT" => Ok(Box::new(LowerPercentCondition::new()?)),
             _ => Err(ConditionError::UnknownCondition(config.name.clone())),
         }
     }
@@ -145,16 +193,32 @@ impl ConditionRegistry {
             self.register_condition("Above", Box::new(above));
         }
 
+        if let Ok(below) = BelowCondition::new() {
+            self.register_condition("Below", Box::new(below));
+        }
+
         if let Ok(crosses_above) = CrossesAboveCondition::new() {
             self.register_condition("CrossesAbove", Box::new(crosses_above));
+        }
+
+        if let Ok(crosses_below) = CrossesBelowCondition::new() {
+            self.register_condition("CrossesBelow", Box::new(crosses_below));
         }
 
         if let Ok(rising_trend) = RisingTrendCondition::new(20.0) {
             self.register_condition("RisingTrend", Box::new(rising_trend));
         }
 
+        if let Ok(falling_trend) = FallingTrendCondition::new(20.0) {
+            self.register_condition("FallingTrend", Box::new(falling_trend));
+        }
+
         if let Ok(greater_percent) = GreaterPercentCondition::new() {
             self.register_condition("GreaterPercent", Box::new(greater_percent));
+        }
+
+        if let Ok(lower_percent) = LowerPercentCondition::new() {
+            self.register_condition("LowerPercent", Box::new(lower_percent));
         }
     }
 }

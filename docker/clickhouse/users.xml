@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <users>
+        <!-- Пользователь по умолчанию -->
+        <default>
+            <password></password>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>default</profile>
+            <quota>default</quota>
+        </default>
+        
+        <!-- Торговый пользователь -->
+        <trading_user>
+            <password>trading_password_2024</password>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>trading_profile</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </trading_user>
+        
+        <!-- Пользователь для мониторинга -->
+        <monitoring>
+            <password>monitoring_password_2024</password>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>default</profile>
+            <quota>default</quota>
+        </monitoring>
+    </users>
+</clickhouse>
+
