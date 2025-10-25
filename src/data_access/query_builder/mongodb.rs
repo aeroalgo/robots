@@ -327,7 +327,7 @@ impl MongoDBQueryBuilder {
     pub fn group(mut self, group_by: &str, aggregations: &[(&str, &str)]) -> Self {
         let mut group_doc = doc! { "_id": format!("${}", group_by) };
         for (field, operation) in aggregations {
-            group_doc.insert(*field, doc! { operation: format!("${}", field) });
+            group_doc.insert(*field, doc! { (*operation): format!("${}", *field) });
         }
         self.aggregation_pipeline.push(doc! { "$group": group_doc });
         self

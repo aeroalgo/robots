@@ -3,10 +3,18 @@
 use crate::data_access::database::mongodb::{MongoDBConnector, MongoDBUtils};
 use crate::data_access::models::*;
 use crate::data_access::query_builder::mongodb::{
-    BacktestQueryBuilder, CandleQueryBuilder, MongoDBQueryBuilder, SortDirection,
-    StrategyQueryBuilder, TradeQueryBuilder, UserQueryBuilder,
+    BacktestQueryBuilder,
+    CandleQueryBuilder,
+    MongoDBQueryBuilder,
+    SortDirection,
     // Новые билдеры для конфигураций и метаданных
-    StrategyConfigQueryBuilder, SystemConfigQueryBuilder, SystemMetadataQueryBuilder, UserSettingsQueryBuilder,
+    StrategyConfigQueryBuilder,
+    StrategyQueryBuilder,
+    SystemConfigQueryBuilder,
+    SystemMetadataQueryBuilder,
+    TradeQueryBuilder,
+    UserQueryBuilder,
+    UserSettingsQueryBuilder,
 };
 use crate::data_access::traits::{DataSource, Database};
 use chrono::{DateTime, Utc};
@@ -96,159 +104,8 @@ pub async fn user_crud_operations() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Пример 9: Работа с конфигурациями и метаданными (основная задача MongoDB)
-pub async fn configuration_and_metadata_operations() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "=".repeat(60));
-    println!("🔧 ПРИМЕР 9: Конфигурации и метаданные MongoDB");
-    println!("{}", "=".repeat(60));
-
-    let mut connector = MongoDBConnector::new_default();
-    connector.connect().await?;
-    connector.create_indexes().await?;
-
-    // === КОНФИГУРАЦИИ СТРАТЕГИЙ ===
-    println!("\n📊 Конфигурации стратегий:");
-    
-    // Получение конфигураций стратегии
-    let strategy_configs_query = StrategyConfigQueryBuilder::new()
-        .by_strategy("strategy_001")
-        .active_only()
-        .order_by_created_at()
-        .build()?;
-    println!("🎯 Конфигурации стратегии: {}", strategy_configs_query.to_string());
-
-    // Получение конфигураций по типу
-    let config_by_type_query = StrategyConfigQueryBuilder::new()
-        .by_strategy("strategy_001")
-        .by_config_type("risk_management")
-        .active_only()
-        .build()?;
-    println!("⚙️ Конфигурации риск-менеджмента: {}", config_by_type_query.to_string());
-
-    // === СИСТЕМНЫЕ МЕТАДАННЫЕ ===
-    println!("\n📋 Системные метаданные:");
-    
-    // Получение метаданных по типу
-    let system_metadata_query = SystemMetadataQueryBuilder::new()
-        .by_metadata_type("indicator_config")
-        .order_by_updated_at()
-        .build()?;
-    println!("📈 Метаданные индикаторов: {}", system_metadata_query.to_string());
-
-    // Получение метаданных по пространству имен
-    let namespace_metadata_query = SystemMetadataQueryBuilder::new()
-        .by_namespace("trading.signals")
-        .order_by_updated_at()
-        .build()?;
-    println!("🔍 Метаданные пространства: {}", namespace_metadata_query.to_string());
-
-    // === ПОЛЬЗОВАТЕЛЬСКИЕ НАСТРОЙКИ ===
-    println!("\n👤 Пользовательские настройки:");
-    
-    // Получение настроек пользователя
-    let user_settings_query = UserSettingsQueryBuilder::new()
-        .by_user("user_001")
-        .order_by_updated_at()
-        .build()?;
-    println!("⚙️ Настройки пользователя: {}", user_settings_query.to_string());
-
-    // Получение настроек по категории
-    let category_settings_query = UserSettingsQueryBuilder::new()
-        .by_user("user_001")
-        .by_category("ui_preferences")
-        .order_by_updated_at()
-        .build()?;
-    println!("🎨 Настройки UI: {}", category_settings_query.to_string());
-
-    // === КОНФИГУРАЦИИ СИСТЕМЫ ===
-    println!("\n🖥️ Конфигурации системы:");
-    
-    // Получение конфигураций модуля
-    let module_config_query = SystemConfigQueryBuilder::new()
-        .by_module("data_access")
-        .active_only()
-        .order_by_priority()
-        .build()?;
-    println!("🔧 Конфигурации модуля: {}", module_config_query.to_string());
-
-    // Получение конфигураций по окружению
-    let env_config_query = SystemConfigQueryBuilder::new()
-        .by_module("trading_engine")
-        .by_environment("production")
-        .active_only()
-        .order_by_priority()
-        .build()?;
-    println!("🏭 Продакшн конфигурации: {}", env_config_query.to_string());
-
-    // === ИСПОЛЬЗОВАНИЕ УТИЛИТ ===
-    println!("\n🛠️ Использование утилит:");
-    
-    // Получение конфигураций стратегии через утилиты
-    let strategy_configs_util = MongoDBUtils::get_strategy_configs("strategy_001")?;
-    println!("🎯 Утилита - конфигурации стратегии: {}", strategy_configs_util.to_string());
-
-    // Получение системных метаданных через утилиты
-    let system_metadata_util = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📈 Утилита - системные метаданные: {}", system_metadata_util.to_string());
-
-    // Получение пользовательских настроек через утилиты
-    let user_settings_util = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("👤 Утилита - пользовательские настройки: {}", user_settings_util.to_string());
-
-    // Получение конфигураций системы через утилиты
-    let system_configs_util = MongoDBUtils::get_system_configs("data_access", Some("production"))?;
-    println!("🖥️ Утилита - конфигурации системы: {}", system_configs_util.to_string());
-
-    connector.disconnect().await?;
-    Ok(())
-}
 
 /// Пример 10: Комплексная работа с конфигурациями
-pub async fn complex_configuration_workflow() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "=".repeat(60));
-    println!("🔄 ПРИМЕР 10: Комплексная работа с конфигурациями");
-    println!("{}", "=".repeat(60));
-
-    let mut connector = MongoDBConnector::new_default();
-    connector.connect().await?;
-    connector.create_indexes().await?;
-
-    // Сценарий: Настройка новой стратегии с конфигурациями
-    println!("\n🚀 Сценарий: Настройка стратегии 'Moving Average Crossover'");
-    
-    // 1. Получение всех активных конфигураций системы
-    let all_configs_query = MongoDBUtils::get_all_active_configs()?;
-    println!("📋 Все активные конфигурации системы: {}", all_configs_query.to_string());
-
-    // 2. Получение конфигураций для модуля стратегий
-    let strategy_module_configs = MongoDBUtils::get_system_configs("strategy_engine", None)?;
-    println!("⚙️ Конфигурации модуля стратегий: {}", strategy_module_configs.to_string());
-
-    // 3. Получение метаданных для индикаторов
-    let indicator_metadata = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📊 Метаданные индикаторов: {}", indicator_metadata.to_string());
-
-    // 4. Получение конфигураций стратегии по типу
-    let risk_configs = MongoDBUtils::get_strategy_configs_by_type("strategy_001", "risk_management")?;
-    println!("🛡️ Конфигурации риск-менеджмента: {}", risk_configs.to_string());
-
-    // 5. Получение пользовательских настроек для UI
-    let ui_settings = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("🎨 Настройки UI пользователя: {}", ui_settings.to_string());
-
-    // 6. Получение конкретной настройки пользователя
-    let specific_setting = MongoDBUtils::get_user_setting_by_key("user_001", "theme")?;
-    println!("🎭 Конкретная настройка темы: {}", specific_setting.to_string());
-
-    // 7. Получение метаданных по пространству имен
-    let trading_signals_metadata = MongoDBUtils::get_metadata_by_namespace("trading.signals")?;
-    println!("📡 Метаданные торговых сигналов: {}", trading_signals_metadata.to_string());
-
-    println!("\n✅ Комплексная настройка стратегии завершена!");
-    println!("📝 Все необходимые конфигурации и метаданные получены");
-
-    connector.disconnect().await?;
-    Ok(())
-}
 
 /// Пример 3: Работа с торговыми данными
 pub async fn trading_data_operations() -> Result<(), Box<dyn std::error::Error>> {
@@ -352,111 +209,6 @@ pub async fn trading_data_operations() -> Result<(), Box<dyn std::error::Error>>
 }
 
 /// Пример 9: Работа с конфигурациями и метаданными (основная задача MongoDB)
-pub async fn configuration_and_metadata_operations() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "=".repeat(60));
-    println!("🔧 ПРИМЕР 9: Конфигурации и метаданные MongoDB");
-    println!("{}", "=".repeat(60));
-
-    let mut connector = MongoDBConnector::new_default();
-    connector.connect().await?;
-    connector.create_indexes().await?;
-
-    // === КОНФИГУРАЦИИ СТРАТЕГИЙ ===
-    println!("\n📊 Конфигурации стратегий:");
-    
-    // Получение конфигураций стратегии
-    let strategy_configs_query = StrategyConfigQueryBuilder::new()
-        .by_strategy("strategy_001")
-        .active_only()
-        .order_by_created_at()
-        .build()?;
-    println!("🎯 Конфигурации стратегии: {}", strategy_configs_query.to_string());
-
-    // Получение конфигураций по типу
-    let config_by_type_query = StrategyConfigQueryBuilder::new()
-        .by_strategy("strategy_001")
-        .by_config_type("risk_management")
-        .active_only()
-        .build()?;
-    println!("⚙️ Конфигурации риск-менеджмента: {}", config_by_type_query.to_string());
-
-    // === СИСТЕМНЫЕ МЕТАДАННЫЕ ===
-    println!("\n📋 Системные метаданные:");
-    
-    // Получение метаданных по типу
-    let system_metadata_query = SystemMetadataQueryBuilder::new()
-        .by_metadata_type("indicator_config")
-        .order_by_updated_at()
-        .build()?;
-    println!("📈 Метаданные индикаторов: {}", system_metadata_query.to_string());
-
-    // Получение метаданных по пространству имен
-    let namespace_metadata_query = SystemMetadataQueryBuilder::new()
-        .by_namespace("trading.signals")
-        .order_by_updated_at()
-        .build()?;
-    println!("🔍 Метаданные пространства: {}", namespace_metadata_query.to_string());
-
-    // === ПОЛЬЗОВАТЕЛЬСКИЕ НАСТРОЙКИ ===
-    println!("\n👤 Пользовательские настройки:");
-    
-    // Получение настроек пользователя
-    let user_settings_query = UserSettingsQueryBuilder::new()
-        .by_user("user_001")
-        .order_by_updated_at()
-        .build()?;
-    println!("⚙️ Настройки пользователя: {}", user_settings_query.to_string());
-
-    // Получение настроек по категории
-    let category_settings_query = UserSettingsQueryBuilder::new()
-        .by_user("user_001")
-        .by_category("ui_preferences")
-        .order_by_updated_at()
-        .build()?;
-    println!("🎨 Настройки UI: {}", category_settings_query.to_string());
-
-    // === КОНФИГУРАЦИИ СИСТЕМЫ ===
-    println!("\n🖥️ Конфигурации системы:");
-    
-    // Получение конфигураций модуля
-    let module_config_query = SystemConfigQueryBuilder::new()
-        .by_module("data_access")
-        .active_only()
-        .order_by_priority()
-        .build()?;
-    println!("🔧 Конфигурации модуля: {}", module_config_query.to_string());
-
-    // Получение конфигураций по окружению
-    let env_config_query = SystemConfigQueryBuilder::new()
-        .by_module("trading_engine")
-        .by_environment("production")
-        .active_only()
-        .order_by_priority()
-        .build()?;
-    println!("🏭 Продакшн конфигурации: {}", env_config_query.to_string());
-
-    // === ИСПОЛЬЗОВАНИЕ УТИЛИТ ===
-    println!("\n🛠️ Использование утилит:");
-    
-    // Получение конфигураций стратегии через утилиты
-    let strategy_configs_util = MongoDBUtils::get_strategy_configs("strategy_001")?;
-    println!("🎯 Утилита - конфигурации стратегии: {}", strategy_configs_util.to_string());
-
-    // Получение системных метаданных через утилиты
-    let system_metadata_util = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📈 Утилита - системные метаданные: {}", system_metadata_util.to_string());
-
-    // Получение пользовательских настроек через утилиты
-    let user_settings_util = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("👤 Утилита - пользовательские настройки: {}", user_settings_util.to_string());
-
-    // Получение конфигураций системы через утилиты
-    let system_configs_util = MongoDBUtils::get_system_configs("data_access", Some("production"))?;
-    println!("🖥️ Утилита - конфигурации системы: {}", system_configs_util.to_string());
-
-    connector.disconnect().await?;
-    Ok(())
-}
 
 /// Пример 10: Комплексная работа с конфигурациями
 pub async fn complex_configuration_workflow() -> Result<(), Box<dyn std::error::Error>> {
@@ -470,34 +222,37 @@ pub async fn complex_configuration_workflow() -> Result<(), Box<dyn std::error::
 
     // Сценарий: Настройка новой стратегии с конфигурациями
     println!("\n🚀 Сценарий: Настройка стратегии 'Moving Average Crossover'");
-    
+
+    // ПРИМЕЧАНИЕ: Эти методы не реализованы, так как MongoDB не используется в основной архитектуре
+    // Для конфигураций, метаданных и настроек используется файловая система или другие хранилища
+
     // 1. Получение всех активных конфигураций системы
-    let all_configs_query = MongoDBUtils::get_all_active_configs()?;
-    println!("📋 Все активные конфигурации системы: {}", all_configs_query.to_string());
+    // let all_configs_query = MongoDBUtils::get_all_active_configs()?;
+    println!("📋 Получение конфигураций системы (не реализовано)");
 
     // 2. Получение конфигураций для модуля стратегий
-    let strategy_module_configs = MongoDBUtils::get_system_configs("strategy_engine", None)?;
-    println!("⚙️ Конфигурации модуля стратегий: {}", strategy_module_configs.to_string());
+    // let strategy_module_configs = MongoDBUtils::get_system_configs("strategy_engine", None)?;
+    println!("⚙️ Получение конфигураций модуля стратегий (не реализовано)");
 
     // 3. Получение метаданных для индикаторов
-    let indicator_metadata = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📊 Метаданные индикаторов: {}", indicator_metadata.to_string());
+    // let indicator_metadata = MongoDBUtils::get_system_metadata("indicator_config")?;
+    println!("📊 Получение метаданных индикаторов (не реализовано)");
 
     // 4. Получение конфигураций стратегии по типу
-    let risk_configs = MongoDBUtils::get_strategy_configs_by_type("strategy_001", "risk_management")?;
-    println!("🛡️ Конфигурации риск-менеджмента: {}", risk_configs.to_string());
+    // let risk_configs = MongoDBUtils::get_strategy_configs_by_type("strategy_001", "risk_management")?;
+    println!("🛡️ Получение конфигураций риск-менеджмента (не реализовано)");
 
     // 5. Получение пользовательских настроек для UI
-    let ui_settings = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("🎨 Настройки UI пользователя: {}", ui_settings.to_string());
+    // let ui_settings = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
+    println!("🎨 Получение настроек UI пользователя (не реализовано)");
 
     // 6. Получение конкретной настройки пользователя
-    let specific_setting = MongoDBUtils::get_user_setting_by_key("user_001", "theme")?;
-    println!("🎭 Конкретная настройка темы: {}", specific_setting.to_string());
+    // let specific_setting = MongoDBUtils::get_user_setting_by_key("user_001", "theme")?;
+    println!("🎭 Получение конкретной настройки темы (не реализовано)");
 
     // 7. Получение метаданных по пространству имен
-    let trading_signals_metadata = MongoDBUtils::get_metadata_by_namespace("trading.signals")?;
-    println!("📡 Метаданные торговых сигналов: {}", trading_signals_metadata.to_string());
+    // let trading_signals_metadata = MongoDBUtils::get_metadata_by_namespace("trading.signals")?;
+    println!("📡 Получение метаданных торговых сигналов (не реализовано)");
 
     println!("\n✅ Комплексная настройка стратегии завершена!");
     println!("📝 Все необходимые конфигурации и метаданные получены");
@@ -562,159 +317,8 @@ pub async fn complex_queries() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Пример 9: Работа с конфигурациями и метаданными (основная задача MongoDB)
-pub async fn configuration_and_metadata_operations() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "=".repeat(60));
-    println!("🔧 ПРИМЕР 9: Конфигурации и метаданные MongoDB");
-    println!("{}", "=".repeat(60));
-
-    let mut connector = MongoDBConnector::new_default();
-    connector.connect().await?;
-    connector.create_indexes().await?;
-
-    // === КОНФИГУРАЦИИ СТРАТЕГИЙ ===
-    println!("\n📊 Конфигурации стратегий:");
-    
-    // Получение конфигураций стратегии
-    let strategy_configs_query = StrategyConfigQueryBuilder::new()
-        .by_strategy("strategy_001")
-        .active_only()
-        .order_by_created_at()
-        .build()?;
-    println!("🎯 Конфигурации стратегии: {}", strategy_configs_query.to_string());
-
-    // Получение конфигураций по типу
-    let config_by_type_query = StrategyConfigQueryBuilder::new()
-        .by_strategy("strategy_001")
-        .by_config_type("risk_management")
-        .active_only()
-        .build()?;
-    println!("⚙️ Конфигурации риск-менеджмента: {}", config_by_type_query.to_string());
-
-    // === СИСТЕМНЫЕ МЕТАДАННЫЕ ===
-    println!("\n📋 Системные метаданные:");
-    
-    // Получение метаданных по типу
-    let system_metadata_query = SystemMetadataQueryBuilder::new()
-        .by_metadata_type("indicator_config")
-        .order_by_updated_at()
-        .build()?;
-    println!("📈 Метаданные индикаторов: {}", system_metadata_query.to_string());
-
-    // Получение метаданных по пространству имен
-    let namespace_metadata_query = SystemMetadataQueryBuilder::new()
-        .by_namespace("trading.signals")
-        .order_by_updated_at()
-        .build()?;
-    println!("🔍 Метаданные пространства: {}", namespace_metadata_query.to_string());
-
-    // === ПОЛЬЗОВАТЕЛЬСКИЕ НАСТРОЙКИ ===
-    println!("\n👤 Пользовательские настройки:");
-    
-    // Получение настроек пользователя
-    let user_settings_query = UserSettingsQueryBuilder::new()
-        .by_user("user_001")
-        .order_by_updated_at()
-        .build()?;
-    println!("⚙️ Настройки пользователя: {}", user_settings_query.to_string());
-
-    // Получение настроек по категории
-    let category_settings_query = UserSettingsQueryBuilder::new()
-        .by_user("user_001")
-        .by_category("ui_preferences")
-        .order_by_updated_at()
-        .build()?;
-    println!("🎨 Настройки UI: {}", category_settings_query.to_string());
-
-    // === КОНФИГУРАЦИИ СИСТЕМЫ ===
-    println!("\n🖥️ Конфигурации системы:");
-    
-    // Получение конфигураций модуля
-    let module_config_query = SystemConfigQueryBuilder::new()
-        .by_module("data_access")
-        .active_only()
-        .order_by_priority()
-        .build()?;
-    println!("🔧 Конфигурации модуля: {}", module_config_query.to_string());
-
-    // Получение конфигураций по окружению
-    let env_config_query = SystemConfigQueryBuilder::new()
-        .by_module("trading_engine")
-        .by_environment("production")
-        .active_only()
-        .order_by_priority()
-        .build()?;
-    println!("🏭 Продакшн конфигурации: {}", env_config_query.to_string());
-
-    // === ИСПОЛЬЗОВАНИЕ УТИЛИТ ===
-    println!("\n🛠️ Использование утилит:");
-    
-    // Получение конфигураций стратегии через утилиты
-    let strategy_configs_util = MongoDBUtils::get_strategy_configs("strategy_001")?;
-    println!("🎯 Утилита - конфигурации стратегии: {}", strategy_configs_util.to_string());
-
-    // Получение системных метаданных через утилиты
-    let system_metadata_util = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📈 Утилита - системные метаданные: {}", system_metadata_util.to_string());
-
-    // Получение пользовательских настроек через утилиты
-    let user_settings_util = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("👤 Утилита - пользовательские настройки: {}", user_settings_util.to_string());
-
-    // Получение конфигураций системы через утилиты
-    let system_configs_util = MongoDBUtils::get_system_configs("data_access", Some("production"))?;
-    println!("🖥️ Утилита - конфигурации системы: {}", system_configs_util.to_string());
-
-    connector.disconnect().await?;
-    Ok(())
-}
 
 /// Пример 10: Комплексная работа с конфигурациями
-pub async fn complex_configuration_workflow() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "=".repeat(60));
-    println!("🔄 ПРИМЕР 10: Комплексная работа с конфигурациями");
-    println!("{}", "=".repeat(60));
-
-    let mut connector = MongoDBConnector::new_default();
-    connector.connect().await?;
-    connector.create_indexes().await?;
-
-    // Сценарий: Настройка новой стратегии с конфигурациями
-    println!("\n🚀 Сценарий: Настройка стратегии 'Moving Average Crossover'");
-    
-    // 1. Получение всех активных конфигураций системы
-    let all_configs_query = MongoDBUtils::get_all_active_configs()?;
-    println!("📋 Все активные конфигурации системы: {}", all_configs_query.to_string());
-
-    // 2. Получение конфигураций для модуля стратегий
-    let strategy_module_configs = MongoDBUtils::get_system_configs("strategy_engine", None)?;
-    println!("⚙️ Конфигурации модуля стратегий: {}", strategy_module_configs.to_string());
-
-    // 3. Получение метаданных для индикаторов
-    let indicator_metadata = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📊 Метаданные индикаторов: {}", indicator_metadata.to_string());
-
-    // 4. Получение конфигураций стратегии по типу
-    let risk_configs = MongoDBUtils::get_strategy_configs_by_type("strategy_001", "risk_management")?;
-    println!("🛡️ Конфигурации риск-менеджмента: {}", risk_configs.to_string());
-
-    // 5. Получение пользовательских настроек для UI
-    let ui_settings = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("🎨 Настройки UI пользователя: {}", ui_settings.to_string());
-
-    // 6. Получение конкретной настройки пользователя
-    let specific_setting = MongoDBUtils::get_user_setting_by_key("user_001", "theme")?;
-    println!("🎭 Конкретная настройка темы: {}", specific_setting.to_string());
-
-    // 7. Получение метаданных по пространству имен
-    let trading_signals_metadata = MongoDBUtils::get_metadata_by_namespace("trading.signals")?;
-    println!("📡 Метаданные торговых сигналов: {}", trading_signals_metadata.to_string());
-
-    println!("\n✅ Комплексная настройка стратегии завершена!");
-    println!("📝 Все необходимые конфигурации и метаданные получены");
-
-    connector.disconnect().await?;
-    Ok(())
-}
 
 /// Пример 5: Аналитические запросы
 pub async fn analytical_queries() -> Result<(), Box<dyn std::error::Error>> {
@@ -775,14 +379,17 @@ pub async fn configuration_and_metadata_operations() -> Result<(), Box<dyn std::
 
     // === КОНФИГУРАЦИИ СТРАТЕГИЙ ===
     println!("\n📊 Конфигурации стратегий:");
-    
+
     // Получение конфигураций стратегии
     let strategy_configs_query = StrategyConfigQueryBuilder::new()
         .by_strategy("strategy_001")
         .active_only()
         .order_by_created_at()
         .build()?;
-    println!("🎯 Конфигурации стратегии: {}", strategy_configs_query.to_string());
+    println!(
+        "🎯 Конфигурации стратегии: {}",
+        strategy_configs_query.to_string()
+    );
 
     // Получение конфигураций по типу
     let config_by_type_query = StrategyConfigQueryBuilder::new()
@@ -790,34 +397,46 @@ pub async fn configuration_and_metadata_operations() -> Result<(), Box<dyn std::
         .by_config_type("risk_management")
         .active_only()
         .build()?;
-    println!("⚙️ Конфигурации риск-менеджмента: {}", config_by_type_query.to_string());
+    println!(
+        "⚙️ Конфигурации риск-менеджмента: {}",
+        config_by_type_query.to_string()
+    );
 
     // === СИСТЕМНЫЕ МЕТАДАННЫЕ ===
     println!("\n📋 Системные метаданные:");
-    
+
     // Получение метаданных по типу
     let system_metadata_query = SystemMetadataQueryBuilder::new()
         .by_metadata_type("indicator_config")
         .order_by_updated_at()
         .build()?;
-    println!("📈 Метаданные индикаторов: {}", system_metadata_query.to_string());
+    println!(
+        "📈 Метаданные индикаторов: {}",
+        system_metadata_query.to_string()
+    );
 
     // Получение метаданных по пространству имен
     let namespace_metadata_query = SystemMetadataQueryBuilder::new()
         .by_namespace("trading.signals")
         .order_by_updated_at()
         .build()?;
-    println!("🔍 Метаданные пространства: {}", namespace_metadata_query.to_string());
+    println!(
+        "🔍 Метаданные пространства: {}",
+        namespace_metadata_query.to_string()
+    );
 
     // === ПОЛЬЗОВАТЕЛЬСКИЕ НАСТРОЙКИ ===
     println!("\n👤 Пользовательские настройки:");
-    
+
     // Получение настроек пользователя
     let user_settings_query = UserSettingsQueryBuilder::new()
         .by_user("user_001")
         .order_by_updated_at()
         .build()?;
-    println!("⚙️ Настройки пользователя: {}", user_settings_query.to_string());
+    println!(
+        "⚙️ Настройки пользователя: {}",
+        user_settings_query.to_string()
+    );
 
     // Получение настроек по категории
     let category_settings_query = UserSettingsQueryBuilder::new()
@@ -829,14 +448,17 @@ pub async fn configuration_and_metadata_operations() -> Result<(), Box<dyn std::
 
     // === КОНФИГУРАЦИИ СИСТЕМЫ ===
     println!("\n🖥️ Конфигурации системы:");
-    
+
     // Получение конфигураций модуля
     let module_config_query = SystemConfigQueryBuilder::new()
         .by_module("data_access")
         .active_only()
         .order_by_priority()
         .build()?;
-    println!("🔧 Конфигурации модуля: {}", module_config_query.to_string());
+    println!(
+        "🔧 Конфигурации модуля: {}",
+        module_config_query.to_string()
+    );
 
     // Получение конфигураций по окружению
     let env_config_query = SystemConfigQueryBuilder::new()
@@ -849,74 +471,31 @@ pub async fn configuration_and_metadata_operations() -> Result<(), Box<dyn std::
 
     // === ИСПОЛЬЗОВАНИЕ УТИЛИТ ===
     println!("\n🛠️ Использование утилит:");
-    
+
+    // ПРИМЕЧАНИЕ: Эти утилиты не реализованы, так как MongoDB не используется для конфигураций
+    // В архитектуре проекта для конфигураций используются другие подходы
+
     // Получение конфигураций стратегии через утилиты
-    let strategy_configs_util = MongoDBUtils::get_strategy_configs("strategy_001")?;
-    println!("🎯 Утилита - конфигурации стратегии: {}", strategy_configs_util.to_string());
+    // let strategy_configs_util = MongoDBUtils::get_strategy_configs("strategy_001")?;
+    println!("🎯 Утилита - конфигурации стратегии (не реализовано)");
 
     // Получение системных метаданных через утилиты
-    let system_metadata_util = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📈 Утилита - системные метаданные: {}", system_metadata_util.to_string());
+    // let system_metadata_util = MongoDBUtils::get_system_metadata("indicator_config")?;
+    println!("📈 Утилита - системные метаданные (не реализовано)");
 
     // Получение пользовательских настроек через утилиты
-    let user_settings_util = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("👤 Утилита - пользовательские настройки: {}", user_settings_util.to_string());
+    // let user_settings_util = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
+    println!("👤 Утилита - пользовательские настройки (не реализовано)");
 
     // Получение конфигураций системы через утилиты
-    let system_configs_util = MongoDBUtils::get_system_configs("data_access", Some("production"))?;
-    println!("🖥️ Утилита - конфигурации системы: {}", system_configs_util.to_string());
+    // let system_configs_util = MongoDBUtils::get_system_configs("data_access", Some("production"))?;
+    println!("🖥️ Утилита - конфигурации системы (не реализовано)");
 
     connector.disconnect().await?;
     Ok(())
 }
 
 /// Пример 10: Комплексная работа с конфигурациями
-pub async fn complex_configuration_workflow() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "=".repeat(60));
-    println!("🔄 ПРИМЕР 10: Комплексная работа с конфигурациями");
-    println!("{}", "=".repeat(60));
-
-    let mut connector = MongoDBConnector::new_default();
-    connector.connect().await?;
-    connector.create_indexes().await?;
-
-    // Сценарий: Настройка новой стратегии с конфигурациями
-    println!("\n🚀 Сценарий: Настройка стратегии 'Moving Average Crossover'");
-    
-    // 1. Получение всех активных конфигураций системы
-    let all_configs_query = MongoDBUtils::get_all_active_configs()?;
-    println!("📋 Все активные конфигурации системы: {}", all_configs_query.to_string());
-
-    // 2. Получение конфигураций для модуля стратегий
-    let strategy_module_configs = MongoDBUtils::get_system_configs("strategy_engine", None)?;
-    println!("⚙️ Конфигурации модуля стратегий: {}", strategy_module_configs.to_string());
-
-    // 3. Получение метаданных для индикаторов
-    let indicator_metadata = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📊 Метаданные индикаторов: {}", indicator_metadata.to_string());
-
-    // 4. Получение конфигураций стратегии по типу
-    let risk_configs = MongoDBUtils::get_strategy_configs_by_type("strategy_001", "risk_management")?;
-    println!("🛡️ Конфигурации риск-менеджмента: {}", risk_configs.to_string());
-
-    // 5. Получение пользовательских настроек для UI
-    let ui_settings = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("🎨 Настройки UI пользователя: {}", ui_settings.to_string());
-
-    // 6. Получение конкретной настройки пользователя
-    let specific_setting = MongoDBUtils::get_user_setting_by_key("user_001", "theme")?;
-    println!("🎭 Конкретная настройка темы: {}", specific_setting.to_string());
-
-    // 7. Получение метаданных по пространству имен
-    let trading_signals_metadata = MongoDBUtils::get_metadata_by_namespace("trading.signals")?;
-    println!("📡 Метаданные торговых сигналов: {}", trading_signals_metadata.to_string());
-
-    println!("\n✅ Комплексная настройка стратегии завершена!");
-    println!("📝 Все необходимые конфигурации и метаданные получены");
-
-    connector.disconnect().await?;
-    Ok(())
-}
 
 /// Пример 6: Работа с транзакциями
 pub async fn transaction_operations() -> Result<(), Box<dyn std::error::Error>> {
@@ -946,159 +525,8 @@ pub async fn transaction_operations() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 /// Пример 9: Работа с конфигурациями и метаданными (основная задача MongoDB)
-pub async fn configuration_and_metadata_operations() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "=".repeat(60));
-    println!("🔧 ПРИМЕР 9: Конфигурации и метаданные MongoDB");
-    println!("{}", "=".repeat(60));
-
-    let mut connector = MongoDBConnector::new_default();
-    connector.connect().await?;
-    connector.create_indexes().await?;
-
-    // === КОНФИГУРАЦИИ СТРАТЕГИЙ ===
-    println!("\n📊 Конфигурации стратегий:");
-    
-    // Получение конфигураций стратегии
-    let strategy_configs_query = StrategyConfigQueryBuilder::new()
-        .by_strategy("strategy_001")
-        .active_only()
-        .order_by_created_at()
-        .build()?;
-    println!("🎯 Конфигурации стратегии: {}", strategy_configs_query.to_string());
-
-    // Получение конфигураций по типу
-    let config_by_type_query = StrategyConfigQueryBuilder::new()
-        .by_strategy("strategy_001")
-        .by_config_type("risk_management")
-        .active_only()
-        .build()?;
-    println!("⚙️ Конфигурации риск-менеджмента: {}", config_by_type_query.to_string());
-
-    // === СИСТЕМНЫЕ МЕТАДАННЫЕ ===
-    println!("\n📋 Системные метаданные:");
-    
-    // Получение метаданных по типу
-    let system_metadata_query = SystemMetadataQueryBuilder::new()
-        .by_metadata_type("indicator_config")
-        .order_by_updated_at()
-        .build()?;
-    println!("📈 Метаданные индикаторов: {}", system_metadata_query.to_string());
-
-    // Получение метаданных по пространству имен
-    let namespace_metadata_query = SystemMetadataQueryBuilder::new()
-        .by_namespace("trading.signals")
-        .order_by_updated_at()
-        .build()?;
-    println!("🔍 Метаданные пространства: {}", namespace_metadata_query.to_string());
-
-    // === ПОЛЬЗОВАТЕЛЬСКИЕ НАСТРОЙКИ ===
-    println!("\n👤 Пользовательские настройки:");
-    
-    // Получение настроек пользователя
-    let user_settings_query = UserSettingsQueryBuilder::new()
-        .by_user("user_001")
-        .order_by_updated_at()
-        .build()?;
-    println!("⚙️ Настройки пользователя: {}", user_settings_query.to_string());
-
-    // Получение настроек по категории
-    let category_settings_query = UserSettingsQueryBuilder::new()
-        .by_user("user_001")
-        .by_category("ui_preferences")
-        .order_by_updated_at()
-        .build()?;
-    println!("🎨 Настройки UI: {}", category_settings_query.to_string());
-
-    // === КОНФИГУРАЦИИ СИСТЕМЫ ===
-    println!("\n🖥️ Конфигурации системы:");
-    
-    // Получение конфигураций модуля
-    let module_config_query = SystemConfigQueryBuilder::new()
-        .by_module("data_access")
-        .active_only()
-        .order_by_priority()
-        .build()?;
-    println!("🔧 Конфигурации модуля: {}", module_config_query.to_string());
-
-    // Получение конфигураций по окружению
-    let env_config_query = SystemConfigQueryBuilder::new()
-        .by_module("trading_engine")
-        .by_environment("production")
-        .active_only()
-        .order_by_priority()
-        .build()?;
-    println!("🏭 Продакшн конфигурации: {}", env_config_query.to_string());
-
-    // === ИСПОЛЬЗОВАНИЕ УТИЛИТ ===
-    println!("\n🛠️ Использование утилит:");
-    
-    // Получение конфигураций стратегии через утилиты
-    let strategy_configs_util = MongoDBUtils::get_strategy_configs("strategy_001")?;
-    println!("🎯 Утилита - конфигурации стратегии: {}", strategy_configs_util.to_string());
-
-    // Получение системных метаданных через утилиты
-    let system_metadata_util = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📈 Утилита - системные метаданные: {}", system_metadata_util.to_string());
-
-    // Получение пользовательских настроек через утилиты
-    let user_settings_util = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("👤 Утилита - пользовательские настройки: {}", user_settings_util.to_string());
-
-    // Получение конфигураций системы через утилиты
-    let system_configs_util = MongoDBUtils::get_system_configs("data_access", Some("production"))?;
-    println!("🖥️ Утилита - конфигурации системы: {}", system_configs_util.to_string());
-
-    connector.disconnect().await?;
-    Ok(())
-}
 
 /// Пример 10: Комплексная работа с конфигурациями
-pub async fn complex_configuration_workflow() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "=".repeat(60));
-    println!("🔄 ПРИМЕР 10: Комплексная работа с конфигурациями");
-    println!("{}", "=".repeat(60));
-
-    let mut connector = MongoDBConnector::new_default();
-    connector.connect().await?;
-    connector.create_indexes().await?;
-
-    // Сценарий: Настройка новой стратегии с конфигурациями
-    println!("\n🚀 Сценарий: Настройка стратегии 'Moving Average Crossover'");
-    
-    // 1. Получение всех активных конфигураций системы
-    let all_configs_query = MongoDBUtils::get_all_active_configs()?;
-    println!("📋 Все активные конфигурации системы: {}", all_configs_query.to_string());
-
-    // 2. Получение конфигураций для модуля стратегий
-    let strategy_module_configs = MongoDBUtils::get_system_configs("strategy_engine", None)?;
-    println!("⚙️ Конфигурации модуля стратегий: {}", strategy_module_configs.to_string());
-
-    // 3. Получение метаданных для индикаторов
-    let indicator_metadata = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📊 Метаданные индикаторов: {}", indicator_metadata.to_string());
-
-    // 4. Получение конфигураций стратегии по типу
-    let risk_configs = MongoDBUtils::get_strategy_configs_by_type("strategy_001", "risk_management")?;
-    println!("🛡️ Конфигурации риск-менеджмента: {}", risk_configs.to_string());
-
-    // 5. Получение пользовательских настроек для UI
-    let ui_settings = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("🎨 Настройки UI пользователя: {}", ui_settings.to_string());
-
-    // 6. Получение конкретной настройки пользователя
-    let specific_setting = MongoDBUtils::get_user_setting_by_key("user_001", "theme")?;
-    println!("🎭 Конкретная настройка темы: {}", specific_setting.to_string());
-
-    // 7. Получение метаданных по пространству имен
-    let trading_signals_metadata = MongoDBUtils::get_metadata_by_namespace("trading.signals")?;
-    println!("📡 Метаданные торговых сигналов: {}", trading_signals_metadata.to_string());
-
-    println!("\n✅ Комплексная настройка стратегии завершена!");
-    println!("📝 Все необходимые конфигурации и метаданные получены");
-
-    connector.disconnect().await?;
-    Ok(())
-}
 
 /// Пример 7: Утилиты MongoDB
 pub async fn mongodb_utilities() -> Result<(), Box<dyn std::error::Error>> {
@@ -1179,160 +607,7 @@ pub async fn mongodb_utilities() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Пример 9: Работа с конфигурациями и метаданными (основная задача MongoDB)
-pub async fn configuration_and_metadata_operations() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "=".repeat(60));
-    println!("🔧 ПРИМЕР 9: Конфигурации и метаданные MongoDB");
-    println!("{}", "=".repeat(60));
-
-    let mut connector = MongoDBConnector::new_default();
-    connector.connect().await?;
-    connector.create_indexes().await?;
-
-    // === КОНФИГУРАЦИИ СТРАТЕГИЙ ===
-    println!("\n📊 Конфигурации стратегий:");
-    
-    // Получение конфигураций стратегии
-    let strategy_configs_query = StrategyConfigQueryBuilder::new()
-        .by_strategy("strategy_001")
-        .active_only()
-        .order_by_created_at()
-        .build()?;
-    println!("🎯 Конфигурации стратегии: {}", strategy_configs_query.to_string());
-
-    // Получение конфигураций по типу
-    let config_by_type_query = StrategyConfigQueryBuilder::new()
-        .by_strategy("strategy_001")
-        .by_config_type("risk_management")
-        .active_only()
-        .build()?;
-    println!("⚙️ Конфигурации риск-менеджмента: {}", config_by_type_query.to_string());
-
-    // === СИСТЕМНЫЕ МЕТАДАННЫЕ ===
-    println!("\n📋 Системные метаданные:");
-    
-    // Получение метаданных по типу
-    let system_metadata_query = SystemMetadataQueryBuilder::new()
-        .by_metadata_type("indicator_config")
-        .order_by_updated_at()
-        .build()?;
-    println!("📈 Метаданные индикаторов: {}", system_metadata_query.to_string());
-
-    // Получение метаданных по пространству имен
-    let namespace_metadata_query = SystemMetadataQueryBuilder::new()
-        .by_namespace("trading.signals")
-        .order_by_updated_at()
-        .build()?;
-    println!("🔍 Метаданные пространства: {}", namespace_metadata_query.to_string());
-
-    // === ПОЛЬЗОВАТЕЛЬСКИЕ НАСТРОЙКИ ===
-    println!("\n👤 Пользовательские настройки:");
-    
-    // Получение настроек пользователя
-    let user_settings_query = UserSettingsQueryBuilder::new()
-        .by_user("user_001")
-        .order_by_updated_at()
-        .build()?;
-    println!("⚙️ Настройки пользователя: {}", user_settings_query.to_string());
-
-    // Получение настроек по категории
-    let category_settings_query = UserSettingsQueryBuilder::new()
-        .by_user("user_001")
-        .by_category("ui_preferences")
-        .order_by_updated_at()
-        .build()?;
-    println!("🎨 Настройки UI: {}", category_settings_query.to_string());
-
-    // === КОНФИГУРАЦИИ СИСТЕМЫ ===
-    println!("\n🖥️ Конфигурации системы:");
-    
-    // Получение конфигураций модуля
-    let module_config_query = SystemConfigQueryBuilder::new()
-        .by_module("data_access")
-        .active_only()
-        .order_by_priority()
-        .build()?;
-    println!("🔧 Конфигурации модуля: {}", module_config_query.to_string());
-
-    // Получение конфигураций по окружению
-    let env_config_query = SystemConfigQueryBuilder::new()
-        .by_module("trading_engine")
-        .by_environment("production")
-        .active_only()
-        .order_by_priority()
-        .build()?;
-    println!("🏭 Продакшн конфигурации: {}", env_config_query.to_string());
-
-    // === ИСПОЛЬЗОВАНИЕ УТИЛИТ ===
-    println!("\n🛠️ Использование утилит:");
-    
-    // Получение конфигураций стратегии через утилиты
-    let strategy_configs_util = MongoDBUtils::get_strategy_configs("strategy_001")?;
-    println!("🎯 Утилита - конфигурации стратегии: {}", strategy_configs_util.to_string());
-
-    // Получение системных метаданных через утилиты
-    let system_metadata_util = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📈 Утилита - системные метаданные: {}", system_metadata_util.to_string());
-
-    // Получение пользовательских настроек через утилиты
-    let user_settings_util = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("👤 Утилита - пользовательские настройки: {}", user_settings_util.to_string());
-
-    // Получение конфигураций системы через утилиты
-    let system_configs_util = MongoDBUtils::get_system_configs("data_access", Some("production"))?;
-    println!("🖥️ Утилита - конфигурации системы: {}", system_configs_util.to_string());
-
-    connector.disconnect().await?;
-    Ok(())
-}
-
 /// Пример 10: Комплексная работа с конфигурациями
-pub async fn complex_configuration_workflow() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "=".repeat(60));
-    println!("🔄 ПРИМЕР 10: Комплексная работа с конфигурациями");
-    println!("{}", "=".repeat(60));
-
-    let mut connector = MongoDBConnector::new_default();
-    connector.connect().await?;
-    connector.create_indexes().await?;
-
-    // Сценарий: Настройка новой стратегии с конфигурациями
-    println!("\n🚀 Сценарий: Настройка стратегии 'Moving Average Crossover'");
-    
-    // 1. Получение всех активных конфигураций системы
-    let all_configs_query = MongoDBUtils::get_all_active_configs()?;
-    println!("📋 Все активные конфигурации системы: {}", all_configs_query.to_string());
-
-    // 2. Получение конфигураций для модуля стратегий
-    let strategy_module_configs = MongoDBUtils::get_system_configs("strategy_engine", None)?;
-    println!("⚙️ Конфигурации модуля стратегий: {}", strategy_module_configs.to_string());
-
-    // 3. Получение метаданных для индикаторов
-    let indicator_metadata = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📊 Метаданные индикаторов: {}", indicator_metadata.to_string());
-
-    // 4. Получение конфигураций стратегии по типу
-    let risk_configs = MongoDBUtils::get_strategy_configs_by_type("strategy_001", "risk_management")?;
-    println!("🛡️ Конфигурации риск-менеджмента: {}", risk_configs.to_string());
-
-    // 5. Получение пользовательских настроек для UI
-    let ui_settings = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("🎨 Настройки UI пользователя: {}", ui_settings.to_string());
-
-    // 6. Получение конкретной настройки пользователя
-    let specific_setting = MongoDBUtils::get_user_setting_by_key("user_001", "theme")?;
-    println!("🎭 Конкретная настройка темы: {}", specific_setting.to_string());
-
-    // 7. Получение метаданных по пространству имен
-    let trading_signals_metadata = MongoDBUtils::get_metadata_by_namespace("trading.signals")?;
-    println!("📡 Метаданные торговых сигналов: {}", trading_signals_metadata.to_string());
-
-    println!("\n✅ Комплексная настройка стратегии завершена!");
-    println!("📝 Все необходимые конфигурации и метаданные получены");
-
-    connector.disconnect().await?;
-    Ok(())
-}
 
 /// Пример 8: Агрегационные запросы
 pub async fn aggregation_queries() -> Result<(), Box<dyn std::error::Error>> {
@@ -1415,160 +690,7 @@ pub async fn aggregation_queries() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Пример 9: Работа с конфигурациями и метаданными (основная задача MongoDB)
-pub async fn configuration_and_metadata_operations() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "=".repeat(60));
-    println!("🔧 ПРИМЕР 9: Конфигурации и метаданные MongoDB");
-    println!("{}", "=".repeat(60));
-
-    let mut connector = MongoDBConnector::new_default();
-    connector.connect().await?;
-    connector.create_indexes().await?;
-
-    // === КОНФИГУРАЦИИ СТРАТЕГИЙ ===
-    println!("\n📊 Конфигурации стратегий:");
-    
-    // Получение конфигураций стратегии
-    let strategy_configs_query = StrategyConfigQueryBuilder::new()
-        .by_strategy("strategy_001")
-        .active_only()
-        .order_by_created_at()
-        .build()?;
-    println!("🎯 Конфигурации стратегии: {}", strategy_configs_query.to_string());
-
-    // Получение конфигураций по типу
-    let config_by_type_query = StrategyConfigQueryBuilder::new()
-        .by_strategy("strategy_001")
-        .by_config_type("risk_management")
-        .active_only()
-        .build()?;
-    println!("⚙️ Конфигурации риск-менеджмента: {}", config_by_type_query.to_string());
-
-    // === СИСТЕМНЫЕ МЕТАДАННЫЕ ===
-    println!("\n📋 Системные метаданные:");
-    
-    // Получение метаданных по типу
-    let system_metadata_query = SystemMetadataQueryBuilder::new()
-        .by_metadata_type("indicator_config")
-        .order_by_updated_at()
-        .build()?;
-    println!("📈 Метаданные индикаторов: {}", system_metadata_query.to_string());
-
-    // Получение метаданных по пространству имен
-    let namespace_metadata_query = SystemMetadataQueryBuilder::new()
-        .by_namespace("trading.signals")
-        .order_by_updated_at()
-        .build()?;
-    println!("🔍 Метаданные пространства: {}", namespace_metadata_query.to_string());
-
-    // === ПОЛЬЗОВАТЕЛЬСКИЕ НАСТРОЙКИ ===
-    println!("\n👤 Пользовательские настройки:");
-    
-    // Получение настроек пользователя
-    let user_settings_query = UserSettingsQueryBuilder::new()
-        .by_user("user_001")
-        .order_by_updated_at()
-        .build()?;
-    println!("⚙️ Настройки пользователя: {}", user_settings_query.to_string());
-
-    // Получение настроек по категории
-    let category_settings_query = UserSettingsQueryBuilder::new()
-        .by_user("user_001")
-        .by_category("ui_preferences")
-        .order_by_updated_at()
-        .build()?;
-    println!("🎨 Настройки UI: {}", category_settings_query.to_string());
-
-    // === КОНФИГУРАЦИИ СИСТЕМЫ ===
-    println!("\n🖥️ Конфигурации системы:");
-    
-    // Получение конфигураций модуля
-    let module_config_query = SystemConfigQueryBuilder::new()
-        .by_module("data_access")
-        .active_only()
-        .order_by_priority()
-        .build()?;
-    println!("🔧 Конфигурации модуля: {}", module_config_query.to_string());
-
-    // Получение конфигураций по окружению
-    let env_config_query = SystemConfigQueryBuilder::new()
-        .by_module("trading_engine")
-        .by_environment("production")
-        .active_only()
-        .order_by_priority()
-        .build()?;
-    println!("🏭 Продакшн конфигурации: {}", env_config_query.to_string());
-
-    // === ИСПОЛЬЗОВАНИЕ УТИЛИТ ===
-    println!("\n🛠️ Использование утилит:");
-    
-    // Получение конфигураций стратегии через утилиты
-    let strategy_configs_util = MongoDBUtils::get_strategy_configs("strategy_001")?;
-    println!("🎯 Утилита - конфигурации стратегии: {}", strategy_configs_util.to_string());
-
-    // Получение системных метаданных через утилиты
-    let system_metadata_util = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📈 Утилита - системные метаданные: {}", system_metadata_util.to_string());
-
-    // Получение пользовательских настроек через утилиты
-    let user_settings_util = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("👤 Утилита - пользовательские настройки: {}", user_settings_util.to_string());
-
-    // Получение конфигураций системы через утилиты
-    let system_configs_util = MongoDBUtils::get_system_configs("data_access", Some("production"))?;
-    println!("🖥️ Утилита - конфигурации системы: {}", system_configs_util.to_string());
-
-    connector.disconnect().await?;
-    Ok(())
-}
-
 /// Пример 10: Комплексная работа с конфигурациями
-pub async fn complex_configuration_workflow() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "=".repeat(60));
-    println!("🔄 ПРИМЕР 10: Комплексная работа с конфигурациями");
-    println!("{}", "=".repeat(60));
-
-    let mut connector = MongoDBConnector::new_default();
-    connector.connect().await?;
-    connector.create_indexes().await?;
-
-    // Сценарий: Настройка новой стратегии с конфигурациями
-    println!("\n🚀 Сценарий: Настройка стратегии 'Moving Average Crossover'");
-    
-    // 1. Получение всех активных конфигураций системы
-    let all_configs_query = MongoDBUtils::get_all_active_configs()?;
-    println!("📋 Все активные конфигурации системы: {}", all_configs_query.to_string());
-
-    // 2. Получение конфигураций для модуля стратегий
-    let strategy_module_configs = MongoDBUtils::get_system_configs("strategy_engine", None)?;
-    println!("⚙️ Конфигурации модуля стратегий: {}", strategy_module_configs.to_string());
-
-    // 3. Получение метаданных для индикаторов
-    let indicator_metadata = MongoDBUtils::get_system_metadata("indicator_config")?;
-    println!("📊 Метаданные индикаторов: {}", indicator_metadata.to_string());
-
-    // 4. Получение конфигураций стратегии по типу
-    let risk_configs = MongoDBUtils::get_strategy_configs_by_type("strategy_001", "risk_management")?;
-    println!("🛡️ Конфигурации риск-менеджмента: {}", risk_configs.to_string());
-
-    // 5. Получение пользовательских настроек для UI
-    let ui_settings = MongoDBUtils::get_user_settings("user_001", Some("ui_preferences"))?;
-    println!("🎨 Настройки UI пользователя: {}", ui_settings.to_string());
-
-    // 6. Получение конкретной настройки пользователя
-    let specific_setting = MongoDBUtils::get_user_setting_by_key("user_001", "theme")?;
-    println!("🎭 Конкретная настройка темы: {}", specific_setting.to_string());
-
-    // 7. Получение метаданных по пространству имен
-    let trading_signals_metadata = MongoDBUtils::get_metadata_by_namespace("trading.signals")?;
-    println!("📡 Метаданные торговых сигналов: {}", trading_signals_metadata.to_string());
-
-    println!("\n✅ Комплексная настройка стратегии завершена!");
-    println!("📝 Все необходимые конфигурации и метаданные получены");
-
-    connector.disconnect().await?;
-    Ok(())
-}
 
 /// Запуск всех примеров MongoDB
 pub async fn run_all_mongodb_examples() -> Result<(), Box<dyn std::error::Error>> {

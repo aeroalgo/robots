@@ -140,24 +140,108 @@ pub trait MessageStream<T> {
     async fn unsubscribe(self: Box<Self>) -> Result<()>;
 }
 
-/// Трейт для работы с Arrow данными (заглушка)
+/// Трейт для работы с Arrow данными
 #[async_trait]
 pub trait ArrowDataSource {
-    /// Получение данных (заглушка)
-    async fn get_data(&self, query: &str) -> Result<String>;
+    /// Получение данных в виде RecordBatch
+    async fn get_data(&self, query: &str) -> Result<Vec<arrow::record_batch::RecordBatch>>;
 
-    /// Отправка данных (заглушка)
-    async fn send_data(&self, data: &str) -> Result<()>;
+    /// Отправка данных в виде RecordBatch
+    async fn send_data(&self, batches: Vec<arrow::record_batch::RecordBatch>) -> Result<()>;
+
+    /// Получение схемы данных
+    async fn get_schema(&self, query: &str) -> Result<String>;
+
+    /// Выполнение действия
+    async fn do_action(&self, action: arrow_flight::Action) -> Result<Vec<u8>>;
 }
 
-/// Трейт для работы с Parquet файлами (заглушка)
+/// Трейт для работы с Parquet файлами
 #[async_trait]
 pub trait ParquetDataSource {
-    /// Чтение Parquet файла (заглушка)
-    async fn read_parquet(&self, path: &str) -> Result<String>;
+    /// Чтение Parquet файла
+    async fn read_parquet(&self, path: &str) -> Result<Vec<arrow::record_batch::RecordBatch>>;
 
-    /// Запись в Parquet файл (заглушка)
-    async fn write_parquet(&self, path: &str, data: &str) -> Result<()>;
+    /// Запись в Parquet файл
+    async fn write_parquet(
+        &self,
+        path: &str,
+        batches: Vec<arrow::record_batch::RecordBatch>,
+    ) -> Result<()>;
+
+    /// Получение схемы Parquet файла
+    async fn get_schema(&self, path: &str) -> Result<String>;
+
+    /// Получение метаданных файла
+    async fn get_metadata(&self, path: &str) -> Result<ParquetMetadata>;
+
+    /// Список файлов в директории
+    async fn list_files(&self, directory: &str) -> Result<Vec<String>>;
+
+    /// Удаление файла
+    async fn delete_file(&self, path: &str) -> Result<()>;
+}
+
+/// Метаданные Parquet файла
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParquetMetadata {
+    pub file_path: String,
+    pub file_size: u64,
+    pub num_rows: usize,
+    pub num_columns: usize,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Трейт для работы с DataFusion
+#[async_trait]
+pub trait DataFusionDataSource {
+    /// Выполнение SQL запроса
+    async fn execute_sql(&self, sql: &str) -> Result<Vec<arrow::record_batch::RecordBatch>>;
+
+    /// Регистрация таблицы из Parquet файла
+    async fn register_parquet_table(&mut self, table_name: &str, file_path: &str) -> Result<()>;
+
+    /// Регистрация таблицы из Arrow данных
+    async fn register_arrow_table(
+        &mut self,
+        table_name: &str,
+        batches: Vec<arrow::record_batch::RecordBatch>,
+    ) -> Result<()>;
+
+    /// Получение схемы таблицы
+    async fn get_table_schema(&self, table_name: &str) -> Result<arrow::datatypes::Schema>;
+
+    /// Создание DataFrame из SQL запроса
+    async fn create_dataframe(&self, sql: &str) -> Result<datafusion::dataframe::DataFrame>;
+
+    /// Выполнение аналитического запроса
+    async fn execute_analytics_query(
+        &self,
+        query: &AnalyticsQuery,
+    ) -> Result<Vec<arrow::record_batch::RecordBatch>>;
+
+    /// Получение статистики по таблице
+    async fn get_table_stats(&self, table_name: &str) -> Result<TableStats>;
+}
+
+/// Аналитический запрос
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalyticsQuery {
+    pub table_name: String,
+    pub aggregations: Option<Vec<String>>,
+    pub filters: Option<String>,
+    pub group_by: Option<String>,
+    pub order_by: Option<String>,
+    pub limit: Option<usize>,
+}
+
+/// Статистика таблицы
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableStats {
+    pub table_name: String,
+    pub row_count: usize,
+    pub column_count: usize,
+    pub estimated_size_bytes: u64,
 }
 
 /// Трейт для работы с API бирж
@@ -188,7 +272,7 @@ pub trait ExchangeApi {
 }
 
 /// Вспомогательный трейт для параметров SQL запросов
-pub trait ToSql {
+pub trait ToSql: Sync {
     fn to_sql(&self) -> String;
 }
 

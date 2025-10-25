@@ -477,7 +477,7 @@ impl Database for PostgreSQLConnector {
 
         // Упрощенная реализация транзакции
         Ok(Box::new(PostgreSQLTransaction {
-            client: client.clone(), // Упрощение для компиляции
+            client: client, // Упрощение для компиляции
         }))
     }
 
