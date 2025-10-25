@@ -3,7 +3,16 @@ name = "robots"
 version = "0.1.0"
 edition = "2018"
 
+[[bin]]
+name = "robots"
+path = "src/main.rs"
+
+[lib]
+name = "robots"
+path = "src/lib.rs"
+
 [dependencies]
+# Existing dependencies
 dotenv = "0.15.0"
 mongodb = "2.5.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -14,9 +23,25 @@ async-trait = "0.1.68"
 sha1 = "0.10.5"
 hex = "0.4.3"
 futures = "0.3.28"
-chrono = "0.4.26"
+chrono = { version = "0.4.26", features = ["serde"] }
 itertools = "0.14.0"
 try-partialord = "0.1.3"
 num-traits = "0.2.17"
 enum-iterator = "2.1.0"
 thiserror = "2.0.16"
+
+# Data Access Layer dependencies
+# Database drivers
+redis = "0.24"
+clickhouse = "0.11"
+tokio-postgres = "0.7"
+deadpool-postgres = "0.10"
+
+# HTTP clients
+reqwest = { version = "0.11", features = ["json"] }
+
+# Error handling
+anyhow = "1.0"
+
+# Futures utilities
+futures-util = "0.3"

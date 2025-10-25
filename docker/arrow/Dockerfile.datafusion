@@ -1,0 +1,135 @@
+# DataFusion Dockerfile
+FROM python:3.11-slim
+
+# Установка системных зависимостей
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Установка Python пакетов для DataFusion
+RUN pip3 install \
+    pyarrow \
+    pandas \
+    datafusion
+
+# Создание директорий
+RUN mkdir -p /data /var/log/datafusion /etc/datafusion
+
+# Копирование конфигурации
+COPY datafusion.conf /etc/datafusion/datafusion.conf
+
+# Создание простого DataFusion сервера
+RUN echo '#!/usr/bin/env python3\n\
+import datafusion\n\
+import pyarrow as pa\n\
+import pandas as pd\n\
+import os\n\
+import json\n\
+from http.server import HTTPServer, BaseHTTPRequestHandler\n\
+import threading\n\
+import time\n\
+\n\
+class DataFusionHandler(BaseHTTPRequestHandler):\n\
+    def __init__(self, *args, **kwargs):\n\
+        self.ctx = datafusion.SessionContext()\n\
+        super().__init__(*args, **kwargs)\n\
+    \n\
+    def do_GET(self):\n\
+        if self.path == "/health":\n\
+            self.send_response(200)\n\
+            self.send_header("Content-type", "application/json")\n\
+            self.end_headers()\n\
+            response = {"status": "healthy", "service": "datafusion"}\n\
+            self.wfile.write(json.dumps(response).encode())\n\
+        elif self.path == "/info":\n\
+            self.send_response(200)\n\
+            self.send_header("Content-type", "application/json")\n\
+            self.end_headers()\n\
+            response = {\n\
+                "service": "datafusion",\n\
+                "version": "37.0.0",\n\
+                "capabilities": [\n\
+                    "sql_queries",\n\
+                    "arrow_processing",\n\
+                    "parquet_queries",\n\
+                    "data_aggregation"\n\
+                ]\n\
+            }\n\
+            self.wfile.write(json.dumps(response).encode())\n\
+        else:\n\
+            self.send_response(404)\n\
+            self.end_headers()\n\
+    \n\
+    def do_POST(self):\n\
+        if self.path == "/query":\n\
+            content_length = int(self.headers["Content-Length"])\n\
+            post_data = self.rfile.read(content_length)\n\
+            \n\
+            try:\n\
+                data = json.loads(post_data.decode("utf-8"))\n\
+                sql_query = data.get("query", "")\n\
+                \n\
+                if not sql_query:\n\
+                    raise ValueError("Query parameter is required")\n\
+                \n\
+                # Выполнение SQL запроса\n\
+                df = self.ctx.sql(sql_query)\n\
+                result = df.collect()\n\
+                \n\
+                # Конвертация результата в JSON\n\
+                if result:\n\
+                    table = result[0]\n\
+                    pandas_df = table.to_pandas()\n\
+                    result_data = pandas_df.to_dict("records")\n\
+                else:\n\
+                    result_data = []\n\
+                \n\
+                self.send_response(200)\n\
+                self.send_header("Content-type", "application/json")\n\
+                self.end_headers()\n\
+                \n\
+                response = {\n\
+                    "status": "success",\n\
+                    "query": sql_query,\n\
+                    "rows": len(result_data),\n\
+                    "data": result_data\n\
+                }\n\
+                self.wfile.write(json.dumps(response).encode())\n\
+            except Exception as e:\n\
+                self.send_response(400)\n\
+                self.send_header("Content-type", "application/json")\n\
+                self.end_headers()\n\
+                response = {"status": "error", "message": str(e)}\n\
+                self.wfile.write(json.dumps(response).encode())\n\
+        else:\n\
+            self.send_response(404)\n\
+            self.end_headers()\n\
+    \n\
+    def log_message(self, format, *args):\n\
+        # Отключаем логирование для чистоты вывода\n\
+        pass\n\
+\n\
+def main():\n\
+    port = int(os.getenv("DATAFUSION_PORT", "8817"))\n\
+    \n\
+    server = HTTPServer(("0.0.0.0", port), DataFusionHandler)\n\
+    print(f"Starting DataFusion Server on port {port}")\n\
+    \n\
+    try:\n\
+        server.serve_forever()\n\
+    except KeyboardInterrupt:\n\
+        print("Server stopped")\n\
+        server.shutdown()\n\
+\n\
+if __name__ == "__main__":\n\
+    main()\n\
+' > /usr/local/bin/datafusion-server.py
+
+RUN chmod +x /usr/local/bin/datafusion-server.py
+
+# Открытие порта
+EXPOSE 8817
+
+# Запуск сервера
+CMD ["python3", "/usr/local/bin/datafusion-server.py"]

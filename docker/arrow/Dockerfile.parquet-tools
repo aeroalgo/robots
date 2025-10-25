@@ -1,0 +1,115 @@
+# Apache Parquet Tools Dockerfile
+FROM python:3.11-slim
+
+# Установка системных зависимостей
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Установка Python пакетов для Parquet
+RUN pip3 install \
+    pyarrow \
+    pandas \
+    fastparquet
+
+# Создание директорий
+RUN mkdir -p /data /var/log/parquet-tools
+
+# Создание простого Parquet сервера
+RUN echo '#!/usr/bin/env python3\n\
+import pyarrow as pa\n\
+import pyarrow.parquet as pq\n\
+import pandas as pd\n\
+import os\n\
+import json\n\
+from http.server import HTTPServer, BaseHTTPRequestHandler\n\
+import threading\n\
+import time\n\
+\n\
+class ParquetHandler(BaseHTTPRequestHandler):\n\
+    def do_GET(self):\n\
+        if self.path == "/health":\n\
+            self.send_response(200)\n\
+            self.send_header("Content-type", "application/json")\n\
+            self.end_headers()\n\
+            response = {"status": "healthy", "service": "parquet-tools"}\n\
+            self.wfile.write(json.dumps(response).encode())\n\
+        elif self.path == "/info":\n\
+            self.send_response(200)\n\
+            self.send_header("Content-type", "application/json")\n\
+            self.end_headers()\n\
+            response = {\n\
+                "service": "parquet-tools",\n\
+                "version": "1.0.0",\n\
+                "capabilities": [\n\
+                    "read_parquet",\n\
+                    "write_parquet",\n\
+                    "convert_to_arrow",\n\
+                    "schema_inspection"\n\
+                ]\n\
+            }\n\
+            self.wfile.write(json.dumps(response).encode())\n\
+        else:\n\
+            self.send_response(404)\n\
+            self.end_headers()\n\
+    \n\
+    def do_POST(self):\n\
+        if self.path == "/convert":\n\
+            content_length = int(self.headers["Content-Length"])\n\
+            post_data = self.rfile.read(content_length)\n\
+            \n\
+            try:\n\
+                data = json.loads(post_data.decode("utf-8"))\n\
+                # Простая конвертация данных в Parquet\n\
+                df = pd.DataFrame(data)\n\
+                table = pa.Table.from_pandas(df)\n\
+                \n\
+                self.send_response(200)\n\
+                self.send_header("Content-type", "application/json")\n\
+                self.end_headers()\n\
+                \n\
+                response = {\n\
+                    "status": "success",\n\
+                    "rows": len(df),\n\
+                    "columns": list(df.columns),\n\
+                    "schema": str(table.schema)\n\
+                }\n\
+                self.wfile.write(json.dumps(response).encode())\n\
+            except Exception as e:\n\
+                self.send_response(400)\n\
+                self.send_header("Content-type", "application/json")\n\
+                self.end_headers()\n\
+                response = {"status": "error", "message": str(e)}\n\
+                self.wfile.write(json.dumps(response).encode())\n\
+        else:\n\
+            self.send_response(404)\n\
+            self.end_headers()\n\
+    \n\
+    def log_message(self, format, *args):\n\
+        # Отключаем логирование для чистоты вывода\n\
+        pass\n\
+\n\
+def main():\n\
+    port = int(os.getenv("PARQUET_TOOLS_PORT", "8816"))\n\
+    \n\
+    server = HTTPServer(("0.0.0.0", port), ParquetHandler)\n\
+    print(f"Starting Parquet Tools Server on port {port}")\n\
+    \n\
+    try:\n\
+        server.serve_forever()\n\
+    except KeyboardInterrupt:\n\
+        print("Server stopped")\n\
+        server.shutdown()\n\
+\n\
+if __name__ == "__main__":\n\
+    main()\n\
+' > /usr/local/bin/parquet-tools-server.py
+
+RUN chmod +x /usr/local/bin/parquet-tools-server.py
+
+# Открытие порта
+EXPOSE 8816
+
+# Запуск сервера
+CMD ["python3", "/usr/local/bin/parquet-tools-server.py"]

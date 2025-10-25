@@ -61,3 +61,4 @@ scrape_configs:
       - targets: ["node-exporter:9100"]
     scrape_interval: 30s
 
+

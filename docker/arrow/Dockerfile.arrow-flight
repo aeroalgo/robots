@@ -1,0 +1,105 @@
+# Apache Arrow Flight Server Dockerfile
+FROM python:3.11-slim
+
+# Установка системных зависимостей
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Установка Python пакетов для Arrow Flight
+RUN pip3 install \
+    pyarrow \
+    grpcio \
+    grpcio-tools
+
+# Создание директорий
+RUN mkdir -p /data /var/log/arrow-flight /etc/arrow-flight
+
+# Копирование конфигурации
+COPY flight.conf /etc/arrow-flight/flight.conf
+
+# Создание простого Arrow Flight сервера
+RUN echo '#!/usr/bin/env python3\n\
+import pyarrow as pa\n\
+import pyarrow.flight as flight\n\
+import grpc\n\
+import threading\n\
+import time\n\
+import os\n\
+\n\
+class FlightServer(flight.FlightServerBase):\n\
+    def __init__(self, host="0.0.0.0", port=8815):\n\
+        super(FlightServer, self).__init__()\n\
+        self.host = host\n\
+        self.port = port\n\
+        self.location = flight.Location.for_grpc_tcp(host, port)\n\
+\n\
+    def get_flight_info(self, context, descriptor):\n\
+        # Простая реализация для демонстрации\n\
+        schema = pa.schema([\n\
+            ("symbol", pa.string()),\n\
+            ("timestamp", pa.timestamp("us")),\n\
+            ("open", pa.float64()),\n\
+            ("high", pa.float64()),\n\
+            ("low", pa.float64()),\n\
+            ("close", pa.float64()),\n\
+            ("volume", pa.float64())\n\
+        ])\n\
+        \n\
+        return flight.FlightInfo(\n\
+            schema=schema,\n\
+            descriptor=descriptor,\n\
+            endpoints=[flight.FlightEndpoint(descriptor, [self.location])],\n\
+            total_records=-1,\n\
+            total_bytes=-1\n\
+        )\n\
+\n\
+    def do_get(self, context, ticket):\n\
+        # Возвращаем пустые данные для демонстрации\n\
+        schema = pa.schema([\n\
+            ("symbol", pa.string()),\n\
+            ("timestamp", pa.timestamp("us")),\n\
+            ("open", pa.float64()),\n\
+            ("high", pa.float64()),\n\
+            ("low", pa.float64()),\n\
+            ("close", pa.float64()),\n\
+            ("volume", pa.float64())\n\
+        ])\n\
+        \n\
+        # Создаем пустую таблицу\n\
+        table = pa.table({\n\
+            "symbol": pa.array([], type=pa.string()),\n\
+            "timestamp": pa.array([], type=pa.timestamp("us")),\n\
+            "open": pa.array([], type=pa.float64()),\n\
+            "high": pa.array([], type=pa.float64()),\n\
+            "low": pa.array([], type=pa.float64()),\n\
+            "close": pa.array([], type=pa.float64()),\n\
+            "volume": pa.array([], type=pa.float64())\n\
+        })\n\
+        \n\
+        return flight.GeneratorStream(schema, [table.to_batches()])\n\
+\n\
+def main():\n\
+    host = os.getenv("ARROW_FLIGHT_HOST", "0.0.0.0")\n\
+    port = int(os.getenv("ARROW_FLIGHT_PORT", "8815"))\n\
+    \n\
+    server = FlightServer(host, port)\n\
+    print(f"Starting Arrow Flight Server on {host}:{port}")\n\
+    \n\
+    try:\n\
+        server.serve()\n\
+    except KeyboardInterrupt:\n\
+        print("Server stopped")\n\
+\n\
+if __name__ == "__main__":\n\
+    main()\n\
+' > /usr/local/bin/arrow-flight-server.py
+
+RUN chmod +x /usr/local/bin/arrow-flight-server.py
+
+# Открытие порта
+EXPOSE 8815
+
+# Запуск сервера
+CMD ["python3", "/usr/local/bin/arrow-flight-server.py"]
