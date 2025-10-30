@@ -40,6 +40,7 @@ build/
 *.sqlite3
 *.db
 pip-log.txt
+venv
 
 # ========================
 # Node.js / JavaScript / TypeScript

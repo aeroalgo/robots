@@ -5,15 +5,16 @@
     <http_port>8123</http_port>
     <tcp_port>9000</tcp_port>
     
+    <!-- Пути -->
+    <path>/var/lib/clickhouse/</path>
+    <tmp_path>/var/lib/clickhouse/tmp/</tmp_path>
+    <user_files_path>/var/lib/clickhouse/user_files/</user_files_path>
+    <format_schema_path>/var/lib/clickhouse/format_schemas/</format_schema_path>
+    
     <!-- Производительность -->
     <max_connections>1000</max_connections>
     <max_concurrent_queries>100</max_concurrent_queries>
     <max_thread_pool_size>10000</max_thread_pool_size>
-    
-    <!-- Память -->
-    <max_memory_usage>0</max_memory_usage>
-    <max_bytes_before_external_group_by>20000000000</max_bytes_before_external_group_by>
-    <max_bytes_before_external_sort>20000000000</max_bytes_before_external_sort>
     
     <!-- Логирование -->
     <logger>
@@ -27,36 +28,6 @@
     <!-- Пользователи -->
     <users_config>users.xml</users_config>
     
-    <!-- Профили -->
-    <profiles>
-        <default>
-            <max_memory_usage>10000000000</max_memory_usage>
-            <use_uncompressed_cache>0</use_uncompressed_cache>
-            <load_balancing>random</load_balancing>
-        </default>
-        
-        <trading_profile>
-            <max_memory_usage>20000000000</max_memory_usage>
-            <max_execution_time>300</max_execution_time>
-            <max_rows_to_read>1000000000</max_rows_to_read>
-            <max_bytes_to_read>100000000000</max_bytes_to_read>
-        </trading_profile>
-    </profiles>
-    
-    <!-- Квоты -->
-    <quotas>
-        <default>
-            <interval>
-                <duration>3600</duration>
-                <queries>0</queries>
-                <errors>0</errors>
-                <result_rows>0</result_rows>
-                <read_rows>0</read_rows>
-                <execution_time>0</execution_time>
-            </interval>
-        </default>
-    </quotas>
-    
     <!-- Сжатие -->
     <compression>
         <case>
@@ -66,21 +37,4 @@
         </case>
     </compression>
     
-    <!-- Дисковая политика -->
-    <storage_configuration>
-        <disks>
-            <default>
-                <path>/var/lib/clickhouse/</path>
-            </default>
-        </disks>
-        <policies>
-            <default>
-                <volumes>
-                    <default>
-                        <disk>default</disk>
-                    </default>
-                </volumes>
-            </default>
-        </policies>
-    </storage_configuration>
 </clickhouse>
