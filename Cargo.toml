@@ -1,7 +1,7 @@
 [package]
 name = "robots"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 
 [[bin]]
 name = "robots"
@@ -55,3 +55,6 @@ arrow = "50.0"
 parquet = "50.0"
 datafusion = "37.0"
 arrow-flight = { version = "50.0", features = ["flight-sql-experimental"] }
+
+[dependencies.comfy-table]
+version = "=7.1.1"

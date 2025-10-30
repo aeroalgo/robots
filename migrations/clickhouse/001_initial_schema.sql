@@ -2,13 +2,9 @@
 -- Инициализация ClickHouse для торговых роботов
 -- ============================================================================
 
--- Создание базы данных
 CREATE DATABASE IF NOT EXISTS trading;
 
-USE trading;
-
--- Таблица для исторических данных OHLCV
-CREATE TABLE IF NOT EXISTS ohlcv_data (
+CREATE TABLE IF NOT EXISTS trading.ohlcv_data (
     symbol String,
     timeframe String,
     timestamp DateTime64(3),
@@ -23,8 +19,7 @@ PARTITION BY toYYYYMM(timestamp)
 ORDER BY (symbol, timeframe, timestamp)
 SETTINGS index_granularity = 8192;
 
--- Таблица для тиковых данных
-CREATE TABLE IF NOT EXISTS tick_data (
+CREATE TABLE IF NOT EXISTS trading.tick_data (
     symbol String,
     timestamp DateTime64(3),
     bid Float64,
@@ -37,8 +32,7 @@ PARTITION BY toYYYYMM(timestamp)
 ORDER BY (symbol, timestamp)
 SETTINGS index_granularity = 8192;
 
--- Таблица для индикаторов
-CREATE TABLE IF NOT EXISTS indicators (
+CREATE TABLE IF NOT EXISTS trading.indicators (
     symbol String,
     timeframe String,
     indicator_name String,
@@ -51,8 +45,7 @@ PARTITION BY toYYYYMM(timestamp)
 ORDER BY (symbol, timeframe, indicator_name, timestamp)
 SETTINGS index_granularity = 8192;
 
--- Таблица для сигналов
-CREATE TABLE IF NOT EXISTS signals (
+CREATE TABLE IF NOT EXISTS trading.signals (
     strategy_id String,
     symbol String,
     timeframe String,
@@ -67,8 +60,7 @@ PARTITION BY toYYYYMM(timestamp)
 ORDER BY (strategy_id, symbol, timestamp)
 SETTINGS index_granularity = 8192;
 
--- Таблица для сделок
-CREATE TABLE IF NOT EXISTS trades (
+CREATE TABLE IF NOT EXISTS trading.trades (
     trade_id String,
     strategy_id String,
     symbol String,
@@ -88,8 +80,7 @@ PARTITION BY toYYYYMM(entry_time)
 ORDER BY (strategy_id, symbol, entry_time)
 SETTINGS index_granularity = 8192;
 
--- Таблица для метрик стратегий
-CREATE TABLE IF NOT EXISTS strategy_metrics (
+CREATE TABLE IF NOT EXISTS trading.strategy_metrics (
     strategy_id String,
     metric_name String,
     metric_value Float64,
@@ -103,8 +94,7 @@ PARTITION BY toYYYYMM(calculation_date)
 ORDER BY (strategy_id, metric_name, calculation_date)
 SETTINGS index_granularity = 8192;
 
--- Таблица для оптимизации параметров
-CREATE TABLE IF NOT EXISTS optimization_results (
+CREATE TABLE IF NOT EXISTS trading.optimization_results (
     optimization_id String,
     strategy_id String,
     parameter_name String,
@@ -118,8 +108,7 @@ PARTITION BY toYYYYMM(created_at)
 ORDER BY (optimization_id, strategy_id, iteration)
 SETTINGS index_granularity = 8192;
 
--- Создание материализованных представлений для агрегации
-CREATE MATERIALIZED VIEW IF NOT EXISTS daily_stats
+CREATE MATERIALIZED VIEW IF NOT EXISTS trading.daily_stats
 ENGINE = SummingMergeTree()
 PARTITION BY toYYYYMM(date)
 ORDER BY (symbol, date)
@@ -132,5 +121,5 @@ AS SELECT
     argMin(open, timestamp) as daily_open,
     argMax(close, timestamp) as daily_close,
     sum(volume) as daily_volume
-FROM ohlcv_data
+FROM trading.ohlcv_data
 GROUP BY symbol, date;

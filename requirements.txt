@@ -79,3 +79,5 @@ webencodings==0.5.1
 yarl==1.9.2
 zipp==3.6.0
 clickhouse-connect==0.6.23
+clickhouse-driver==0.2.7
+psycopg2-binary==2.9.9
