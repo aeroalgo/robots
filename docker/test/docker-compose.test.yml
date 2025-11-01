@@ -1,0 +1,146 @@
+version: "3.8"
+
+# Тестовое окружение - изолированное от production
+# Использует те же версии что и production, но разные порты и данные
+
+services:
+  # ====================================================================
+  # ТЕСТОВЫЕ БАЗЫ ДАННЫХ
+  # ====================================================================
+
+  # ClickHouse для тестов
+  clickhouse-test:
+    image: clickhouse/clickhouse-server:23.8-alpine
+    container_name: clickhouse-test
+    ports:
+      - "9001:9000" # Native protocol (production: 9002)
+      - "8124:8123" # HTTP interface (production: 8123)
+    volumes:
+      - clickhouse-test-data:/var/lib/clickhouse
+      - ../../migrations/clickhouse:/docker-entrypoint-initdb.d:ro
+    environment:
+      CLICKHOUSE_DB: trading_test
+      CLICKHOUSE_USER: test_user
+      CLICKHOUSE_PASSWORD: test_password
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8123/ping",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - test-network
+
+  # MongoDB для тестов
+  mongodb-test:
+    image: mongo:7.0
+    container_name: mongodb-test
+    ports:
+      - "27018:27017" # Production: 27017
+    volumes:
+      - mongodb-test-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: test_admin
+      MONGO_INITDB_ROOT_PASSWORD: test_password
+      MONGO_INITDB_DATABASE: trading_test
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - test-network
+
+  # Redis для тестов
+  redis-test:
+    image: redis:7-alpine
+    container_name: redis-test
+    ports:
+      - "6380:6379" # Production: 6379
+    volumes:
+      - redis-test-data:/data
+    command: redis-server --appendonly yes --requirepass test_password
+    environment:
+      - REDIS_PASSWORD=test_password
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - test-network
+
+  # ====================================================================
+  # TEST RUNNER - Контейнер для запуска тестов
+  # ====================================================================
+
+  test-runner:
+    build:
+      context: ../..
+      dockerfile: docker/test/Dockerfile.test
+    container_name: test-runner
+    depends_on:
+      clickhouse-test:
+        condition: service_healthy
+      mongodb-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    environment:
+      # Тестовые БД
+      CLICKHOUSE_HOST: clickhouse-test
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_AVAILABLE: "true"
+      MONGODB_HOST: mongodb-test
+      MONGODB_PORT: 27017
+      MONGODB_AVAILABLE: "true"
+      REDIS_HOST: redis-test
+      REDIS_PORT: 6379
+      # Настройки Rust
+      RUST_BACKTRACE: 1
+      RUST_LOG: debug
+      CARGO_HOME: /usr/local/cargo
+    volumes:
+      - ../..:/app
+      - test-cargo-cache:/usr/local/cargo/registry
+      - test-target-cache:/app/target
+    working_dir: /app
+    networks:
+      - test-network
+    # Команда выполняется автоматически при запуске
+    command: >
+      sh -c "
+        echo '🔧 Применение миграций ClickHouse...' &&
+        wget -qO- --post-data='CREATE DATABASE IF NOT EXISTS trading_test' http://clickhouse-test:8123 &&
+        cat /app/migrations/clickhouse/001_initial_schema.sql | sed 's/trading\./trading_test\./g' | wget -qO- --post-data=@- 'http://clickhouse-test:8123/?database=trading_test' &&
+        echo '✅ Миграции применены' &&
+        echo '' &&
+        echo '🧪 Запуск интеграционных тестов...' &&
+        echo '===================================' &&
+        cargo test --tests -- --test-threads=1 --ignored --nocapture
+      "
+
+volumes:
+  clickhouse-test-data:
+    driver: local
+  mongodb-test-data:
+    driver: local
+  redis-test-data:
+    driver: local
+  test-cargo-cache:
+    driver: local
+  test-target-cache:
+    driver: local
+
+networks:
+  test-network:
+    driver: bridge

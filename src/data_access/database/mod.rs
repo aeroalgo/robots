@@ -10,13 +10,19 @@ pub mod redis;
 
 // Re-export для удобства использования
 pub use arrow_flight::{
-    ArrowFlightConfig, ArrowFlightConnector, ArrowFlightUtils,
-    CandleArrowFlightConnector, TradeArrowFlightConnector,
+    ArrowFlightConfig, ArrowFlightConnector, ArrowFlightUtils, CandleArrowFlightConnector,
+    TradeArrowFlightConnector,
 };
-pub use clickhouse::{ClickHouseConfig, ClickHouseConnector, ClickHouseTransaction};
+pub use clickhouse::{
+    ClickHouseConfig, ClickHouseConnector, ClickHouseTransaction,
+    // Модели данных
+    OhlcvData, TickData, SymbolInfo, Indicator, Signal, TradeRecord, StrategyMetric,
+    Strategy, BacktestRecord, Position, OrderRecord, GeneticIndividual, OptimizationResult,
+    PortfolioSnapshot, WalkForwardResult,
+};
 pub use datafusion::{
-    AnalyticsQuery, BacktestAnalyticsConnector, CandleAnalyticsConnector,
-    DataFusionConfig, DataFusionConnector, DataFusionUtils, TableStats,
+    AnalyticsQuery, BacktestAnalyticsConnector, CandleAnalyticsConnector, DataFusionConfig,
+    DataFusionConnector, DataFusionUtils, TableStats,
 };
 pub use mongodb::{MongoDBConfig, MongoDBConnector, MongoDBTransaction, MongoDBUtils};
 pub use parquet::{

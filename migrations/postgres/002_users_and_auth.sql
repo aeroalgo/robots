@@ -104,3 +104,5 @@ CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE INDEX idx_trading_accounts_user_id ON trading_accounts(user_id);
 CREATE INDEX idx_subscriptions_user_id ON subscriptions(user_id);
 
+
+

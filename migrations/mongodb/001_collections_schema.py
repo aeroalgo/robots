@@ -126,3 +126,5 @@ def apply_migration(db):
     
     print('MongoDB collections and indexes created successfully!')
 
+
+

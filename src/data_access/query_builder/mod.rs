@@ -13,9 +13,14 @@ pub use arrow::{
     FilterValue, LogicalOperator, OrderBy, SortDirection, TradeArrowQueryBuilder,
 };
 pub use clickhouse::{
-    BacktestQueryBuilder as ClickHouseBacktestQueryBuilder,
-    CandleQueryBuilder as ClickHouseCandleQueryBuilder, ClickHouseQueryBuilder, ClickHouseUtils,
-    TradeQueryBuilder as ClickHouseTradeQueryBuilder,
+    // Базовый билдер
+    ClickHouseQueryBuilder, ClickHouseUtils,
+    // Специализированные билдеры для всех таблиц
+    ClickHouseBacktestQueryBuilder, ClickHouseCandleQueryBuilder, ClickHouseTradeQueryBuilder,
+    SignalQueryBuilder, IndicatorQueryBuilder, StrategyQueryBuilder as ClickHouseStrategyQueryBuilder,
+    StrategyMetricQueryBuilder, PositionQueryBuilder, OrderQueryBuilder,
+    GeneticPopulationQueryBuilder, OptimizationResultQueryBuilder,
+    PortfolioSnapshotQueryBuilder, WalkForwardQueryBuilder,
 };
 pub use mongodb::{
     BacktestQueryBuilder as MongoDBBacktestQueryBuilder,
