@@ -451,7 +451,7 @@ This is an experimental system that I've created as a personal hobby project. I 
 ## Resources
 
 - [Cursor Custom Modes Documentation](https://docs.cursor.com/chat/custom-modes)
-- Memory Bank Reference Files (in .cursor/rules/isolation_rules/)
+- Memory Bank Reference Files (in cursor-memory-bank/.cursor/rules/isolation_rules/)
 - Mode-specific instruction files (van_instructions.md, plan_instructions.md, etc.)
 - [CREATIVE Mode and Claude's "Think" Tool](creative_mode_think_tool.md)
 

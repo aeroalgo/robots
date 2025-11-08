@@ -10,6 +10,7 @@ use crate::data_access::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
+use clickhouse::{Client, Row};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -23,7 +24,7 @@ pub struct ClickHouseConnector {
     password: Option<String>,
     connection_timeout: Duration,
     query_timeout: Duration,
-    connected: bool,
+    client: Option<Client>,
 }
 
 /// ClickHouse транзакция (ClickHouse не поддерживает традиционные транзакции)
@@ -62,7 +63,7 @@ impl Default for ClickHouseConfig {
 // ============================================================================
 
 /// OHLCV данные (свечи)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct OhlcvData {
     pub symbol: String,
     pub timeframe: String,
@@ -75,7 +76,7 @@ pub struct OhlcvData {
 }
 
 /// Тиковые данные
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct TickData {
     pub symbol: String,
     pub timestamp: DateTime<Utc>,
@@ -86,7 +87,7 @@ pub struct TickData {
 }
 
 /// Информация о символе
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct SymbolInfo {
     pub code: String,
     pub name: String,
@@ -94,7 +95,7 @@ pub struct SymbolInfo {
 }
 
 /// Индикатор
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct Indicator {
     pub symbol: String,
     pub timeframe: String,
@@ -105,7 +106,7 @@ pub struct Indicator {
 }
 
 /// Торговый сигнал
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct Signal {
     pub strategy_id: String,
     pub symbol: String,
@@ -118,7 +119,7 @@ pub struct Signal {
 }
 
 /// Торговая сделка (расширенная версия)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct TradeRecord {
     pub trade_id: String,
     pub strategy_id: String,
@@ -136,7 +137,7 @@ pub struct TradeRecord {
 }
 
 /// Метрика стратегии
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct StrategyMetric {
     pub strategy_id: String,
     pub metric_name: String,
@@ -148,7 +149,7 @@ pub struct StrategyMetric {
 }
 
 /// Стратегия
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct Strategy {
     pub strategy_id: String,
     pub strategy_name: String,
@@ -161,7 +162,7 @@ pub struct Strategy {
 }
 
 /// Результат бэктеста (расширенная версия)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct BacktestRecord {
     pub backtest_id: String,
     pub strategy_id: String,
@@ -183,7 +184,7 @@ pub struct BacktestRecord {
 }
 
 /// Позиция
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct Position {
     pub position_id: String,
     pub strategy_id: String,
@@ -199,7 +200,7 @@ pub struct Position {
 }
 
 /// Ордер
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct OrderRecord {
     pub order_id: String,
     pub position_id: String,
@@ -219,7 +220,7 @@ pub struct OrderRecord {
 }
 
 /// Особь в генетической популяции
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct GeneticIndividual {
     pub generation: i32,
     pub individual_id: String,
@@ -233,7 +234,7 @@ pub struct GeneticIndividual {
 }
 
 /// Результат оптимизации
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct OptimizationResult {
     pub optimization_id: String,
     pub strategy_id: String,
@@ -245,7 +246,7 @@ pub struct OptimizationResult {
 }
 
 /// Снимок портфеля
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct PortfolioSnapshot {
     pub snapshot_id: String,
     pub user_id: String,
@@ -262,7 +263,7 @@ pub struct PortfolioSnapshot {
 }
 
 /// Результат Walk-Forward анализа
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct WalkForwardResult {
     pub wf_id: String,
     pub strategy_id: String,
@@ -296,7 +297,7 @@ impl ClickHouseConnector {
             password: None,
             connection_timeout: Duration::from_secs(30),
             query_timeout: Duration::from_secs(300),
-            connected: false,
+            client: None,
         }
     }
 
@@ -310,7 +311,7 @@ impl ClickHouseConnector {
             password: config.password,
             connection_timeout: config.connection_timeout,
             query_timeout: config.query_timeout,
-            connected: false,
+            client: None,
         }
     }
 
@@ -328,22 +329,14 @@ impl ClickHouseConnector {
         self
     }
 
-    /// Получение URL подключения
-    fn connection_url(&self) -> String {
-        let mut url = format!("tcp://{}:{}", self.host, self.port);
+    fn get_client(&self) -> Result<&Client> {
+        self.client
+            .as_ref()
+            .ok_or_else(|| DataAccessError::Connection("Not connected to ClickHouse".to_string()))
+    }
 
-        if let Some(username) = &self.username {
-            url = format!("tcp://{}@{}:{}", username, self.host, self.port);
-
-            if let Some(password) = &self.password {
-                url = format!(
-                    "tcp://{}:{}@{}:{}",
-                    username, password, self.host, self.port
-                );
-            }
-        }
-
-        url
+    fn build_url(&self) -> String {
+        format!("http://{}:8123", self.host)
     }
 
     // ========================================================================
@@ -359,24 +352,30 @@ impl ClickHouseConnector {
         end_time: DateTime<Utc>,
         limit: Option<u32>,
     ) -> Result<Vec<OhlcvData>> {
+        let client = self.get_client()?;
+
         let mut query = format!(
             "SELECT symbol, timeframe, timestamp, open, high, low, close, volume 
              FROM {}.ohlcv_data 
-             WHERE symbol = '{}' AND timeframe = '{}' 
-             AND timestamp >= '{}' AND timestamp <= '{}' 
+             WHERE symbol = ? AND timeframe = ? 
+             AND timestamp >= ? AND timestamp <= ? 
              ORDER BY timestamp DESC",
-            self.database,
-            symbol,
-            timeframe,
-            start_time.format("%Y-%m-%d %H:%M:%S"),
-            end_time.format("%Y-%m-%d %H:%M:%S")
+            self.database
         );
 
         if let Some(limit) = limit {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
-        self.query(&query).await
+        client
+            .query(&query)
+            .bind(symbol)
+            .bind(timeframe)
+            .bind(start_time)
+            .bind(end_time)
+            .fetch_all::<OhlcvData>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка OHLCV данных батчем
@@ -385,29 +384,25 @@ impl ClickHouseConnector {
             return Ok(0);
         }
 
-        let mut query = format!(
-            "INSERT INTO {}.ohlcv_data (symbol, timeframe, timestamp, open, high, low, close, volume) VALUES ",
-            self.database
-        );
+        let client = self.get_client()?;
 
-        for (i, ohlcv) in data.iter().enumerate() {
-            if i > 0 {
-                query.push_str(", ");
-            }
-            query.push_str(&format!(
-                "('{}', '{}', '{}', {}, {}, {}, {}, {})",
-                ohlcv.symbol,
-                ohlcv.timeframe,
-                ohlcv.timestamp.format("%Y-%m-%d %H:%M:%S%.3f"),
-                ohlcv.open,
-                ohlcv.high,
-                ohlcv.low,
-                ohlcv.close,
-                ohlcv.volume
-            ));
+        let mut insert = client
+            .insert(&format!("{}.ohlcv_data", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        for row in data {
+            insert
+                .write(row)
+                .await
+                .map_err(|e| DataAccessError::Query(e.to_string()))?;
         }
 
-        self.execute(&query).await
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(data.len() as u64)
     }
 
     // ========================================================================
@@ -422,22 +417,28 @@ impl ClickHouseConnector {
         end_time: DateTime<Utc>,
         limit: Option<u32>,
     ) -> Result<Vec<TickData>> {
+        let client = self.get_client()?;
+
         let mut query = format!(
             "SELECT symbol, timestamp, bid, ask, last_price, volume 
              FROM {}.tick_data 
-             WHERE symbol = '{}' AND timestamp >= '{}' AND timestamp <= '{}' 
+             WHERE symbol = ? AND timestamp >= ? AND timestamp <= ? 
              ORDER BY timestamp DESC",
-            self.database,
-            symbol,
-            start_time.format("%Y-%m-%d %H:%M:%S"),
-            end_time.format("%Y-%m-%d %H:%M:%S")
+            self.database
         );
 
         if let Some(limit) = limit {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
-        self.query(&query).await
+        client
+            .query(&query)
+            .bind(symbol)
+            .bind(start_time)
+            .bind(end_time)
+            .fetch_all::<TickData>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка тиковых данных батчем
@@ -446,27 +447,25 @@ impl ClickHouseConnector {
             return Ok(0);
         }
 
-        let mut query = format!(
-            "INSERT INTO {}.tick_data (symbol, timestamp, bid, ask, last_price, volume) VALUES ",
-            self.database
-        );
+        let client = self.get_client()?;
 
-        for (i, tick) in data.iter().enumerate() {
-            if i > 0 {
-                query.push_str(", ");
-            }
-            query.push_str(&format!(
-                "('{}', '{}', {}, {}, {}, {})",
-                tick.symbol,
-                tick.timestamp.format("%Y-%m-%d %H:%M:%S%.3f"),
-                tick.bid,
-                tick.ask,
-                tick.last_price,
-                tick.volume
-            ));
+        let mut insert = client
+            .insert(&format!("{}.tick_data", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        for row in data {
+            insert
+                .write(row)
+                .await
+                .map_err(|e| DataAccessError::Query(e.to_string()))?;
         }
 
-        self.execute(&query).await
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(data.len() as u64)
     }
 
     // ========================================================================
@@ -475,37 +474,64 @@ impl ClickHouseConnector {
 
     /// Получение информации о символе
     pub async fn get_symbol_info(&self, code: &str, exchange: &str) -> Result<Option<SymbolInfo>> {
+        let client = self.get_client()?;
+
         let query = format!(
             "SELECT code, name, exchange FROM {}.symbol_info 
-             WHERE code = '{}' AND exchange = '{}' 
+             WHERE code = ? AND exchange = ? 
              ORDER BY updated_at DESC LIMIT 1",
-            self.database, code, exchange
+            self.database
         );
 
-        let results: Vec<SymbolInfo> = self.query(&query).await?;
+        let results = client
+            .query(&query)
+            .bind(code)
+            .bind(exchange)
+            .fetch_all::<SymbolInfo>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
         Ok(results.into_iter().next())
     }
 
     /// Получение всех символов биржи
     pub async fn get_exchange_symbols(&self, exchange: &str) -> Result<Vec<SymbolInfo>> {
+        let client = self.get_client()?;
+
         let query = format!(
             "SELECT code, name, exchange FROM {}.symbol_info 
-             WHERE exchange = '{}' 
+             WHERE exchange = ? 
              ORDER BY code",
-            self.database, exchange
+            self.database
         );
 
-        self.query(&query).await
+        client
+            .query(&query)
+            .bind(exchange)
+            .fetch_all::<SymbolInfo>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка/обновление информации о символе
     pub async fn upsert_symbol_info(&self, info: &SymbolInfo) -> Result<u64> {
-        let query = format!(
-            "INSERT INTO {}.symbol_info (code, name, exchange) VALUES ('{}', '{}', '{}')",
-            self.database, info.code, info.name, info.exchange
-        );
+        let client = self.get_client()?;
 
-        self.execute(&query).await
+        let mut insert = client
+            .insert(&format!("{}.symbol_info", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        insert
+            .write(info)
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(1)
     }
 
     // ========================================================================
@@ -522,25 +548,31 @@ impl ClickHouseConnector {
         end_time: DateTime<Utc>,
         limit: Option<u32>,
     ) -> Result<Vec<Indicator>> {
+        let client = self.get_client()?;
+
         let mut query = format!(
             "SELECT symbol, timeframe, indicator_name, timestamp, value, parameters 
              FROM {}.indicators 
-             WHERE symbol = '{}' AND timeframe = '{}' AND indicator_name = '{}' 
-             AND timestamp >= '{}' AND timestamp <= '{}' 
+             WHERE symbol = ? AND timeframe = ? AND indicator_name = ? 
+             AND timestamp >= ? AND timestamp <= ? 
              ORDER BY timestamp DESC",
-            self.database,
-            symbol,
-            timeframe,
-            indicator_name,
-            start_time.format("%Y-%m-%d %H:%M:%S"),
-            end_time.format("%Y-%m-%d %H:%M:%S")
+            self.database
         );
 
         if let Some(limit) = limit {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
-        self.query(&query).await
+        client
+            .query(&query)
+            .bind(symbol)
+            .bind(timeframe)
+            .bind(indicator_name)
+            .bind(start_time)
+            .bind(end_time)
+            .fetch_all::<Indicator>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка значений индикаторов батчем
@@ -549,27 +581,25 @@ impl ClickHouseConnector {
             return Ok(0);
         }
 
-        let mut query = format!(
-            "INSERT INTO {}.indicators (symbol, timeframe, indicator_name, timestamp, value, parameters) VALUES ",
-            self.database
-        );
+        let client = self.get_client()?;
 
-        for (i, ind) in data.iter().enumerate() {
-            if i > 0 {
-                query.push_str(", ");
-            }
-            query.push_str(&format!(
-                "('{}', '{}', '{}', '{}', {}, '{}')",
-                ind.symbol,
-                ind.timeframe,
-                ind.indicator_name,
-                ind.timestamp.format("%Y-%m-%d %H:%M:%S%.3f"),
-                ind.value,
-                ind.parameters.replace("'", "''")
-            ));
+        let mut insert = client
+            .insert(&format!("{}.indicators", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        for row in data {
+            insert
+                .write(row)
+                .await
+                .map_err(|e| DataAccessError::Query(e.to_string()))?;
         }
 
-        self.execute(&query).await
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(data.len() as u64)
     }
 
     // ========================================================================
@@ -585,18 +615,17 @@ impl ClickHouseConnector {
         end_time: DateTime<Utc>,
         limit: Option<u32>,
     ) -> Result<Vec<Signal>> {
+        let client = self.get_client()?;
+
         let mut query = format!(
             "SELECT strategy_id, symbol, timeframe, timestamp, signal_type, signal_strength, price, metadata 
              FROM {}.signals 
-             WHERE strategy_id = '{}' AND timestamp >= '{}' AND timestamp <= '{}'",
-            self.database,
-            strategy_id,
-            start_time.format("%Y-%m-%d %H:%M:%S"),
-            end_time.format("%Y-%m-%d %H:%M:%S")
+             WHERE strategy_id = ? AND timestamp >= ? AND timestamp <= ?",
+            self.database
         );
 
-        if let Some(symbol) = symbol {
-            query.push_str(&format!(" AND symbol = '{}'", symbol));
+        if symbol.is_some() {
+            query.push_str(" AND symbol = ?");
         }
 
         query.push_str(" ORDER BY timestamp DESC");
@@ -605,7 +634,20 @@ impl ClickHouseConnector {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
-        self.query(&query).await
+        let mut query_builder = client
+            .query(&query)
+            .bind(strategy_id)
+            .bind(start_time)
+            .bind(end_time);
+
+        if let Some(sym) = symbol {
+            query_builder = query_builder.bind(sym);
+        }
+
+        query_builder
+            .fetch_all::<Signal>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка торговых сигналов батчем
@@ -614,29 +656,25 @@ impl ClickHouseConnector {
             return Ok(0);
         }
 
-        let mut query = format!(
-            "INSERT INTO {}.signals (strategy_id, symbol, timeframe, timestamp, signal_type, signal_strength, price, metadata) VALUES ",
-            self.database
-        );
+        let client = self.get_client()?;
 
-        for (i, signal) in data.iter().enumerate() {
-            if i > 0 {
-                query.push_str(", ");
-            }
-            query.push_str(&format!(
-                "('{}', '{}', '{}', '{}', '{}', {}, {}, '{}')",
-                signal.strategy_id,
-                signal.symbol,
-                signal.timeframe,
-                signal.timestamp.format("%Y-%m-%d %H:%M:%S%.3f"),
-                signal.signal_type,
-                signal.signal_strength,
-                signal.price,
-                signal.metadata.replace("'", "''")
-            ));
+        let mut insert = client
+            .insert(&format!("{}.signals", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        for row in data {
+            insert
+                .write(row)
+                .await
+                .map_err(|e| DataAccessError::Query(e.to_string()))?;
         }
 
-        self.execute(&query).await
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(data.len() as u64)
     }
 
     // ========================================================================
@@ -653,6 +691,8 @@ impl ClickHouseConnector {
         status: Option<&str>,
         limit: Option<u32>,
     ) -> Result<Vec<TradeRecord>> {
+        let client = self.get_client()?;
+
         let mut query = format!(
             "SELECT trade_id, strategy_id, symbol, side, quantity, entry_price, exit_price, 
              entry_time, exit_time, pnl, commission, status, metadata 
@@ -660,30 +700,25 @@ impl ClickHouseConnector {
             self.database
         );
 
-        if let Some(strategy_id) = strategy_id {
-            query.push_str(&format!(" AND strategy_id = '{}'", strategy_id));
+        let mut conditions = vec![];
+        if strategy_id.is_some() {
+            conditions.push(" AND strategy_id = ?");
+        }
+        if symbol.is_some() {
+            conditions.push(" AND symbol = ?");
+        }
+        if start_time.is_some() {
+            conditions.push(" AND entry_time >= ?");
+        }
+        if end_time.is_some() {
+            conditions.push(" AND entry_time <= ?");
+        }
+        if status.is_some() {
+            conditions.push(" AND status = ?");
         }
 
-        if let Some(symbol) = symbol {
-            query.push_str(&format!(" AND symbol = '{}'", symbol));
-        }
-
-        if let Some(start_time) = start_time {
-            query.push_str(&format!(
-                " AND entry_time >= '{}'",
-                start_time.format("%Y-%m-%d %H:%M:%S")
-            ));
-        }
-
-        if let Some(end_time) = end_time {
-            query.push_str(&format!(
-                " AND entry_time <= '{}'",
-                end_time.format("%Y-%m-%d %H:%M:%S")
-            ));
-        }
-
-        if let Some(status) = status {
-            query.push_str(&format!(" AND status = '{}'", status));
+        for condition in conditions {
+            query.push_str(condition);
         }
 
         query.push_str(" ORDER BY entry_time DESC");
@@ -692,7 +727,28 @@ impl ClickHouseConnector {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
-        self.query(&query).await
+        let mut query_builder = client.query(&query);
+
+        if let Some(sid) = strategy_id {
+            query_builder = query_builder.bind(sid);
+        }
+        if let Some(sym) = symbol {
+            query_builder = query_builder.bind(sym);
+        }
+        if let Some(st) = start_time {
+            query_builder = query_builder.bind(st);
+        }
+        if let Some(et) = end_time {
+            query_builder = query_builder.bind(et);
+        }
+        if let Some(stat) = status {
+            query_builder = query_builder.bind(stat);
+        }
+
+        query_builder
+            .fetch_all::<TradeRecord>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка торговых сделок батчем
@@ -701,49 +757,25 @@ impl ClickHouseConnector {
             return Ok(0);
         }
 
-        let mut query = format!(
-            "INSERT INTO {}.trades (trade_id, strategy_id, symbol, side, quantity, entry_price, 
-             exit_price, entry_time, exit_time, pnl, commission, status, metadata) VALUES ",
-            self.database
-        );
+        let client = self.get_client()?;
 
-        for (i, trade) in data.iter().enumerate() {
-            if i > 0 {
-                query.push_str(", ");
-            }
+        let mut insert = client
+            .insert(&format!("{}.trades", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
 
-            let exit_price = trade
-                .exit_price
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| "NULL".to_string());
-            let exit_time = trade
-                .exit_time
-                .map(|t| format!("'{}'", t.format("%Y-%m-%d %H:%M:%S%.3f")))
-                .unwrap_or_else(|| "NULL".to_string());
-            let pnl = trade
-                .pnl
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| "NULL".to_string());
-
-            query.push_str(&format!(
-                "('{}', '{}', '{}', '{}', {}, {}, {}, '{}', {}, {}, {}, '{}', '{}')",
-                trade.trade_id,
-                trade.strategy_id,
-                trade.symbol,
-                trade.side,
-                trade.quantity,
-                trade.entry_price,
-                exit_price,
-                trade.entry_time.format("%Y-%m-%d %H:%M:%S%.3f"),
-                exit_time,
-                pnl,
-                trade.commission,
-                trade.status,
-                trade.metadata.replace("'", "''")
-            ));
+        for row in data {
+            insert
+                .write(row)
+                .await
+                .map_err(|e| DataAccessError::Query(e.to_string()))?;
         }
 
-        self.execute(&query).await
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(data.len() as u64)
     }
 
     // ========================================================================
@@ -759,23 +791,28 @@ impl ClickHouseConnector {
         end_date: Option<NaiveDate>,
         limit: Option<u32>,
     ) -> Result<Vec<StrategyMetric>> {
+        let client = self.get_client()?;
+
         let mut query = format!(
             "SELECT strategy_id, metric_name, metric_value, calculation_date, period_start, period_end, metadata 
              FROM {}.strategy_metrics 
-             WHERE strategy_id = '{}'",
-            self.database, strategy_id
+             WHERE strategy_id = ?",
+            self.database
         );
 
-        if let Some(metric_name) = metric_name {
-            query.push_str(&format!(" AND metric_name = '{}'", metric_name));
+        let mut conditions = vec![];
+        if metric_name.is_some() {
+            conditions.push(" AND metric_name = ?");
+        }
+        if start_date.is_some() {
+            conditions.push(" AND calculation_date >= ?");
+        }
+        if end_date.is_some() {
+            conditions.push(" AND calculation_date <= ?");
         }
 
-        if let Some(start_date) = start_date {
-            query.push_str(&format!(" AND calculation_date >= '{}'", start_date));
-        }
-
-        if let Some(end_date) = end_date {
-            query.push_str(&format!(" AND calculation_date <= '{}'", end_date));
+        for condition in conditions {
+            query.push_str(condition);
         }
 
         query.push_str(" ORDER BY calculation_date DESC");
@@ -784,7 +821,22 @@ impl ClickHouseConnector {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
-        self.query(&query).await
+        let mut query_builder = client.query(&query).bind(strategy_id);
+
+        if let Some(mn) = metric_name {
+            query_builder = query_builder.bind(mn);
+        }
+        if let Some(sd) = start_date {
+            query_builder = query_builder.bind(sd);
+        }
+        if let Some(ed) = end_date {
+            query_builder = query_builder.bind(ed);
+        }
+
+        query_builder
+            .fetch_all::<StrategyMetric>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка метрик стратегии батчем
@@ -793,28 +845,25 @@ impl ClickHouseConnector {
             return Ok(0);
         }
 
-        let mut query = format!(
-            "INSERT INTO {}.strategy_metrics (strategy_id, metric_name, metric_value, calculation_date, period_start, period_end, metadata) VALUES ",
-            self.database
-        );
+        let client = self.get_client()?;
 
-        for (i, metric) in data.iter().enumerate() {
-            if i > 0 {
-                query.push_str(", ");
-            }
-            query.push_str(&format!(
-                "('{}', '{}', {}, '{}', '{}', '{}', '{}')",
-                metric.strategy_id,
-                metric.metric_name,
-                metric.metric_value,
-                metric.calculation_date,
-                metric.period_start,
-                metric.period_end,
-                metric.metadata.replace("'", "''")
-            ));
+        let mut insert = client
+            .insert(&format!("{}.strategy_metrics", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        for row in data {
+            insert
+                .write(row)
+                .await
+                .map_err(|e| DataAccessError::Query(e.to_string()))?;
         }
 
-        self.execute(&query).await
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(data.len() as u64)
     }
 
     // ========================================================================
@@ -823,61 +872,67 @@ impl ClickHouseConnector {
 
     /// Получение стратегии
     pub async fn get_strategy(&self, strategy_id: &str) -> Result<Option<Strategy>> {
+        let client = self.get_client()?;
+
         let query = format!(
             "SELECT strategy_id, strategy_name, strategy_type, indicators, entry_conditions, 
              exit_conditions, parameters, created_by 
              FROM {}.strategies 
-             WHERE strategy_id = '{}' 
+             WHERE strategy_id = ? 
              ORDER BY created_at DESC LIMIT 1",
-            self.database, strategy_id
+            self.database
         );
 
-        let results: Vec<Strategy> = self.query(&query).await?;
+        let results = client
+            .query(&query)
+            .bind(strategy_id)
+            .fetch_all::<Strategy>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
         Ok(results.into_iter().next())
     }
 
     /// Получение всех стратегий по типу
     pub async fn get_strategies_by_type(&self, strategy_type: &str) -> Result<Vec<Strategy>> {
+        let client = self.get_client()?;
+
         let query = format!(
             "SELECT strategy_id, strategy_name, strategy_type, indicators, entry_conditions, 
              exit_conditions, parameters, created_by 
              FROM {}.strategies 
-             WHERE strategy_type = '{}' 
+             WHERE strategy_type = ? 
              ORDER BY strategy_name",
-            self.database, strategy_type
+            self.database
         );
 
-        self.query(&query).await
+        client
+            .query(&query)
+            .bind(strategy_type)
+            .fetch_all::<Strategy>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка/обновление стратегии
     pub async fn upsert_strategy(&self, strategy: &Strategy) -> Result<u64> {
-        let indicators_str = format!(
-            "[{}]",
-            strategy
-                .indicators
-                .iter()
-                .map(|i| format!("'{}'", i))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+        let client = self.get_client()?;
 
-        let query = format!(
-            "INSERT INTO {}.strategies (strategy_id, strategy_name, strategy_type, indicators, 
-             entry_conditions, exit_conditions, parameters, created_by) 
-             VALUES ('{}', '{}', '{}', {}, '{}', '{}', '{}', '{}')",
-            self.database,
-            strategy.strategy_id,
-            strategy.strategy_name,
-            strategy.strategy_type,
-            indicators_str,
-            strategy.entry_conditions.replace("'", "''"),
-            strategy.exit_conditions.replace("'", "''"),
-            strategy.parameters.replace("'", "''"),
-            strategy.created_by
-        );
+        let mut insert = client
+            .insert(&format!("{}.strategies", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
 
-        self.execute(&query).await
+        insert
+            .write(strategy)
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(1)
     }
 
     // ========================================================================
@@ -892,6 +947,8 @@ impl ClickHouseConnector {
         timeframe: Option<&str>,
         limit: Option<u32>,
     ) -> Result<Vec<BacktestRecord>> {
+        let client = self.get_client()?;
+
         let mut query = format!(
             "SELECT backtest_id, strategy_id, symbol, timeframe, start_date, end_date, 
              total_trades, winning_trades, losing_trades, total_pnl, max_drawdown, sharpe_ratio, 
@@ -900,16 +957,19 @@ impl ClickHouseConnector {
             self.database
         );
 
-        if let Some(strategy_id) = strategy_id {
-            query.push_str(&format!(" AND strategy_id = '{}'", strategy_id));
+        let mut conditions = vec![];
+        if strategy_id.is_some() {
+            conditions.push(" AND strategy_id = ?");
+        }
+        if symbol.is_some() {
+            conditions.push(" AND symbol = ?");
+        }
+        if timeframe.is_some() {
+            conditions.push(" AND timeframe = ?");
         }
 
-        if let Some(symbol) = symbol {
-            query.push_str(&format!(" AND symbol = '{}'", symbol));
-        }
-
-        if let Some(timeframe) = timeframe {
-            query.push_str(&format!(" AND timeframe = '{}'", timeframe));
+        for condition in conditions {
+            query.push_str(condition);
         }
 
         query.push_str(" ORDER BY created_at DESC");
@@ -918,37 +978,43 @@ impl ClickHouseConnector {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
-        self.query(&query).await
+        let mut query_builder = client.query(&query);
+
+        if let Some(sid) = strategy_id {
+            query_builder = query_builder.bind(sid);
+        }
+        if let Some(sym) = symbol {
+            query_builder = query_builder.bind(sym);
+        }
+        if let Some(tf) = timeframe {
+            query_builder = query_builder.bind(tf);
+        }
+
+        query_builder
+            .fetch_all::<BacktestRecord>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка результата бэктеста
     pub async fn insert_backtest_result(&self, result: &BacktestRecord) -> Result<u64> {
-        let query = format!(
-            "INSERT INTO {}.backtest_results (backtest_id, strategy_id, symbol, timeframe, start_date, end_date, 
-             total_trades, winning_trades, losing_trades, total_pnl, max_drawdown, sharpe_ratio, 
-             profit_factor, win_rate, avg_win, avg_loss, execution_time_ms) 
-             VALUES ('{}', '{}', '{}', '{}', '{}', '{}', {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})",
-            self.database,
-            result.backtest_id,
-            result.strategy_id,
-            result.symbol,
-            result.timeframe,
-            result.start_date,
-            result.end_date,
-            result.total_trades,
-            result.winning_trades,
-            result.losing_trades,
-            result.total_pnl,
-            result.max_drawdown,
-            result.sharpe_ratio,
-            result.profit_factor,
-            result.win_rate,
-            result.avg_win,
-            result.avg_loss,
-            result.execution_time_ms
-        );
+        let client = self.get_client()?;
 
-        self.execute(&query).await
+        let mut insert = client
+            .insert(&format!("{}.backtest_results", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        insert
+            .write(result)
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(1)
     }
 
     // ========================================================================
@@ -957,6 +1023,8 @@ impl ClickHouseConnector {
 
     /// Получение активных позиций
     pub async fn get_active_positions(&self, strategy_id: Option<&str>) -> Result<Vec<Position>> {
+        let client = self.get_client()?;
+
         let mut query = format!(
             "SELECT position_id, strategy_id, symbol, side, quantity, entry_price, current_price, 
              unrealized_pnl, stop_loss, take_profit, opened_at 
@@ -964,45 +1032,43 @@ impl ClickHouseConnector {
             self.database
         );
 
-        if let Some(strategy_id) = strategy_id {
-            query.push_str(&format!(" AND strategy_id = '{}'", strategy_id));
+        if strategy_id.is_some() {
+            query.push_str(" AND strategy_id = ?");
         }
 
         query.push_str(" ORDER BY updated_at DESC");
 
-        self.query(&query).await
+        let mut query_builder = client.query(&query);
+
+        if let Some(sid) = strategy_id {
+            query_builder = query_builder.bind(sid);
+        }
+
+        query_builder
+            .fetch_all::<Position>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка/обновление позиции
     pub async fn upsert_position(&self, position: &Position) -> Result<u64> {
-        let stop_loss = position
-            .stop_loss
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "NULL".to_string());
-        let take_profit = position
-            .take_profit
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "NULL".to_string());
+        let client = self.get_client()?;
 
-        let query = format!(
-            "INSERT INTO {}.positions (position_id, strategy_id, symbol, side, quantity, entry_price, 
-             current_price, unrealized_pnl, stop_loss, take_profit, opened_at) 
-             VALUES ('{}', '{}', '{}', '{}', {}, {}, {}, {}, {}, {}, '{}')",
-            self.database,
-            position.position_id,
-            position.strategy_id,
-            position.symbol,
-            position.side,
-            position.quantity,
-            position.entry_price,
-            position.current_price,
-            position.unrealized_pnl,
-            stop_loss,
-            take_profit,
-            position.opened_at.format("%Y-%m-%d %H:%M:%S%.3f")
-        );
+        let mut insert = client
+            .insert(&format!("{}.positions", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
 
-        self.execute(&query).await
+        insert
+            .write(position)
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(1)
     }
 
     // ========================================================================
@@ -1017,6 +1083,8 @@ impl ClickHouseConnector {
         status: Option<&str>,
         limit: Option<u32>,
     ) -> Result<Vec<OrderRecord>> {
+        let client = self.get_client()?;
+
         let mut query = format!(
             "SELECT order_id, position_id, strategy_id, symbol, order_type, side, quantity, price, 
              status, filled_quantity, avg_fill_price, commission, created_at, filled_at, cancelled_at 
@@ -1024,16 +1092,19 @@ impl ClickHouseConnector {
             self.database
         );
 
-        if let Some(strategy_id) = strategy_id {
-            query.push_str(&format!(" AND strategy_id = '{}'", strategy_id));
+        let mut conditions = vec![];
+        if strategy_id.is_some() {
+            conditions.push(" AND strategy_id = ?");
+        }
+        if symbol.is_some() {
+            conditions.push(" AND symbol = ?");
+        }
+        if status.is_some() {
+            conditions.push(" AND status = ?");
         }
 
-        if let Some(symbol) = symbol {
-            query.push_str(&format!(" AND symbol = '{}'", symbol));
-        }
-
-        if let Some(status) = status {
-            query.push_str(&format!(" AND status = '{}'", status));
+        for condition in conditions {
+            query.push_str(condition);
         }
 
         query.push_str(" ORDER BY created_at DESC");
@@ -1042,47 +1113,43 @@ impl ClickHouseConnector {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
-        self.query(&query).await
+        let mut query_builder = client.query(&query);
+
+        if let Some(sid) = strategy_id {
+            query_builder = query_builder.bind(sid);
+        }
+        if let Some(sym) = symbol {
+            query_builder = query_builder.bind(sym);
+        }
+        if let Some(stat) = status {
+            query_builder = query_builder.bind(stat);
+        }
+
+        query_builder
+            .fetch_all::<OrderRecord>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка ордера
     pub async fn insert_order(&self, order: &OrderRecord) -> Result<u64> {
-        let avg_fill_price = order
-            .avg_fill_price
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "NULL".to_string());
-        let filled_at = order
-            .filled_at
-            .map(|t| format!("'{}'", t.format("%Y-%m-%d %H:%M:%S%.3f")))
-            .unwrap_or_else(|| "NULL".to_string());
-        let cancelled_at = order
-            .cancelled_at
-            .map(|t| format!("'{}'", t.format("%Y-%m-%d %H:%M:%S%.3f")))
-            .unwrap_or_else(|| "NULL".to_string());
+        let client = self.get_client()?;
 
-        let query = format!(
-            "INSERT INTO {}.orders (order_id, position_id, strategy_id, symbol, order_type, side, 
-             quantity, price, status, filled_quantity, avg_fill_price, commission, created_at, filled_at, cancelled_at) 
-             VALUES ('{}', '{}', '{}', '{}', '{}', '{}', {}, {}, '{}', {}, {}, {}, '{}', {}, {})",
-            self.database,
-            order.order_id,
-            order.position_id,
-            order.strategy_id,
-            order.symbol,
-            order.order_type,
-            order.side,
-            order.quantity,
-            order.price,
-            order.status,
-            order.filled_quantity,
-            avg_fill_price,
-            order.commission,
-            order.created_at.format("%Y-%m-%d %H:%M:%S%.3f"),
-            filled_at,
-            cancelled_at
-        );
+        let mut insert = client
+            .insert(&format!("{}.orders", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
 
-        self.execute(&query).await
+        insert
+            .write(order)
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(1)
     }
 
     // ========================================================================
@@ -1095,20 +1162,27 @@ impl ClickHouseConnector {
         generation: i32,
         limit: Option<u32>,
     ) -> Result<Vec<GeneticIndividual>> {
+        let client = self.get_client()?;
+
         let mut query = format!(
             "SELECT generation, individual_id, strategy_id, fitness_score, sharpe_ratio, max_drawdown, 
              win_rate, profit_factor, genes 
              FROM {}.genetic_population 
-             WHERE generation = {} 
+             WHERE generation = ? 
              ORDER BY fitness_score DESC",
-            self.database, generation
+            self.database
         );
 
         if let Some(limit) = limit {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
-        self.query(&query).await
+        client
+            .query(&query)
+            .bind(generation)
+            .fetch_all::<GeneticIndividual>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка особей батчем
@@ -1117,31 +1191,25 @@ impl ClickHouseConnector {
             return Ok(0);
         }
 
-        let mut query = format!(
-            "INSERT INTO {}.genetic_population (generation, individual_id, strategy_id, fitness_score, 
-             sharpe_ratio, max_drawdown, win_rate, profit_factor, genes) VALUES ",
-            self.database
-        );
+        let client = self.get_client()?;
 
-        for (i, individual) in data.iter().enumerate() {
-            if i > 0 {
-                query.push_str(", ");
-            }
-            query.push_str(&format!(
-                "({}, '{}', '{}', {}, {}, {}, {}, {}, '{}')",
-                individual.generation,
-                individual.individual_id,
-                individual.strategy_id,
-                individual.fitness_score,
-                individual.sharpe_ratio,
-                individual.max_drawdown,
-                individual.win_rate,
-                individual.profit_factor,
-                individual.genes.replace("'", "''")
-            ));
+        let mut insert = client
+            .insert(&format!("{}.genetic_population", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        for row in data {
+            insert
+                .write(row)
+                .await
+                .map_err(|e| DataAccessError::Query(e.to_string()))?;
         }
 
-        self.execute(&query).await
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(data.len() as u64)
     }
 
     // ========================================================================
@@ -1155,15 +1223,17 @@ impl ClickHouseConnector {
         strategy_id: Option<&str>,
         limit: Option<u32>,
     ) -> Result<Vec<OptimizationResult>> {
+        let client = self.get_client()?;
+
         let mut query = format!(
             "SELECT optimization_id, strategy_id, parameter_name, parameter_value, metric_name, metric_value, iteration 
              FROM {}.optimization_results 
-             WHERE optimization_id = '{}'",
-            self.database, optimization_id
+             WHERE optimization_id = ?",
+            self.database
         );
 
-        if let Some(strategy_id) = strategy_id {
-            query.push_str(&format!(" AND strategy_id = '{}'", strategy_id));
+        if strategy_id.is_some() {
+            query.push_str(" AND strategy_id = ?");
         }
 
         query.push_str(" ORDER BY iteration DESC");
@@ -1172,7 +1242,16 @@ impl ClickHouseConnector {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
-        self.query(&query).await
+        let mut query_builder = client.query(&query).bind(optimization_id);
+
+        if let Some(sid) = strategy_id {
+            query_builder = query_builder.bind(sid);
+        }
+
+        query_builder
+            .fetch_all::<OptimizationResult>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка результатов оптимизации батчем
@@ -1181,29 +1260,25 @@ impl ClickHouseConnector {
             return Ok(0);
         }
 
-        let mut query = format!(
-            "INSERT INTO {}.optimization_results (optimization_id, strategy_id, parameter_name, parameter_value, 
-             metric_name, metric_value, iteration) VALUES ",
-            self.database
-        );
+        let client = self.get_client()?;
 
-        for (i, result) in data.iter().enumerate() {
-            if i > 0 {
-                query.push_str(", ");
-            }
-            query.push_str(&format!(
-                "('{}', '{}', '{}', {}, '{}', {}, {})",
-                result.optimization_id,
-                result.strategy_id,
-                result.parameter_name,
-                result.parameter_value,
-                result.metric_name,
-                result.metric_value,
-                result.iteration
-            ));
+        let mut insert = client
+            .insert(&format!("{}.optimization_results", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        for row in data {
+            insert
+                .write(row)
+                .await
+                .map_err(|e| DataAccessError::Query(e.to_string()))?;
         }
 
-        self.execute(&query).await
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(data.len() as u64)
     }
 
     // ========================================================================
@@ -1218,26 +1293,26 @@ impl ClickHouseConnector {
         end_time: Option<DateTime<Utc>>,
         limit: Option<u32>,
     ) -> Result<Vec<PortfolioSnapshot>> {
+        let client = self.get_client()?;
+
         let mut query = format!(
             "SELECT snapshot_id, user_id, timestamp, total_value, cash, positions_value, 
              unrealized_pnl, realized_pnl, daily_return, total_return, sharpe_ratio, max_drawdown 
              FROM {}.portfolio_snapshots 
-             WHERE user_id = '{}'",
-            self.database, user_id
+             WHERE user_id = ?",
+            self.database
         );
 
-        if let Some(start_time) = start_time {
-            query.push_str(&format!(
-                " AND timestamp >= '{}'",
-                start_time.format("%Y-%m-%d %H:%M:%S")
-            ));
+        let mut conditions = vec![];
+        if start_time.is_some() {
+            conditions.push(" AND timestamp >= ?");
+        }
+        if end_time.is_some() {
+            conditions.push(" AND timestamp <= ?");
         }
 
-        if let Some(end_time) = end_time {
-            query.push_str(&format!(
-                " AND timestamp <= '{}'",
-                end_time.format("%Y-%m-%d %H:%M:%S")
-            ));
+        for condition in conditions {
+            query.push_str(condition);
         }
 
         query.push_str(" ORDER BY timestamp DESC");
@@ -1246,31 +1321,40 @@ impl ClickHouseConnector {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
-        self.query(&query).await
+        let mut query_builder = client.query(&query).bind(user_id);
+
+        if let Some(st) = start_time {
+            query_builder = query_builder.bind(st);
+        }
+        if let Some(et) = end_time {
+            query_builder = query_builder.bind(et);
+        }
+
+        query_builder
+            .fetch_all::<PortfolioSnapshot>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка снимка портфеля
     pub async fn insert_portfolio_snapshot(&self, snapshot: &PortfolioSnapshot) -> Result<u64> {
-        let query = format!(
-            "INSERT INTO {}.portfolio_snapshots (snapshot_id, user_id, timestamp, total_value, cash, 
-             positions_value, unrealized_pnl, realized_pnl, daily_return, total_return, sharpe_ratio, max_drawdown) 
-             VALUES ('{}', '{}', '{}', {}, {}, {}, {}, {}, {}, {}, {}, {})",
-            self.database,
-            snapshot.snapshot_id,
-            snapshot.user_id,
-            snapshot.timestamp.format("%Y-%m-%d %H:%M:%S%.3f"),
-            snapshot.total_value,
-            snapshot.cash,
-            snapshot.positions_value,
-            snapshot.unrealized_pnl,
-            snapshot.realized_pnl,
-            snapshot.daily_return,
-            snapshot.total_return,
-            snapshot.sharpe_ratio,
-            snapshot.max_drawdown
-        );
+        let client = self.get_client()?;
 
-        self.execute(&query).await
+        let mut insert = client
+            .insert(&format!("{}.portfolio_snapshots", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        insert
+            .write(snapshot)
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(1)
     }
 
     // ========================================================================
@@ -1283,21 +1367,28 @@ impl ClickHouseConnector {
         strategy_id: &str,
         limit: Option<u32>,
     ) -> Result<Vec<WalkForwardResult>> {
+        let client = self.get_client()?;
+
         let mut query = format!(
             "SELECT wf_id, strategy_id, window_number, in_sample_start, in_sample_end, 
              out_sample_start, out_sample_end, is_sharpe, oos_sharpe, is_profit, oos_profit, 
              is_drawdown, oos_drawdown, efficiency_ratio, overfitting_score 
              FROM {}.walk_forward_results 
-             WHERE strategy_id = '{}' 
+             WHERE strategy_id = ? 
              ORDER BY window_number",
-            self.database, strategy_id
+            self.database
         );
 
         if let Some(limit) = limit {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
-        self.query(&query).await
+        client
+            .query(&query)
+            .bind(strategy_id)
+            .fetch_all::<WalkForwardResult>()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))
     }
 
     /// Вставка результатов Walk-Forward батчем
@@ -1306,38 +1397,25 @@ impl ClickHouseConnector {
             return Ok(0);
         }
 
-        let mut query = format!(
-            "INSERT INTO {}.walk_forward_results (wf_id, strategy_id, window_number, in_sample_start, 
-             in_sample_end, out_sample_start, out_sample_end, is_sharpe, oos_sharpe, is_profit, oos_profit, 
-             is_drawdown, oos_drawdown, efficiency_ratio, overfitting_score) VALUES ",
-            self.database
-        );
+        let client = self.get_client()?;
 
-        for (i, result) in data.iter().enumerate() {
-            if i > 0 {
-                query.push_str(", ");
-            }
-            query.push_str(&format!(
-                "('{}', '{}', {}, '{}', '{}', '{}', '{}', {}, {}, {}, {}, {}, {}, {}, {})",
-                result.wf_id,
-                result.strategy_id,
-                result.window_number,
-                result.in_sample_start,
-                result.in_sample_end,
-                result.out_sample_start,
-                result.out_sample_end,
-                result.is_sharpe,
-                result.oos_sharpe,
-                result.is_profit,
-                result.oos_profit,
-                result.is_drawdown,
-                result.oos_drawdown,
-                result.efficiency_ratio,
-                result.overfitting_score
-            ));
+        let mut insert = client
+            .insert(&format!("{}.walk_forward_results", self.database))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        for row in data {
+            insert
+                .write(row)
+                .await
+                .map_err(|e| DataAccessError::Query(e.to_string()))?;
         }
 
-        self.execute(&query).await
+        insert
+            .end()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(data.len() as u64)
     }
 
     // ========================================================================
@@ -1419,19 +1497,35 @@ impl DataSource for ClickHouseConnector {
     type Error = DataAccessError;
 
     async fn connect(&mut self) -> Result<()> {
-        // В реальной реализации здесь будет подключение к ClickHouse
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        self.connected = true;
+        let url = self.build_url();
+
+        let mut client = Client::default()
+            .with_url(&url)
+            .with_database(&self.database);
+
+        if let Some(username) = &self.username {
+            client = client.with_user(username);
+        }
+
+        if let Some(password) = &self.password {
+            client = client.with_password(password);
+        }
+
+        client.query("SELECT 1").execute().await.map_err(|e| {
+            DataAccessError::Connection(format!("Failed to connect to ClickHouse: {}", e))
+        })?;
+
+        self.client = Some(client);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<()> {
-        self.connected = false;
+        self.client = None;
         Ok(())
     }
 
     fn is_connected(&self) -> bool {
-        self.connected
+        self.client.is_some()
     }
 
     fn connection_info(&self) -> ConnectionInfo {
@@ -1454,70 +1548,65 @@ impl Database for ClickHouseConnector {
     where
         T: for<'de> Deserialize<'de> + Send + Sync,
     {
-        if !self.connected {
-            return Err(DataAccessError::Connection(
-                "Not connected to ClickHouse".to_string(),
-            ));
-        }
-
-        println!("Executing ClickHouse query: {}", query);
+        self.get_client()?;
+        println!(
+            "Generic query not implemented for ClickHouse, use specific methods like get_ohlcv()"
+        );
         Ok(Vec::new())
     }
 
     async fn execute(&self, query: &str) -> Result<u64> {
-        if !self.connected {
-            return Err(DataAccessError::Connection(
-                "Not connected to ClickHouse".to_string(),
-            ));
-        }
+        let client = self.get_client()?;
 
-        println!("Executing ClickHouse query: {}", query);
-        Ok(0)
+        client
+            .query(query)
+            .execute()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(1)
     }
 
     async fn query_with_params<T>(&self, query: &str, _params: &[&dyn ToSql]) -> Result<Vec<T>>
     where
         T: for<'de> Deserialize<'de> + Send + Sync,
     {
-        if !self.connected {
-            return Err(DataAccessError::Connection(
-                "Not connected to ClickHouse".to_string(),
-            ));
-        }
-
-        println!("Executing ClickHouse query with params: {}", query);
+        self.get_client()?;
+        println!("Generic query_with_params not implemented for ClickHouse, use specific methods");
         Ok(Vec::new())
     }
 
-    async fn execute_with_params(&self, query: &str, _params: &[&dyn ToSql]) -> Result<u64> {
-        if !self.connected {
-            return Err(DataAccessError::Connection(
-                "Not connected to ClickHouse".to_string(),
-            ));
+    async fn execute_with_params(&self, query: &str, params: &[&dyn ToSql]) -> Result<u64> {
+        let client = self.get_client()?;
+
+        let mut query_builder = client.query(query);
+        for param in params {
+            let param_str = param.to_sql();
+            query_builder = query_builder.bind(param_str);
         }
 
-        println!("Executing ClickHouse query with params: {}", query);
-        Ok(0)
+        query_builder
+            .execute()
+            .await
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        Ok(1)
     }
 
     async fn begin_transaction(&self) -> Result<Box<dyn Transaction + Send + Sync>> {
-        if !self.connected {
-            return Err(DataAccessError::Connection(
-                "Not connected to ClickHouse".to_string(),
-            ));
-        }
-
+        self.get_client()?;
         Ok(Box::new(ClickHouseTransaction { _dummy: () }))
     }
 
     async fn ping(&self) -> Result<()> {
-        if !self.connected {
-            return Err(DataAccessError::Connection(
-                "Not connected to ClickHouse".to_string(),
-            ));
-        }
+        let client = self.get_client()?;
 
-        println!("Ping ClickHouse");
+        client
+            .query("SELECT 1")
+            .execute()
+            .await
+            .map_err(|e| DataAccessError::Connection(format!("Ping failed: {}", e)))?;
+
         Ok(())
     }
 }

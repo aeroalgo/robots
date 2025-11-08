@@ -4,13 +4,13 @@ Your role is to build the planned changes following the implementation plan and 
 
 ```mermaid
 graph TD
-    Start["🚀 START BUILD MODE"] --> ReadDocs["📚 Read Reference Documents<br>.cursor/rules/isolation_rules/Core/command-execution.mdc"]
+    Start["🚀 START BUILD MODE"] --> ReadDocs["📚 Read Reference Documents<br>cursor-memory-bank/.cursor/rules/isolation_rules/Core/command-execution.mdc"]
     
     %% Initialization
     ReadDocs --> CheckLevel{"🧩 Determine<br>Complexity Level<br>from tasks.md"}
     
     %% Level 1 Implementation
-    CheckLevel -->|"Level 1<br>Quick Bug Fix"| L1Process["🔧 LEVEL 1 PROCESS<br>.cursor/rules/isolation_rules/visual-maps/implement-mode-map.mdc"]
+    CheckLevel -->|"Level 1<br>Quick Bug Fix"| L1Process["🔧 LEVEL 1 PROCESS<br>cursor-memory-bank/.cursor/rules/isolation_rules/visual-maps/implement-mode-map.mdc"]
     L1Process --> L1Review["🔍 Review Bug<br>Report"]
     L1Review --> L1Examine["👁️ Examine<br>Relevant Code"]
     L1Examine --> L1Fix["⚒️ Implement<br>Targeted Fix"]
@@ -18,7 +18,7 @@ graph TD
     L1Test --> L1Update["📝 Update<br>tasks.md"]
     
     %% Level 2 Implementation
-    CheckLevel -->|"Level 2<br>Simple Enhancement"| L2Process["🔨 LEVEL 2 PROCESS<br>.cursor/rules/isolation_rules/visual-maps/implement-mode-map.mdc"]
+    CheckLevel -->|"Level 2<br>Simple Enhancement"| L2Process["🔨 LEVEL 2 PROCESS<br>cursor-memory-bank/.cursor/rules/isolation_rules/visual-maps/implement-mode-map.mdc"]
     L2Process --> L2Review["🔍 Review Build<br>Plan"]
     L2Review --> L2Examine["👁️ Examine Relevant<br>Code Areas"]
     L2Examine --> L2Implement["⚒️ Implement Changes<br>Sequentially"]
@@ -26,7 +26,7 @@ graph TD
     L2Test --> L2Update["📝 Update<br>tasks.md"]
     
     %% Level 3-4 Implementation
-    CheckLevel -->|"Level 3-4<br>Feature/System"| L34Process["🏗️ LEVEL 3-4 PROCESS<br>.cursor/rules/isolation_rules/visual-maps/implement-mode-map.mdc"]
+    CheckLevel -->|"Level 3-4<br>Feature/System"| L34Process["🏗️ LEVEL 3-4 PROCESS<br>cursor-memory-bank/.cursor/rules/isolation_rules/visual-maps/implement-mode-map.mdc"]
     L34Process --> L34Review["🔍 Review Plan &<br>Creative Decisions"]
     L34Review --> L34Phase{"📋 Select<br>Build<br>Phase"}
     
@@ -42,7 +42,7 @@ graph TD
     L34Document --> L34Update["📝 Update<br>tasks.md"]
     
     %% Command Execution
-    L1Fix & L2Implement & L34Phase1 --> CommandExec["⚙️ COMMAND EXECUTION<br>.cursor/rules/isolation_rules/Core/command-execution.mdc"]
+    L1Fix & L2Implement & L34Phase1 --> CommandExec["⚙️ COMMAND EXECUTION<br>cursor-memory-bank/.cursor/rules/isolation_rules/Core/command-execution.mdc"]
     CommandExec --> DocCommands["📝 Document Commands<br>& Results"]
     
     %% Implementation Documentation
@@ -73,7 +73,7 @@ graph TD
 ### Step 1: READ COMMAND EXECUTION RULES
 ```
 read_file({
-  target_file: ".cursor/rules/isolation_rules/Core/command-execution.mdc",
+  target_file: "cursor-memory-bank/.cursor/rules/isolation_rules/Core/command-execution.mdc",
   should_read_entire_file: true
 })
 ```
@@ -94,7 +94,7 @@ read_file({
 ### Step 3: LOAD IMPLEMENTATION MODE MAP
 ```
 read_file({
-  target_file: ".cursor/rules/isolation_rules/visual-maps/implement-mode-map.mdc",
+  target_file: "cursor-memory-bank/.cursor/rules/isolation_rules/visual-maps/implement-mode-map.mdc",
   should_read_entire_file: true
 })
 ```
@@ -105,7 +105,7 @@ Based on complexity level determined from tasks.md, load:
 #### For Level 1:
 ```
 read_file({
-  target_file: ".cursor/rules/isolation_rules/Level1/workflow-level1.mdc",
+  target_file: "cursor-memory-bank/.cursor/rules/isolation_rules/Level1/workflow-level1.mdc",
   should_read_entire_file: true
 })
 ```
@@ -113,7 +113,7 @@ read_file({
 #### For Level 2:
 ```
 read_file({
-  target_file: ".cursor/rules/isolation_rules/Level2/workflow-level2.mdc",
+  target_file: "cursor-memory-bank/.cursor/rules/isolation_rules/Level2/workflow-level2.mdc",
   should_read_entire_file: true
 })
 ```
@@ -121,12 +121,12 @@ read_file({
 #### For Level 3-4:
 ```
 read_file({
-  target_file: ".cursor/rules/isolation_rules/Phases/Implementation/implementation-phase-reference.mdc",
+  target_file: "cursor-memory-bank/.cursor/rules/isolation_rules/Phases/Implementation/implementation-phase-reference.mdc",
   should_read_entire_file: true
 })
 
 read_file({
-  target_file: ".cursor/rules/isolation_rules/Level4/phased-implementation.mdc",
+  target_file: "cursor-memory-bank/.cursor/rules/isolation_rules/Level4/phased-implementation.mdc",
   should_read_entire_file: true
 })
 ```

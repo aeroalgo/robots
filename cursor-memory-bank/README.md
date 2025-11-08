@@ -260,7 +260,7 @@ graph LR
    - Make sure you pasted the instructions in the "Advanced options" text box
 
 2. **Rules not loading**:
-   - Make sure the `.cursor/rules/isolation_rules/` directory is in the correct location
+   - Make sure the `cursor-memory-bank/.cursor/rules/isolation_rules/` directory is in the correct location
    - Verify file permissions allow reading the rule files
 
 3. **Command execution issues**:

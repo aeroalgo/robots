@@ -4,17 +4,17 @@ Your role is to perform detailed design and architecture work for components fla
 
 ```mermaid
 graph TD
-    Start["🚀 START CREATIVE MODE"] --> ReadTasks["📚 Read tasks.md &<br>implementation-plan.md<br>.cursor/rules/isolation_rules/main.mdc"]
+    Start["🚀 START CREATIVE MODE"] --> ReadTasks["📚 Read tasks.md &<br>implementation-plan.md<br>cursor-memory-bank/.cursor/rules/isolation_rules/main.mdc"]
     
     %% Initialization
-    ReadTasks --> Identify["🔍 Identify Components<br>Requiring Creative Phases<br>.cursor/rules/isolation_rules/visual-maps/creative-mode-map.mdc"]
+    ReadTasks --> Identify["🔍 Identify Components<br>Requiring Creative Phases<br>cursor-memory-bank/.cursor/rules/isolation_rules/visual-maps/creative-mode-map.mdc"]
     Identify --> Prioritize["📊 Prioritize Components<br>for Creative Work"]
     
     %% Creative Phase Type Determination
     Prioritize --> TypeCheck{"🎨 Determine<br>Creative Phase<br>Type"}
-    TypeCheck -->|"Architecture"| ArchDesign["🏗️ ARCHITECTURE DESIGN<br>.cursor/rules/isolation_rules/visual-maps/creative-mode-map.mdc"]
-    TypeCheck -->|"Algorithm"| AlgoDesign["⚙️ ALGORITHM DESIGN<br>.cursor/rules/isolation_rules/visual-maps/creative-mode-map.mdc"]
-    TypeCheck -->|"UI/UX"| UIDesign["🎨 UI/UX DESIGN<br>.cursor/rules/isolation_rules/visual-maps/creative-mode-map.mdc"]
+    TypeCheck -->|"Architecture"| ArchDesign["🏗️ ARCHITECTURE DESIGN<br>cursor-memory-bank/.cursor/rules/isolation_rules/visual-maps/creative-mode-map.mdc"]
+    TypeCheck -->|"Algorithm"| AlgoDesign["⚙️ ALGORITHM DESIGN<br>cursor-memory-bank/.cursor/rules/isolation_rules/visual-maps/creative-mode-map.mdc"]
+    TypeCheck -->|"UI/UX"| UIDesign["🎨 UI/UX DESIGN<br>cursor-memory-bank/.cursor/rules/isolation_rules/visual-maps/creative-mode-map.mdc"]
     
     %% Architecture Design Process
     ArchDesign --> ArchRequirements["📋 Define Requirements<br>& Constraints"]
@@ -88,7 +88,7 @@ read_file({
 })
 
 read_file({
-  target_file: ".cursor/rules/isolation_rules/main.mdc",
+  target_file: "cursor-memory-bank/.cursor/rules/isolation_rules/main.mdc",
   should_read_entire_file: true
 })
 ```
@@ -96,7 +96,7 @@ read_file({
 ### Step 2: LOAD CREATIVE MODE MAP
 ```
 read_file({
-  target_file: ".cursor/rules/isolation_rules/visual-maps/creative-mode-map.mdc",
+  target_file: "cursor-memory-bank/.cursor/rules/isolation_rules/visual-maps/creative-mode-map.mdc",
   should_read_entire_file: true
 })
 ```
@@ -104,12 +104,12 @@ read_file({
 ### Step 3: LOAD CREATIVE PHASE REFERENCES
 ```
 read_file({
-  target_file: ".cursor/rules/isolation_rules/Core/creative-phase-enforcement.mdc",
+  target_file: "cursor-memory-bank/.cursor/rules/isolation_rules/Core/creative-phase-enforcement.mdc",
   should_read_entire_file: true
 })
 
 read_file({
-  target_file: ".cursor/rules/isolation_rules/Core/creative-phase-metrics.mdc",
+  target_file: "cursor-memory-bank/.cursor/rules/isolation_rules/Core/creative-phase-metrics.mdc",
   should_read_entire_file: true
 })
 ```
@@ -120,7 +120,7 @@ Based on the type of creative phase needed, load:
 #### For Architecture Design:
 ```
 read_file({
-  target_file: ".cursor/rules/isolation_rules/Phases/CreativePhase/creative-phase-architecture.mdc",
+  target_file: "cursor-memory-bank/.cursor/rules/isolation_rules/Phases/CreativePhase/creative-phase-architecture.mdc",
   should_read_entire_file: true
 })
 ```
@@ -128,7 +128,7 @@ read_file({
 #### For Algorithm Design:
 ```
 read_file({
-  target_file: ".cursor/rules/isolation_rules/Phases/CreativePhase/creative-phase-algorithm.mdc",
+  target_file: "cursor-memory-bank/.cursor/rules/isolation_rules/Phases/CreativePhase/creative-phase-algorithm.mdc",
   should_read_entire_file: true
 })
 ```
@@ -136,7 +136,7 @@ read_file({
 #### For UI/UX Design:
 ```
 read_file({
-  target_file: ".cursor/rules/isolation_rules/Phases/CreativePhase/creative-phase-uiux.mdc",
+  target_file: "cursor-memory-bank/.cursor/rules/isolation_rules/Phases/CreativePhase/creative-phase-uiux.mdc",
   should_read_entire_file: true
 })
 ```

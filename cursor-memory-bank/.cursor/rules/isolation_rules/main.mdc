@@ -153,4 +153,4 @@ grep "TODO" $(find . -name "*.js")
 npm install && npm start
 ```
 
-Refer to [command-execution.mdc](mdc:.cursor/rules/isolation_rules/Core/command-execution.mdc) for detailed guidance. 
+Refer to [command-execution.mdc](mdc:cursor-memory-bank/.cursor/rules/isolation_rules/Core/command-execution.mdc) for detailed guidance. 
