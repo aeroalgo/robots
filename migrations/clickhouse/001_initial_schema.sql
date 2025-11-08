@@ -3,7 +3,7 @@ CREATE DATABASE IF NOT EXISTS trading;
 CREATE TABLE IF NOT EXISTS trading.ohlcv_data (
     symbol String,
     timeframe String,
-    timestamp DateTime64(3),
+    timestamp Int64,
     open Float64,
     high Float64,
     low Float64,
@@ -11,20 +11,20 @@ CREATE TABLE IF NOT EXISTS trading.ohlcv_data (
     volume Float64,
     created_at DateTime DEFAULT now()
 ) ENGINE = MergeTree()
-PARTITION BY toYear(timestamp)
+PARTITION BY toYear(toDateTime(timestamp / 1000))
 ORDER BY (symbol, timeframe, timestamp)
 SETTINGS index_granularity = 8192;
 
 CREATE TABLE IF NOT EXISTS trading.tick_data (
     symbol String,
-    timestamp DateTime64(3),
+    timestamp Int64,
     bid Float64,
     ask Float64,
     last_price Float64,
     volume Float64,
     created_at DateTime DEFAULT now()
 ) ENGINE = MergeTree()
-PARTITION BY toYear(timestamp)
+PARTITION BY toYear(toDateTime(timestamp / 1000))
 ORDER BY (symbol, timestamp)
 SETTINGS index_granularity = 8192;
 
@@ -42,12 +42,12 @@ CREATE TABLE IF NOT EXISTS trading.indicators (
     symbol String,
     timeframe String,
     indicator_name String,
-    timestamp DateTime64(3),
+    timestamp Int64,
     value Float64,
     parameters String,
     created_at DateTime DEFAULT now()
 ) ENGINE = MergeTree()
-PARTITION BY toYear(timestamp)
+PARTITION BY toYear(toDateTime(timestamp / 1000))
 ORDER BY (symbol, timeframe, indicator_name, timestamp)
 SETTINGS index_granularity = 8192;
 
@@ -55,14 +55,14 @@ CREATE TABLE IF NOT EXISTS trading.signals (
     strategy_id String,
     symbol String,
     timeframe String,
-    timestamp DateTime64(3),
+    timestamp Int64,
     signal_type String,
     signal_strength Float64,
     price Float64,
     metadata String,
     created_at DateTime DEFAULT now()
 ) ENGINE = MergeTree()
-PARTITION BY toYear(timestamp)
+PARTITION BY toYear(toDateTime(timestamp / 1000))
 ORDER BY (strategy_id, symbol, timestamp)
 SETTINGS index_granularity = 8192;
 
@@ -74,15 +74,15 @@ CREATE TABLE IF NOT EXISTS trading.trades (
     quantity Float64,
     entry_price Float64,
     exit_price Nullable(Float64),
-    entry_time DateTime64(3),
-    exit_time Nullable(DateTime64(3)),
+    entry_time Int64,
+    exit_time Nullable(Int64),
     pnl Nullable(Float64),
     commission Float64,
     status String,
     metadata String,
     created_at DateTime DEFAULT now()
 ) ENGINE = MergeTree()
-PARTITION BY toYear(entry_time)
+PARTITION BY toYear(toDateTime(entry_time / 1000))
 ORDER BY (strategy_id, symbol, entry_time)
 SETTINGS index_granularity = 8192;
 
@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS trading.positions (
     unrealized_pnl Float64,
     stop_loss Nullable(Float64),
     take_profit Nullable(Float64),
-    opened_at DateTime64(3),
+    opened_at Int64,
     updated_at DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(updated_at)
 ORDER BY (position_id)
@@ -168,11 +168,11 @@ CREATE TABLE IF NOT EXISTS trading.orders (
     filled_quantity Float64,
     avg_fill_price Nullable(Float64),
     commission Float64,
-    created_at DateTime64(3),
-    filled_at Nullable(DateTime64(3)),
-    cancelled_at Nullable(DateTime64(3))
+    created_at Int64,
+    filled_at Nullable(Int64),
+    cancelled_at Nullable(Int64)
 ) ENGINE = MergeTree()
-PARTITION BY toYear(created_at)
+PARTITION BY toYear(toDateTime(created_at / 1000))
 ORDER BY (strategy_id, symbol, created_at)
 SETTINGS index_granularity = 8192;
 
@@ -209,7 +209,7 @@ SETTINGS index_granularity = 8192;
 CREATE TABLE IF NOT EXISTS trading.portfolio_snapshots (
     snapshot_id String,
     user_id String,
-    timestamp DateTime64(3),
+    timestamp Int64,
     total_value Float64,
     cash Float64,
     positions_value Float64,
@@ -221,7 +221,7 @@ CREATE TABLE IF NOT EXISTS trading.portfolio_snapshots (
     max_drawdown Float64,
     created_at DateTime DEFAULT now()
 ) ENGINE = MergeTree()
-PARTITION BY toYear(timestamp)
+PARTITION BY toYear(toDateTime(timestamp / 1000))
 ORDER BY (user_id, timestamp)
 SETTINGS index_granularity = 8192;
 
@@ -253,7 +253,7 @@ PARTITION BY toYear(date)
 ORDER BY (symbol, date)
 AS SELECT
     symbol,
-    toDate(timestamp) as date,
+    toDate(toDateTime(timestamp / 1000)) as date,
     count() as bars_count,
     min(low) as daily_low,
     max(high) as daily_high,
@@ -269,7 +269,7 @@ PARTITION BY toYear(trade_date)
 ORDER BY (strategy_id, trade_date)
 AS SELECT
     strategy_id,
-    toDate(entry_time) as trade_date,
+    toDate(toDateTime(entry_time / 1000)) as trade_date,
     count() as trades_count,
     sumIf(pnl, pnl > 0) as total_profit,
     sumIf(pnl, pnl < 0) as total_loss,

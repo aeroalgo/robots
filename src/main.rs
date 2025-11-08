@@ -10,13 +10,12 @@ async fn main() {
     connector.connect().await.unwrap();
 
     // Вставка данных
-    let data = vec![/* ваши данные */];
-    connector.insert_ohlcv(&data).await.unwrap();
-    let start = Utc::now() - chrono::Duration::hours(24);
+    let start = Utc::now() - chrono::Duration::days(30);
     let end = Utc::now();
     // Запрос данных
     let candles = connector
-        .get_ohlcv("BTCUSDT", "1h", start, end, Some(100))
+        .get_ohlcv("AFLT.MM", "60", start, end, None)
         .await
         .unwrap();
+    println!("{:?}", candles);
 }

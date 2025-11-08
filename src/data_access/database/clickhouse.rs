@@ -62,6 +62,18 @@ impl Default for ClickHouseConfig {
 // МОДЕЛИ ДАННЫХ ДЛЯ CLICKHOUSE (СООТВЕТСТВУЮТ СХЕМЕ)
 // ============================================================================
 
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
+struct OhlcvDataRaw {
+    symbol: String,
+    timeframe: String,
+    timestamp: i64,
+    open: f64,
+    high: f64,
+    low: f64,
+    close: f64,
+    volume: f64,
+}
+
 /// OHLCV данные (свечи)
 #[derive(Debug, Clone, Serialize, Deserialize, Row)]
 pub struct OhlcvData {
@@ -354,6 +366,9 @@ impl ClickHouseConnector {
     ) -> Result<Vec<OhlcvData>> {
         let client = self.get_client()?;
 
+        let start_ts = start_time.timestamp_millis();
+        let end_ts = end_time.timestamp_millis();
+
         let mut query = format!(
             "SELECT symbol, timeframe, timestamp, open, high, low, close, volume 
              FROM {}.ohlcv_data 
@@ -367,15 +382,36 @@ impl ClickHouseConnector {
             query.push_str(&format!(" LIMIT {}", limit));
         }
 
-        client
+        let raw_data: Vec<OhlcvDataRaw> = client
             .query(&query)
             .bind(symbol)
             .bind(timeframe)
-            .bind(start_time)
-            .bind(end_time)
-            .fetch_all::<OhlcvData>()
+            .bind(start_ts)
+            .bind(end_ts)
+            .fetch_all()
             .await
-            .map_err(|e| DataAccessError::Query(e.to_string()))
+            .map_err(|e| DataAccessError::Query(e.to_string()))?;
+
+        let result: Vec<OhlcvData> = raw_data
+            .into_iter()
+            .map(|raw| OhlcvData {
+                symbol: raw.symbol,
+                timeframe: raw.timeframe,
+                timestamp: DateTime::from_timestamp(
+                    raw.timestamp / 1000,
+                    ((raw.timestamp % 1000) * 1_000_000) as u32,
+                )
+                .unwrap_or_default()
+                .with_timezone(&Utc),
+                open: raw.open,
+                high: raw.high,
+                low: raw.low,
+                close: raw.close,
+                volume: raw.volume,
+            })
+            .collect();
+
+        Ok(result)
     }
 
     /// Вставка OHLCV данных батчем
@@ -391,8 +427,18 @@ impl ClickHouseConnector {
             .map_err(|e| DataAccessError::Query(e.to_string()))?;
 
         for row in data {
+            let raw = OhlcvDataRaw {
+                symbol: row.symbol.clone(),
+                timeframe: row.timeframe.clone(),
+                timestamp: row.timestamp.timestamp_millis(),
+                open: row.open,
+                high: row.high,
+                low: row.low,
+                close: row.close,
+                volume: row.volume,
+            };
             insert
-                .write(row)
+                .write(&raw)
                 .await
                 .map_err(|e| DataAccessError::Query(e.to_string()))?;
         }
