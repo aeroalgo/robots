@@ -14,11 +14,25 @@ pub use arrow_flight::{
     TradeArrowFlightConnector,
 };
 pub use clickhouse::{
-    ClickHouseConfig, ClickHouseConnector, ClickHouseTransaction,
+    BacktestRecord,
+    ClickHouseConfig,
+    ClickHouseConnector,
+    ClickHouseTransaction,
+    GeneticIndividual,
+    Indicator,
     // Модели данных
-    OhlcvData, TickData, SymbolInfo, Indicator, Signal, TradeRecord, StrategyMetric,
-    Strategy, BacktestRecord, Position, OrderRecord, GeneticIndividual, OptimizationResult,
-    PortfolioSnapshot, WalkForwardResult,
+    OhlcvData,
+    OptimizationResult,
+    OrderRecord,
+    PortfolioSnapshot,
+    Position,
+    Signal,
+    Strategy,
+    StrategyMetric,
+    SymbolInfo,
+    TickData,
+    TradeRecord,
+    WalkForwardResult,
 };
 pub use datafusion::{
     AnalyticsQuery, BacktestAnalyticsConnector, CandleAnalyticsConnector, DataFusionConfig,

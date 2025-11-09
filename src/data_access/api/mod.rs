@@ -1,6 +1,6 @@
 //! API коннекторы (заглушка)
-//! 
+//!
 //! Этот модуль будет содержать коннекторы к биржам и провайдерам данных
 
-pub mod exchange;
 pub mod data_provider;
+pub mod exchange;

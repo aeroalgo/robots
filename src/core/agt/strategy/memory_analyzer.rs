@@ -10,16 +10,16 @@ impl MemoryAnalyzer {
         let mut analysis = HashMap::new();
 
         // Размеры типов данных
-        analysis.insert("f32_size".to_string(), mem::size_of::<f32>());
+        analysis.insert("f64_size".to_string(), mem::size_of::<f64>());
         analysis.insert("bool_size".to_string(), mem::size_of::<bool>());
         analysis.insert("String_size".to_string(), mem::size_of::<String>());
-        analysis.insert("Vec_f32_size".to_string(), mem::size_of::<Vec<f32>>());
+        analysis.insert("Vec_f64_size".to_string(), mem::size_of::<Vec<f64>>());
         analysis.insert("Vec_bool_size".to_string(), mem::size_of::<Vec<bool>>());
 
         // Примерный размер StrategyCondition для 1000 элементов
-        let data_size = 1000 * mem::size_of::<f32>();
-        let indicator_size = 1000 * mem::size_of::<f32>();
-        let constant_size = 1000 * mem::size_of::<f32>();
+        let data_size = 1000 * mem::size_of::<f64>();
+        let indicator_size = 1000 * mem::size_of::<f64>();
+        let constant_size = 1000 * mem::size_of::<f64>();
         let result_size = 1000 * mem::size_of::<bool>();
         let name_size = mem::size_of::<String>();
 
@@ -39,15 +39,15 @@ impl MemoryAnalyzer {
         let mut analysis = HashMap::new();
 
         // Размеры типов данных
-        analysis.insert("f32_size".to_string(), mem::size_of::<f32>());
+        analysis.insert("f64_size".to_string(), mem::size_of::<f64>());
         analysis.insert("bool_size".to_string(), mem::size_of::<bool>());
         analysis.insert("String_size".to_string(), mem::size_of::<String>());
-        analysis.insert("slice_f32_size".to_string(), mem::size_of::<&[f32]>());
+        analysis.insert("slice_f64_size".to_string(), mem::size_of::<&[f64]>());
         analysis.insert("Vec_bool_size".to_string(), mem::size_of::<Vec<bool>>());
 
         // Примерный размер OptimizedStrategyCondition для 1000 элементов
-        let slice_size = mem::size_of::<&[f32]>() * 2; // data и indicator слайсы
-        let constant_size = mem::size_of::<f32>();
+        let slice_size = mem::size_of::<&[f64]>() * 2; // data и indicator слайсы
+        let constant_size = mem::size_of::<f64>();
         let result_size = 1000 * mem::size_of::<bool>();
         let name_size = mem::size_of::<String>();
 
@@ -145,16 +145,16 @@ impl MemoryAnalyzer {
         let mut analysis = HashMap::new();
 
         // Базовая версия
-        let basic_data_size = data_size * mem::size_of::<f32>();
-        let basic_indicator_size = indicator_size * mem::size_of::<f32>();
-        let basic_constant_size = data_size * mem::size_of::<f32>();
+        let basic_data_size = data_size * mem::size_of::<f64>();
+        let basic_indicator_size = indicator_size * mem::size_of::<f64>();
+        let basic_constant_size = data_size * mem::size_of::<f64>();
         let basic_result_size = std::cmp::min(data_size, indicator_size) * mem::size_of::<bool>();
         let basic_total =
             basic_data_size + basic_indicator_size + basic_constant_size + basic_result_size;
 
         // Оптимизированная версия
-        let optimized_slices_size = 2 * mem::size_of::<&[f32]>(); // data и indicator слайсы
-        let optimized_constant_size = mem::size_of::<f32>();
+        let optimized_slices_size = 2 * mem::size_of::<&[f64]>(); // data и indicator слайсы
+        let optimized_constant_size = mem::size_of::<f64>();
         let optimized_result_size =
             std::cmp::min(data_size, indicator_size) * mem::size_of::<bool>();
         let optimized_total =

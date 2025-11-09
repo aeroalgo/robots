@@ -7,11 +7,11 @@ extern crate chrono;
 
 pub struct Source {
     data: Vec<TickerCandle>,
-    pub open: Vec<f32>,
-    pub high: Vec<f32>,
-    pub low: Vec<f32>,
-    pub close: Vec<f32>,
-    pub volume: Vec<f32>,
+    pub open: Vec<f64>,
+    pub high: Vec<f64>,
+    pub low: Vec<f64>,
+    pub close: Vec<f64>,
+    pub volume: Vec<f64>,
     pub timestamp: Vec<i32>,
     pub timeframe: i16,
 }
@@ -39,11 +39,11 @@ pub enum MAIndicators {
 impl Source {
     pub async fn new(data: Vec<TickerCandle>) -> Self {
         let _timeframe = data[0].tf; // Префикс _ для неиспользуемой переменной
-        let mut open: Vec<f32> = Vec::new();
-        let mut high: Vec<f32> = Vec::new();
-        let mut low: Vec<f32> = Vec::new();
-        let mut close: Vec<f32> = Vec::new();
-        let mut volume: Vec<f32> = Vec::new();
+        let mut open: Vec<f64> = Vec::new();
+        let mut high: Vec<f64> = Vec::new();
+        let mut low: Vec<f64> = Vec::new();
+        let mut close: Vec<f64> = Vec::new();
+        let mut volume: Vec<f64> = Vec::new();
         let mut timestamp: Vec<i32> = Vec::new();
         for d in &data {
             open.push(d.candles[0]);

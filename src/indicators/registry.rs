@@ -16,7 +16,7 @@ pub struct IndicatorConfig {
     pub name: String,
     pub category: IndicatorCategory,
     pub indicator_type: IndicatorType,
-    pub parameters: HashMap<String, f32>,
+    pub parameters: HashMap<String, f64>,
     pub description: String,
 }
 
@@ -302,7 +302,7 @@ impl IndicatorRegistry {
             .collect()
     }
 
-    // Метод get_indicators_with_output_type удален - все индикаторы возвращают Vec<f32>
+    // Метод get_indicators_with_output_type удален - все индикаторы возвращают Vec<f64>
 }
 
 /// Статистика реестра
@@ -320,7 +320,7 @@ impl IndicatorFactory {
     /// Создать индикатор по имени и параметрам
     pub fn create_indicator(
         name: &str,
-        parameters: HashMap<String, f32>,
+        parameters: HashMap<String, f64>,
     ) -> Result<Box<dyn Indicator + Send + Sync>, IndicatorError> {
         match name.to_uppercase().as_str() {
             // OHLC индикаторы
@@ -737,7 +737,7 @@ pub mod registry_utils {
     /// Создать индикатор по имени и параметрам через глобальный реестр
     pub async fn create_indicator(
         name: &str,
-        parameters: HashMap<String, f32>,
+        parameters: HashMap<String, f64>,
     ) -> Result<Box<dyn Indicator + Send + Sync>, IndicatorError> {
         IndicatorFactory::create_indicator(name, parameters)
     }
@@ -747,7 +747,7 @@ impl IndicatorFactory {
     /// Создать индикатор по имени и параметрам (асинхронная версия)
     pub async fn create_indicator_async(
         name: &str,
-        parameters: HashMap<String, f32>,
+        parameters: HashMap<String, f64>,
     ) -> Result<Box<dyn Indicator + Send + Sync>, IndicatorError> {
         Self::create_indicator(name, parameters)
     }
@@ -788,7 +788,7 @@ impl Indicator for EmptyIndicator {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Simple
     }
-    // output_type удален - все индикаторы возвращают Vec<f32>
+    // output_type удален - все индикаторы возвращают Vec<f64>
     fn parameters(&self) -> &ParameterSet {
         static EMPTY_PARAMS: OnceLock<ParameterSet> = OnceLock::new();
         EMPTY_PARAMS.get_or_init(|| ParameterSet::new())
@@ -796,10 +796,10 @@ impl Indicator for EmptyIndicator {
     fn min_data_points(&self) -> usize {
         1
     }
-    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    async fn calculate_simple(&self, _data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
         Ok(vec![0.0])
     }
-    async fn calculate_ohlc(&self, _data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    async fn calculate_ohlc(&self, _data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
         Ok(vec![0.0])
     }
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {

@@ -837,4 +837,3 @@ mod tests {
         assert!(query.contains("LIMIT 10"));
     }
 }
-

@@ -1,7 +1,7 @@
 //! Query Builder для Redis
 
-use crate::data_access::{Result, DataAccessError};
-use serde::{Serialize, Deserialize};
+use crate::data_access::{DataAccessError, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Базовый Query Builder для Redis
@@ -42,55 +42,70 @@ impl RedisQueryBuilder {
 
     /// Установка значения
     pub fn set(mut self, key: &str, value: &str) -> Self {
-        self.operations.push(RedisOperation::Set(key.to_string(), value.to_string(), None));
+        self.operations.push(RedisOperation::Set(
+            key.to_string(),
+            value.to_string(),
+            None,
+        ));
         self
     }
 
     /// Установка значения с TTL
     pub fn set_with_ttl(mut self, key: &str, value: &str, ttl: u64) -> Self {
-        self.operations.push(RedisOperation::Set(key.to_string(), value.to_string(), Some(ttl)));
+        self.operations.push(RedisOperation::Set(
+            key.to_string(),
+            value.to_string(),
+            Some(ttl),
+        ));
         self
     }
 
     /// Удаление ключа
     pub fn delete(mut self, key: &str) -> Self {
-        self.operations.push(RedisOperation::Delete(key.to_string()));
+        self.operations
+            .push(RedisOperation::Delete(key.to_string()));
         self
     }
 
     /// Проверка существования ключа
     pub fn exists(mut self, key: &str) -> Self {
-        self.operations.push(RedisOperation::Exists(key.to_string()));
+        self.operations
+            .push(RedisOperation::Exists(key.to_string()));
         self
     }
 
     /// Установка TTL для ключа
     pub fn expire(mut self, key: &str, ttl: u64) -> Self {
-        self.operations.push(RedisOperation::Expire(key.to_string(), ttl));
+        self.operations
+            .push(RedisOperation::Expire(key.to_string(), ttl));
         self
     }
 
     /// Поиск ключей по паттерну
     pub fn keys(mut self, pattern: &str) -> Self {
-        self.operations.push(RedisOperation::Keys(pattern.to_string()));
+        self.operations
+            .push(RedisOperation::Keys(pattern.to_string()));
         self
     }
 
     /// Инкремент значения
     pub fn increment(mut self, key: &str) -> Self {
-        self.operations.push(RedisOperation::Increment(key.to_string()));
+        self.operations
+            .push(RedisOperation::Increment(key.to_string()));
         self
     }
 
     /// Декремент значения
     pub fn decrement(mut self, key: &str) -> Self {
-        self.operations.push(RedisOperation::Decrement(key.to_string()));
+        self.operations
+            .push(RedisOperation::Decrement(key.to_string()));
         self
     }
 
     /// Добавление в начало списка
     pub fn lpush(mut self, key: &str, value: &str) -> Self {
-        self.operations.push(RedisOperation::LPush(key.to_string(), value.to_string()));
+        self.operations
+            .push(RedisOperation::LPush(key.to_string(), value.to_string()));
         self
     }
 
@@ -108,7 +123,8 @@ impl RedisQueryBuilder {
 
     /// Получение диапазона списка
     pub fn lrange(mut self, key: &str, start: i64, stop: i64) -> Self {
-        self.operations.push(RedisOperation::LRange(key.to_string(), start, stop));
+        self.operations
+            .push(RedisOperation::LRange(key.to_string(), start, stop));
         self
     }
 
@@ -148,15 +164,14 @@ impl CacheQueryBuilder {
     where
         T: Serialize,
     {
-        let serialized = serde_json::to_string(value)
-            .unwrap_or_else(|_| "{}".to_string());
-        
+        let serialized = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string());
+
         self.builder = if let Some(ttl_seconds) = ttl {
             self.builder.set_with_ttl(key, &serialized, ttl_seconds)
         } else {
             self.builder.set(key, &serialized)
         };
-        
+
         self
     }
 
@@ -208,9 +223,8 @@ impl QueueQueryBuilder {
     where
         T: Serialize,
     {
-        let serialized = serde_json::to_string(item)
-            .unwrap_or_else(|_| "{}".to_string());
-        
+        let serialized = serde_json::to_string(item).unwrap_or_else(|_| "{}".to_string());
+
         self.builder = self.builder.lpush(queue_name, &serialized);
         self
     }

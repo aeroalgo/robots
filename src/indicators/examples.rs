@@ -123,11 +123,11 @@ fn create_test_ohlc_data() -> OHLCData {
 
     // Генерируем данные для 100 баров
     for i in 0..100 {
-        let base = 100.0 + (i as f32 / 10.0).sin() * 10.0;
+        let base = 100.0 + (i as f64 / 10.0).sin() * 10.0;
         open.push(base);
-        high.push(base + 1.0 + (i as f32 / 20.0).cos() * 2.0);
-        low.push(base - 1.0 - (i as f32 / 15.0).sin() * 2.0);
-        close.push(base + (i as f32 / 25.0).cos() * 1.5);
+        high.push(base + 1.0 + (i as f64 / 20.0).cos() * 2.0);
+        low.push(base - 1.0 - (i as f64 / 15.0).sin() * 2.0);
+        close.push(base + (i as f64 / 25.0).cos() * 1.5);
     }
 
     OHLCData::new(open, high, low, close)

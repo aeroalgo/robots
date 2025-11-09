@@ -12,9 +12,9 @@
 
 ```rust
 pub struct StrategyCondition {
-    data: Vec<f32>,
-    indicator: Vec<f32>,
-    constant: Vec<f32>,
+    data: Vec<f64>,
+    indicator: Vec<f64>,
+    constant: Vec<f64>,
     condition: ConditionEnum,
     result: Vec<bool>,
     name_indicator: String,
@@ -27,9 +27,9 @@ pub struct StrategyCondition {
 
 ```rust
 pub struct OptimizedStrategyCondition<'a> {
-    data: &'a [f32],
-    indicator: &'a [f32],
-    constant: f32,
+    data: &'a [f64],
+    indicator: &'a [f64],
+    constant: f64,
     condition: ConditionEnum,
     result: Vec<bool>,
     name_indicator: String,

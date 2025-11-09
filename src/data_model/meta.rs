@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 
 use super::types::Symbol;
@@ -25,7 +24,7 @@ pub struct InstrumentMeta {
     quote_currency: Option<String>,
     tick_size: f64,
     lot_size: f64,
-    timezone: Option<Tz>,
+    timezone: Option<String>,
     additional: HashMap<String, String>,
 }
 
@@ -54,8 +53,8 @@ impl InstrumentMeta {
         self.lot_size
     }
 
-    pub fn timezone(&self) -> Option<Tz> {
-        self.timezone
+    pub fn timezone(&self) -> Option<&str> {
+        self.timezone.as_deref()
     }
 
     pub fn additional(&self) -> &HashMap<String, String> {
@@ -69,7 +68,7 @@ pub struct InstrumentMetaBuilder {
     quote_currency: Option<String>,
     tick_size: f64,
     lot_size: f64,
-    timezone: Option<Tz>,
+    timezone: Option<String>,
     additional: HashMap<String, String>,
 }
 
@@ -106,8 +105,8 @@ impl InstrumentMetaBuilder {
         self
     }
 
-    pub fn timezone(mut self, timezone: Tz) -> Self {
-        self.timezone = Some(timezone);
+    pub fn timezone<S: Into<String>>(mut self, timezone: S) -> Self {
+        self.timezone = Some(timezone.into());
         self
     }
 
@@ -140,7 +139,8 @@ impl MetaRegistry {
     }
 
     pub fn insert(&mut self, meta: InstrumentMeta) {
-        self.entries.insert(Arc::from(meta.symbol().code()), meta);
+        let key: Arc<str> = Arc::from(meta.symbol().code());
+        self.entries.insert(key, meta);
     }
 
     pub fn get(&self, symbol: &Symbol) -> Option<&InstrumentMeta> {

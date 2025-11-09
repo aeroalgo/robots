@@ -3,7 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_access::database::clickhouse::OhlcvData;
 
-use super::types::{Price, QuoteId, Symbol, TimeFrame, Volume};
+use super::types::{
+    timestamp_from_millis, timestamp_to_millis, Price, QuoteId, Symbol, TimeFrame, TimestampMillis,
+    Volume,
+};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Quote {
@@ -16,7 +19,14 @@ pub struct Quote {
 }
 
 impl Quote {
-    pub fn new(id: QuoteId, open: Price, high: Price, low: Price, close: Price, volume: Volume) -> Self {
+    pub fn new(
+        id: QuoteId,
+        open: Price,
+        high: Price,
+        low: Price,
+        close: Price,
+        volume: Volume,
+    ) -> Self {
         Self {
             id,
             open,
@@ -27,8 +37,24 @@ impl Quote {
         }
     }
 
-    pub fn from_parts(symbol: Symbol, timeframe: TimeFrame, timestamp: DateTime<Utc>, open: Price, high: Price, low: Price, close: Price, volume: Volume) -> Self {
-        Self::new(QuoteId::new(symbol, timeframe, timestamp), open, high, low, close, volume)
+    pub fn from_parts(
+        symbol: Symbol,
+        timeframe: TimeFrame,
+        timestamp: DateTime<Utc>,
+        open: Price,
+        high: Price,
+        low: Price,
+        close: Price,
+        volume: Volume,
+    ) -> Self {
+        Self::new(
+            QuoteId::new(symbol, timeframe, timestamp),
+            open,
+            high,
+            low,
+            close,
+            volume,
+        )
     }
 
     pub fn id(&self) -> &QuoteId {
@@ -45,6 +71,10 @@ impl Quote {
 
     pub fn timestamp(&self) -> DateTime<Utc> {
         self.id.timestamp
+    }
+
+    pub fn timestamp_millis(&self) -> TimestampMillis {
+        timestamp_to_millis(self.timestamp())
     }
 
     pub fn open(&self) -> Price {
@@ -78,6 +108,49 @@ impl Quote {
             close: self.close,
             volume: self.volume,
         }
+    }
+
+    pub fn into_parts(self) -> (QuoteId, Price, Price, Price, Price, Volume) {
+        (self.id, self.open, self.high, self.low, self.close, self.volume)
+    }
+
+    pub fn typical_price(&self) -> Price {
+        (self.high + self.low + self.close) / 3.0
+    }
+
+    pub fn median_price(&self) -> Price {
+        (self.high + self.low) / 2.0
+    }
+
+    pub fn weighted_close(&self) -> Price {
+        (self.high + self.low + 2.0 * self.close) / 4.0
+    }
+
+    pub fn true_range(&self, previous_close: Option<Price>) -> Price {
+        match previous_close {
+            Some(prev_close) => {
+                let high_low = self.high - self.low;
+                let high_close = (self.high - prev_close).abs();
+                let low_close = (self.low - prev_close).abs();
+                high_low.max(high_close).max(low_close)
+            }
+            None => self.high - self.low,
+        }
+    }
+
+    pub fn from_timestamp_millis(
+        symbol: Symbol,
+        timeframe: TimeFrame,
+        millis: TimestampMillis,
+        open: Price,
+        high: Price,
+        low: Price,
+        close: Price,
+        volume: Volume,
+    ) -> Option<Self> {
+        timestamp_from_millis(millis).map(|timestamp| {
+            Self::from_parts(symbol, timeframe, timestamp, open, high, low, close, volume)
+        })
     }
 }
 

@@ -13,8 +13,8 @@ impl ConditionExample {
     /// Демонстрирует базовое использование StrategyCondition
     pub async fn demonstrate_basic_usage() {
         // Создаем тестовые данные
-        let data: Vec<f32> = vec![100.0, 101.0, 99.0, 102.0, 98.0, 103.0];
-        let indicator: Vec<f32> = vec![50.0, 51.0, 49.0, 52.0, 48.0, 53.0];
+        let data: Vec<f64> = vec![100.0, 101.0, 99.0, 102.0, 98.0, 103.0];
+        let indicator: Vec<f64> = vec![50.0, 51.0, 49.0, 52.0, 48.0, 53.0];
 
         // Создаем условие
         let mut condition = StrategyCondition::new(
@@ -34,8 +34,8 @@ impl ConditionExample {
     /// Демонстрирует использование оптимизированного модуля
     pub fn demonstrate_optimized_usage() {
         // Создаем тестовые данные
-        let data: Vec<f32> = vec![100.0, 101.0, 99.0, 102.0, 98.0, 103.0];
-        let indicator: Vec<f32> = vec![50.0, 51.0, 49.0, 52.0, 48.0, 53.0];
+        let data: Vec<f64> = vec![100.0, 101.0, 99.0, 102.0, 98.0, 103.0];
+        let indicator: Vec<f64> = vec![50.0, 51.0, 49.0, 52.0, 48.0, 53.0];
 
         // Создаем оптимизированное условие
         if let Some(mut optimized_condition) = ConditionFactory::create_optimized_condition(
@@ -57,8 +57,8 @@ impl ConditionExample {
 
     /// Демонстрирует работу с несколькими условиями
     pub fn demonstrate_multiple_conditions() {
-        let data: Vec<f32> = vec![100.0, 101.0, 99.0, 102.0, 98.0, 103.0];
-        let indicator: Vec<f32> = vec![50.0, 51.0, 49.0, 52.0, 48.0, 53.0];
+        let data: Vec<f64> = vec![100.0, 101.0, 99.0, 102.0, 98.0, 103.0];
+        let indicator: Vec<f64> = vec![50.0, 51.0, 49.0, 52.0, 48.0, 53.0];
 
         let conditions = vec![
             ConditionEnum::ABOVE,
@@ -96,8 +96,8 @@ impl ConditionExample {
 
     /// Демонстрирует работу с пересечениями
     pub fn demonstrate_crossings() {
-        let data: Vec<f32> = vec![100.0, 101.0, 99.0, 102.0, 98.0, 103.0];
-        let indicator: Vec<f32> = vec![50.0, 51.0, 49.0, 52.0, 48.0, 53.0];
+        let data: Vec<f64> = vec![100.0, 101.0, 99.0, 102.0, 98.0, 103.0];
+        let indicator: Vec<f64> = vec![50.0, 51.0, 49.0, 52.0, 48.0, 53.0];
 
         if let Some(mut condition) = ConditionFactory::create_optimized_condition(
             &data,
@@ -114,8 +114,8 @@ impl ConditionExample {
 
     /// Демонстрирует сравнение производительности
     pub async fn demonstrate_performance_comparison() {
-        let data: Vec<f32> = (0..1000).map(|i| i as f32).collect();
-        let indicator: Vec<f32> = (0..1000).map(|i| (i as f32) * 0.5).collect();
+        let data: Vec<f64> = (0..1000).map(|i| i as f64).collect();
+        let indicator: Vec<f64> = (0..1000).map(|i| (i as f64) * 0.5).collect();
 
         // Тест базового модуля
         let start = std::time::Instant::now();

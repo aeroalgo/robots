@@ -6,7 +6,7 @@ pub struct ParameterPresets;
 
 impl ParameterPresets {
     /// Диапазон для периода
-    pub fn period_range(start: f32, end: f32, step: f32) -> ParameterRange {
+    pub fn period_range(start: f64, end: f64, step: f64) -> ParameterRange {
         ParameterRange::new(start, end, step)
     }
 
@@ -26,7 +26,7 @@ impl ParameterPresets {
     }
 
     /// Диапазон для множителя
-    pub fn multiplier_range(start: f32, end: f32, step: f32) -> ParameterRange {
+    pub fn multiplier_range(start: f64, end: f64, step: f64) -> ParameterRange {
         ParameterRange::new(start, end, step)
     }
 
@@ -41,7 +41,7 @@ impl ParameterPresets {
     }
 
     /// Диапазон для порогового значения
-    pub fn threshold_range(start: f32, end: f32, step: f32) -> ParameterRange {
+    pub fn threshold_range(start: f64, end: f64, step: f64) -> ParameterRange {
         ParameterRange::new(start, end, step)
     }
 
@@ -51,7 +51,7 @@ impl ParameterPresets {
     }
 
     /// Диапазон для коэффициента
-    pub fn coefficient_range(start: f32, end: f32, step: f32) -> ParameterRange {
+    pub fn coefficient_range(start: f64, end: f64, step: f64) -> ParameterRange {
         ParameterRange::new(start, end, step)
     }
 
@@ -62,7 +62,7 @@ impl ParameterPresets {
 }
 
 /// Создание параметра периода
-pub fn create_period_parameter(name: &str, value: f32, description: &str) -> IndicatorParameter {
+pub fn create_period_parameter(name: &str, value: f64, description: &str) -> IndicatorParameter {
     IndicatorParameter::new(
         name,
         value,
@@ -75,7 +75,7 @@ pub fn create_period_parameter(name: &str, value: f32, description: &str) -> Ind
 /// Создание параметра периода с кастомным диапазоном
 pub fn create_period_parameter_with_range(
     name: &str,
-    value: f32,
+    value: f64,
     range: ParameterRange,
     description: &str,
 ) -> IndicatorParameter {
@@ -85,7 +85,7 @@ pub fn create_period_parameter_with_range(
 /// Создание параметра множителя
 pub fn create_multiplier_parameter(
     name: &str,
-    value: f32,
+    value: f64,
     description: &str,
 ) -> IndicatorParameter {
     IndicatorParameter::new(
@@ -100,7 +100,7 @@ pub fn create_multiplier_parameter(
 /// Создание параметра множителя с кастомным диапазоном
 pub fn create_multiplier_parameter_with_range(
     name: &str,
-    value: f32,
+    value: f64,
     range: ParameterRange,
     description: &str,
 ) -> IndicatorParameter {
@@ -108,7 +108,7 @@ pub fn create_multiplier_parameter_with_range(
 }
 
 /// Создание параметра порога
-pub fn create_threshold_parameter(name: &str, value: f32, description: &str) -> IndicatorParameter {
+pub fn create_threshold_parameter(name: &str, value: f64, description: &str) -> IndicatorParameter {
     IndicatorParameter::new(
         name,
         value,
@@ -121,7 +121,7 @@ pub fn create_threshold_parameter(name: &str, value: f32, description: &str) -> 
 /// Создание параметра порога с кастомным диапазоном
 pub fn create_threshold_parameter_with_range(
     name: &str,
-    value: f32,
+    value: f64,
     range: ParameterRange,
     description: &str,
 ) -> IndicatorParameter {
@@ -131,7 +131,7 @@ pub fn create_threshold_parameter_with_range(
 /// Создание параметра коэффициента
 pub fn create_coefficient_parameter(
     name: &str,
-    value: f32,
+    value: f64,
     description: &str,
 ) -> IndicatorParameter {
     IndicatorParameter::new(
@@ -146,7 +146,7 @@ pub fn create_coefficient_parameter(
 /// Создание параметра коэффициента с кастомным диапазоном
 pub fn create_coefficient_parameter_with_range(
     name: &str,
-    value: f32,
+    value: f64,
     range: ParameterRange,
     description: &str,
 ) -> IndicatorParameter {
@@ -156,7 +156,7 @@ pub fn create_coefficient_parameter_with_range(
 /// Создание параметра с кастомным типом
 pub fn create_custom_parameter(
     name: &str,
-    value: f32,
+    value: f64,
     range: ParameterRange,
     description: &str,
 ) -> IndicatorParameter {
@@ -164,7 +164,7 @@ pub fn create_custom_parameter(
 }
 
 /// Создание набора параметров для SMA
-pub fn create_sma_parameters(period: f32) -> HashMap<String, IndicatorParameter> {
+pub fn create_sma_parameters(period: f64) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
         "period".to_string(),
@@ -174,7 +174,7 @@ pub fn create_sma_parameters(period: f32) -> HashMap<String, IndicatorParameter>
 }
 
 /// Создание набора параметров для EMA
-pub fn create_ema_parameters(period: f32) -> HashMap<String, IndicatorParameter> {
+pub fn create_ema_parameters(period: f64) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
         "period".to_string(),
@@ -184,7 +184,7 @@ pub fn create_ema_parameters(period: f32) -> HashMap<String, IndicatorParameter>
 }
 
 /// Создание набора параметров для RSI
-pub fn create_rsi_parameters(period: f32) -> HashMap<String, IndicatorParameter> {
+pub fn create_rsi_parameters(period: f64) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
         "period".to_string(),
@@ -194,7 +194,7 @@ pub fn create_rsi_parameters(period: f32) -> HashMap<String, IndicatorParameter>
 }
 
 /// Создание набора параметров для ATR
-pub fn create_atr_parameters(period: f32) -> HashMap<String, IndicatorParameter> {
+pub fn create_atr_parameters(period: f64) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
         "period".to_string(),
@@ -205,8 +205,8 @@ pub fn create_atr_parameters(period: f32) -> HashMap<String, IndicatorParameter>
 
 /// Создание набора параметров для SuperTrend
 pub fn create_supertrend_parameters(
-    period: f32,
-    coeff_atr: f32,
+    period: f64,
+    coeff_atr: f64,
 ) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
@@ -227,9 +227,9 @@ pub fn create_supertrend_parameters(
 
 /// Создание набора параметров для MACD
 pub fn create_macd_parameters(
-    fast_period: f32,
-    slow_period: f32,
-    signal_period: f32,
+    fast_period: f64,
+    slow_period: f64,
+    signal_period: f64,
 ) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
@@ -264,8 +264,8 @@ pub fn create_macd_parameters(
 
 /// Создание набора параметров для Bollinger Bands
 pub fn create_bollinger_parameters(
-    period: f32,
-    std_dev: f32,
+    period: f64,
+    std_dev: f64,
 ) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
@@ -285,7 +285,7 @@ pub fn create_bollinger_parameters(
 }
 
 /// Создание набора параметров для Stochastic
-pub fn create_stochastic_parameters(period: f32) -> HashMap<String, IndicatorParameter> {
+pub fn create_stochastic_parameters(period: f64) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
         "period".to_string(),
@@ -295,7 +295,7 @@ pub fn create_stochastic_parameters(period: f32) -> HashMap<String, IndicatorPar
 }
 
 /// Создание набора параметров для WMA
-pub fn create_wma_parameters(period: f32) -> HashMap<String, IndicatorParameter> {
+pub fn create_wma_parameters(period: f64) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
         "period".to_string(),
@@ -305,7 +305,7 @@ pub fn create_wma_parameters(period: f32) -> HashMap<String, IndicatorParameter>
 }
 
 /// Создание набора параметров для AMA
-pub fn create_ama_parameters(period: f32) -> HashMap<String, IndicatorParameter> {
+pub fn create_ama_parameters(period: f64) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
         "period".to_string(),
@@ -315,7 +315,7 @@ pub fn create_ama_parameters(period: f32) -> HashMap<String, IndicatorParameter>
 }
 
 /// Создание набора параметров для ZLEMA
-pub fn create_zlema_parameters(period: f32) -> HashMap<String, IndicatorParameter> {
+pub fn create_zlema_parameters(period: f64) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
         "period".to_string(),
@@ -325,7 +325,7 @@ pub fn create_zlema_parameters(period: f32) -> HashMap<String, IndicatorParamete
 }
 
 /// Создание набора параметров для GEOMEAN
-pub fn create_geomean_parameters(period: f32) -> HashMap<String, IndicatorParameter> {
+pub fn create_geomean_parameters(period: f64) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
         "period".to_string(),
@@ -335,7 +335,7 @@ pub fn create_geomean_parameters(period: f32) -> HashMap<String, IndicatorParame
 }
 
 /// Создание набора параметров для AMMA
-pub fn create_amma_parameters(period: f32) -> HashMap<String, IndicatorParameter> {
+pub fn create_amma_parameters(period: f64) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
         "period".to_string(),
@@ -345,7 +345,7 @@ pub fn create_amma_parameters(period: f32) -> HashMap<String, IndicatorParameter
 }
 
 /// Создание набора параметров для SQWMA
-pub fn create_sqwma_parameters(period: f32) -> HashMap<String, IndicatorParameter> {
+pub fn create_sqwma_parameters(period: f64) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
         "period".to_string(),
@@ -355,7 +355,7 @@ pub fn create_sqwma_parameters(period: f32) -> HashMap<String, IndicatorParamete
 }
 
 /// Создание набора параметров для SINEWMA
-pub fn create_sinewma_parameters(period: f32) -> HashMap<String, IndicatorParameter> {
+pub fn create_sinewma_parameters(period: f64) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
         "period".to_string(),
@@ -365,7 +365,7 @@ pub fn create_sinewma_parameters(period: f32) -> HashMap<String, IndicatorParame
 }
 
 /// Создание набора параметров для TPBF
-pub fn create_tpbf_parameters(period: f32) -> HashMap<String, IndicatorParameter> {
+pub fn create_tpbf_parameters(period: f64) -> HashMap<String, IndicatorParameter> {
     let mut params = HashMap::new();
     params.insert(
         "period".to_string(),

@@ -86,6 +86,6 @@ pub struct ConditionResultData {
 pub struct ConditionMetadata {
     pub execution_time: std::time::Duration,
     pub data_points_processed: usize,
-    pub confidence_score: f32,
+    pub confidence_score: f64,
     pub additional_info: std::collections::HashMap<String, String>,
 }
