@@ -83,13 +83,13 @@ pub struct Trade {
     pub id: u64,
     pub entry_time: DateTime<Utc>,
     pub exit_time: DateTime<Utc>,
-    pub entry_price: f64,
-    pub exit_price: f64,
-    pub quantity: f64,
+    pub entry_price: f32,
+    pub exit_price: f32,
+    pub quantity: f32,
     pub side: Side,
-    pub commission: f64,
-    pub pnl: f64,
-    pub return_pct: f64,
+    pub commission: f32,
+    pub pnl: f32,
+    pub return_pct: f32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -99,7 +99,7 @@ pub enum Side {
 }
 
 pub trait Metric: Send + Sync {
-    fn calculate(&self, trades: &[Trade], initial_capital: f64) -> MetricResult;
+    fn calculate(&self, trades: &[Trade], initial_capital: f32) -> MetricResult;
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn category(&self) -> MetricCategory;
@@ -107,7 +107,7 @@ pub trait Metric: Send + Sync {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricResult {
-    pub value: f64,
+    pub value: f32,
     pub unit: String,
     pub interpretation: Option<String>,
     pub is_good: Option<bool>,
@@ -146,7 +146,7 @@ impl MetricCalculator {
         self.metrics.push(metric);
     }
     
-    pub fn calculate_all(&self, trades: &[Trade], initial_capital: f64) -> MetricReport {
+    pub fn calculate_all(&self, trades: &[Trade], initial_capital: f32) -> MetricReport {
         let mut results = HashMap::new();
         
         for metric in &self.metrics {
@@ -167,7 +167,7 @@ impl MetricCalculator {
         }
     }
     
-    pub fn calculate_category(&self, trades: &[Trade], initial_capital: f64, category: MetricCategory) -> CategoryReport {
+    pub fn calculate_category(&self, trades: &[Trade], initial_capital: f32, category: MetricCategory) -> CategoryReport {
         let category_metrics: Vec<_> = self.metrics
             .iter()
             .filter(|m| m.category() == category)
@@ -351,14 +351,14 @@ impl MetricCalculator {
 use std::simd::*;
 
 impl SharpeRatio {
-    fn calculate_simd(&self, returns: &[f64]) -> f64 {
+    fn calculate_simd(&self, returns: &[f32]) -> f32 {
         let chunk_size = 8; // AVX2 chunk size
         let mut sum = 0.0;
         let mut sum_sq = 0.0;
         
         for chunk in returns.chunks(chunk_size) {
             if chunk.len() == chunk_size {
-                let simd_chunk = f64x8::from_slice(chunk);
+                let simd_chunk = f32x8::from_slice(chunk);
                 sum += simd_chunk.reduce_sum();
                 sum_sq += (simd_chunk * simd_chunk).reduce_sum();
             } else {
@@ -370,8 +370,8 @@ impl SharpeRatio {
             }
         }
         
-        let mean = sum / returns.len() as f64;
-        let variance = (sum_sq / returns.len() as f64) - (mean * mean);
+        let mean = sum / returns.len() as f32;
+        let variance = (sum_sq / returns.len() as f32) - (mean * mean);
         let std_dev = variance.sqrt();
         
         if std_dev == 0.0 { 0.0 } else { (mean - self.risk_free_rate) / std_dev }
@@ -384,7 +384,7 @@ impl SharpeRatio {
 use rayon::prelude::*;
 
 impl MetricCalculator {
-    pub fn calculate_all_parallel(&self, trades: &[Trade], initial_capital: f64) -> MetricReport {
+    pub fn calculate_all_parallel(&self, trades: &[Trade], initial_capital: f32) -> MetricReport {
         let results: HashMap<String, MetricResult> = self.metrics
             .par_iter()
             .map(|metric| {
@@ -413,7 +413,7 @@ pub struct CachedMetricCalculator {
 }
 
 impl CachedMetricCalculator {
-    pub fn calculate_with_cache(&self, trades: &[Trade], initial_capital: f64) -> MetricReport {
+    pub fn calculate_with_cache(&self, trades: &[Trade], initial_capital: f32) -> MetricReport {
         let cache_key = format!("{}_{}", trades.len(), initial_capital);
         
         // Check cache first
@@ -493,7 +493,7 @@ pub struct MetricReport {
     pub results: HashMap<String, MetricResult>,
     pub generated_at: DateTime<Utc>,
     pub trade_count: usize,
-    pub initial_capital: f64,
+    pub initial_capital: f32,
 }
 
 impl MetricReport {
@@ -550,16 +550,16 @@ impl Strategy for MyStrategy {
 #### Optimization Layer
 ```rust
 pub trait FitnessFunction {
-    fn calculate(&self, strategy: &dyn Strategy) -> f64;
+    fn calculate(&self, strategy: &dyn Strategy) -> f32;
 }
 
 pub struct MultiObjectiveFitness {
-    weights: HashMap<String, f64>,
+    weights: HashMap<String, f32>,
     calculator: MetricCalculator,
 }
 
 impl FitnessFunction for MultiObjectiveFitness {
-    fn calculate(&self, strategy: &dyn Strategy) -> f64 {
+    fn calculate(&self, strategy: &dyn Strategy) -> f32 {
         let report = strategy.get_metrics();
         let mut score = 0.0;
         

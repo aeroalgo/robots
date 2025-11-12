@@ -153,7 +153,7 @@ namespace vvTSLtools
 		[HandlerParameter(true, "0", Min = "0", Max = "30", Step = "1")]
 		public int Output
 		{
-			// Token: 0x060001E3 RID: 483 RVA: 0x00008f64 File Offset: 0x00007132
+			// Token: 0x060001E3 RID: 483 RVA: 0x00008f32 File Offset: 0x00007132
 			get;
 			// Token: 0x060001E4 RID: 484 RVA: 0x00008F3A File Offset: 0x0000713A
 			set;

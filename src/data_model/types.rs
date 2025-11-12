@@ -4,8 +4,8 @@ use std::sync::Arc;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-pub type Price = f64;
-pub type Volume = f64;
+pub type Price = f32;
+pub type Volume = f32;
 pub type TimestampMillis = i64;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

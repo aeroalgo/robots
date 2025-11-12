@@ -5,21 +5,21 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum InputDataType {
     /// Простой массив значений (например, close prices)
-    Simple(Vec<f64>),
+    Simple(Vec<f32>),
     /// OHLC данные
     OHLC {
-        open: Vec<f64>,
-        high: Vec<f64>,
-        low: Vec<f64>,
-        close: Vec<f64>,
+        open: Vec<f32>,
+        high: Vec<f32>,
+        low: Vec<f32>,
+        close: Vec<f32>,
     },
     /// OHLC + Volume данные
     OHLCV {
-        open: Vec<f64>,
-        high: Vec<f64>,
-        low: Vec<f64>,
-        close: Vec<f64>,
-        volume: Vec<f64>,
+        open: Vec<f32>,
+        high: Vec<f32>,
+        low: Vec<f32>,
+        close: Vec<f32>,
+        volume: Vec<f32>,
     },
 }
 
@@ -48,19 +48,19 @@ pub enum IndicatorType {
     Universal,
 }
 
-// OutputType удален - все индикаторы возвращают Vec<f64>
+// OutputType удален - все индикаторы возвращают Vec<f32>
 
 /// Диапазон параметра для оптимизации
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParameterRange {
-    pub start: f64,
-    pub end: f64,
-    pub step: f64,
-    pub current: f64,
+    pub start: f32,
+    pub end: f32,
+    pub step: f32,
+    pub current: f32,
 }
 
 impl ParameterRange {
-    pub fn new(start: f64, end: f64, step: f64) -> Self {
+    pub fn new(start: f32, end: f32, step: f32) -> Self {
         Self {
             start,
             end,
@@ -77,7 +77,7 @@ impl ParameterRange {
         ((self.end - self.start) / self.step + 1.0) as usize
     }
 
-    pub fn next_value(&mut self) -> Option<f64> {
+    pub fn next_value(&mut self) -> Option<f32> {
         if self.current + self.step <= self.end {
             self.current += self.step;
             Some(self.current)
@@ -95,7 +95,7 @@ impl ParameterRange {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndicatorParameter {
     pub name: String,
-    pub value: f64,
+    pub value: f32,
     pub range: ParameterRange,
     pub description: String,
     pub parameter_type: ParameterType,
@@ -104,7 +104,7 @@ pub struct IndicatorParameter {
 impl IndicatorParameter {
     pub fn new(
         name: &str,
-        value: f64,
+        value: f32,
         range: ParameterRange,
         description: &str,
         parameter_type: ParameterType,
@@ -159,11 +159,11 @@ impl ParameterSet {
         self.parameters.get(name)
     }
 
-    pub fn get_value(&self, name: &str) -> Option<f64> {
+    pub fn get_value(&self, name: &str) -> Option<f32> {
         self.parameters.get(name).map(|p| p.value)
     }
 
-    pub fn set_value(&mut self, name: &str, value: f64) -> Result<(), String> {
+    pub fn set_value(&mut self, name: &str, value: f32) -> Result<(), String> {
         if let Some(param) = self.parameters.get_mut(name) {
             if value >= param.range.start && value <= param.range.end {
                 param.value = value;
@@ -179,7 +179,7 @@ impl ParameterSet {
         }
     }
 
-    pub fn get_current_values(&self) -> HashMap<String, f64> {
+    pub fn get_current_values(&self) -> HashMap<String, f32> {
         self.parameters
             .iter()
             .map(|(k, v)| (k.clone(), v.value))
@@ -218,7 +218,7 @@ pub struct IndicatorMetadata {
     pub category: IndicatorCategory,
     pub indicator_type: IndicatorType,
     pub input_data_type: InputDataType,
-    pub parameters: HashMap<String, f64>,
+    pub parameters: HashMap<String, f32>,
     pub optimization_ranges: HashMap<String, ParameterRange>,
     pub dependencies: Vec<String>, // Имена зависимых индикаторов
     pub description: String,
@@ -229,16 +229,16 @@ pub struct IndicatorMetadata {
 /// OHLC структура данных
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OHLCData {
-    pub open: Vec<f64>,
-    pub high: Vec<f64>,
-    pub low: Vec<f64>,
-    pub close: Vec<f64>,
-    pub volume: Option<Vec<f64>>,
+    pub open: Vec<f32>,
+    pub high: Vec<f32>,
+    pub low: Vec<f32>,
+    pub close: Vec<f32>,
+    pub volume: Option<Vec<f32>>,
     pub timestamp: Option<Vec<i64>>,
 }
 
 impl OHLCData {
-    pub fn new(open: Vec<f64>, high: Vec<f64>, low: Vec<f64>, close: Vec<f64>) -> Self {
+    pub fn new(open: Vec<f32>, high: Vec<f32>, low: Vec<f32>, close: Vec<f32>) -> Self {
         Self {
             open,
             high,
@@ -249,7 +249,7 @@ impl OHLCData {
         }
     }
 
-    pub fn with_volume(mut self, volume: Vec<f64>) -> Self {
+    pub fn with_volume(mut self, volume: Vec<f32>) -> Self {
         self.volume = Some(volume);
         self
     }
@@ -281,7 +281,7 @@ impl OHLCData {
                 .map_or(true, |t| t.len() == self.close.len())
     }
 
-    pub fn get_median_price(&self) -> Vec<f64> {
+    pub fn get_median_price(&self) -> Vec<f32> {
         self.high
             .iter()
             .zip(self.low.iter())
@@ -289,7 +289,7 @@ impl OHLCData {
             .collect()
     }
 
-    pub fn get_typical_price(&self) -> Vec<f64> {
+    pub fn get_typical_price(&self) -> Vec<f32> {
         self.high
             .iter()
             .zip(self.low.iter())
@@ -298,7 +298,7 @@ impl OHLCData {
             .collect()
     }
 
-    pub fn get_weighted_close(&self) -> Vec<f64> {
+    pub fn get_weighted_close(&self) -> Vec<f32> {
         self.high
             .iter()
             .zip(self.low.iter())
@@ -347,21 +347,21 @@ pub type IndicatorResult<T> = Result<T, IndicatorError>;
 
 /// Трейт для валидации входных данных
 pub trait DataValidator {
-    fn validate_simple_data(&self, data: &[f64]) -> Result<(), IndicatorError>;
+    fn validate_simple_data(&self, data: &[f32]) -> Result<(), IndicatorError>;
     fn validate_ohlc_data(&self, data: &OHLCData) -> Result<(), IndicatorError>;
     fn get_required_data_type(&self) -> InputDataType;
 }
 
 /// Трейт для конвертации данных
 pub trait DataConverter {
-    fn convert_to_simple(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError>;
-    fn convert_to_ohlc(&self, data: &[f64]) -> Result<OHLCData, IndicatorError>;
+    fn convert_to_simple(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError>;
+    fn convert_to_ohlc(&self, data: &[f32]) -> Result<OHLCData, IndicatorError>;
 }
 
 /// Результат вычисления индикатора
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndicatorResultData {
-    pub values: Vec<f64>,
+    pub values: Vec<f32>,
     pub metadata: IndicatorMetadata,
 }
 
@@ -371,7 +371,7 @@ pub struct IndicatorId {
     pub name: String,
     pub category: IndicatorCategory,
     pub indicator_type: IndicatorType,
-    pub parameters: HashMap<String, f64>,
+    pub parameters: HashMap<String, f32>,
 }
 
 impl IndicatorId {
@@ -384,7 +384,7 @@ impl IndicatorId {
         }
     }
 
-    pub fn with_parameter(mut self, key: &str, value: f64) -> Self {
+    pub fn with_parameter(mut self, key: &str, value: f32) -> Self {
         self.parameters.insert(key.to_string(), value);
         self
     }

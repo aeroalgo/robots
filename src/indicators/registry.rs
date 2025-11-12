@@ -16,7 +16,7 @@ pub struct IndicatorConfig {
     pub name: String,
     pub category: IndicatorCategory,
     pub indicator_type: IndicatorType,
-    pub parameters: HashMap<String, f64>,
+    pub parameters: HashMap<String, f32>,
     pub description: String,
 }
 
@@ -45,6 +45,10 @@ impl IndicatorRegistry {
         // OHLC индикаторы
         if let Ok(atr) = ATR::new(14.0) {
             self.register_indicator("ATR", Box::new(atr));
+        }
+
+        if let Ok(tr) = TrueRange::new() {
+            self.register_indicator("TrueRange", Box::new(tr));
         }
 
         if let Ok(supertrend) = SuperTrend::new(10.0, 3.0) {
@@ -302,7 +306,7 @@ impl IndicatorRegistry {
             .collect()
     }
 
-    // Метод get_indicators_with_output_type удален - все индикаторы возвращают Vec<f64>
+    // Метод get_indicators_with_output_type удален - все индикаторы возвращают Vec<f32>
 }
 
 /// Статистика реестра
@@ -320,7 +324,7 @@ impl IndicatorFactory {
     /// Создать индикатор по имени и параметрам
     pub fn create_indicator(
         name: &str,
-        parameters: HashMap<String, f64>,
+        parameters: HashMap<String, f32>,
     ) -> Result<Box<dyn Indicator + Send + Sync>, IndicatorError> {
         match name.to_uppercase().as_str() {
             // OHLC индикаторы
@@ -328,6 +332,7 @@ impl IndicatorFactory {
                 let period = parameters.get("period").copied().unwrap_or(14.0);
                 Ok(Box::new(ATR::new(period)?))
             }
+            "TRUERANGE" => Ok(Box::new(TrueRange::new()?)),
             "SUPERTREND" => {
                 let period = parameters.get("period").copied().unwrap_or(10.0);
                 let coeff_atr = parameters.get("coeff_atr").copied().unwrap_or(3.0);
@@ -454,6 +459,7 @@ impl IndicatorFactory {
         vec![
             // OHLC индикаторы
             "ATR",
+            "TrueRange",
             "SuperTrend",
             "Stochastic",
             "WATR",
@@ -493,6 +499,13 @@ impl IndicatorFactory {
                 indicator_type: IndicatorType::OHLC,
                 description: "Average True Range - индикатор волатильности".to_string(),
                 parameters: vec!["period".to_string()],
+            }),
+            "TRUERANGE" => Some(IndicatorInfo {
+                name: "TrueRange".to_string(),
+                category: IndicatorCategory::Volatility,
+                indicator_type: IndicatorType::OHLC,
+                description: "True Range - истинный диапазон без сглаживания".to_string(),
+                parameters: Vec::new(),
             }),
             "SUPERTREND" => Some(IndicatorInfo {
                 name: "SuperTrend".to_string(),
@@ -737,7 +750,7 @@ pub mod registry_utils {
     /// Создать индикатор по имени и параметрам через глобальный реестр
     pub async fn create_indicator(
         name: &str,
-        parameters: HashMap<String, f64>,
+        parameters: HashMap<String, f32>,
     ) -> Result<Box<dyn Indicator + Send + Sync>, IndicatorError> {
         IndicatorFactory::create_indicator(name, parameters)
     }
@@ -747,7 +760,7 @@ impl IndicatorFactory {
     /// Создать индикатор по имени и параметрам (асинхронная версия)
     pub async fn create_indicator_async(
         name: &str,
-        parameters: HashMap<String, f64>,
+        parameters: HashMap<String, f32>,
     ) -> Result<Box<dyn Indicator + Send + Sync>, IndicatorError> {
         Self::create_indicator(name, parameters)
     }
@@ -788,7 +801,7 @@ impl Indicator for EmptyIndicator {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Simple
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         static EMPTY_PARAMS: OnceLock<ParameterSet> = OnceLock::new();
         EMPTY_PARAMS.get_or_init(|| ParameterSet::new())
@@ -796,10 +809,10 @@ impl Indicator for EmptyIndicator {
     fn min_data_points(&self) -> usize {
         1
     }
-    async fn calculate_simple(&self, _data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Ok(vec![0.0])
     }
-    async fn calculate_ohlc(&self, _data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, _data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         Ok(vec![0.0])
     }
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {

@@ -5,9 +5,9 @@ use std::collections::HashMap;
 /// Использует слайсы вместо владения данными для экономии памяти
 #[derive(Debug)]
 pub struct OptimizedStrategyCondition<'a> {
-    data: &'a [f64],
-    indicator: &'a [f64],
-    constant: f64,
+    data: &'a [f32],
+    indicator: &'a [f32],
+    constant: f32,
     pub condition: ConditionEnum, // Сделано публичным
     result: Vec<bool>,
     name_indicator: String,
@@ -15,10 +15,10 @@ pub struct OptimizedStrategyCondition<'a> {
 
 impl<'a> OptimizedStrategyCondition<'a> {
     pub fn new(
-        data: &'a [f64],
-        indicator: &'a [f64],
+        data: &'a [f32],
+        indicator: &'a [f32],
         condition: ConditionEnum,
-        constant: f64,
+        constant: f32,
         name_indicator: String,
     ) -> Self {
         Self {
@@ -76,11 +76,11 @@ impl<'a> OptimizedStrategyCondition<'a> {
     }
 
     // Реализация всех функций для каждого enum
-    fn check_above(&self, value: f64) -> bool {
+    fn check_above(&self, value: f32) -> bool {
         value > self.constant
     }
 
-    fn check_below(&self, value: f64) -> bool {
+    fn check_below(&self, value: f32) -> bool {
         value < self.constant
     }
 
@@ -254,10 +254,10 @@ pub struct ConditionFactory;
 impl ConditionFactory {
     /// Создает оптимизированное условие с проверкой валидности данных
     pub fn create_optimized_condition<'a>(
-        data: &'a [f64],
-        indicator: &'a [f64],
+        data: &'a [f32],
+        indicator: &'a [f32],
         condition: ConditionEnum,
-        constant: f64,
+        constant: f32,
         name_indicator: String,
     ) -> Option<OptimizedStrategyCondition<'a>> {
         if data.is_empty() || indicator.is_empty() {
@@ -275,10 +275,10 @@ impl ConditionFactory {
 
     /// Создает несколько условий для одного набора данных
     pub fn create_multiple_conditions<'a>(
-        data: &'a [f64],
-        indicator: &'a [f64],
+        data: &'a [f32],
+        indicator: &'a [f32],
         conditions: Vec<ConditionEnum>,
-        constant: f64,
+        constant: f32,
         name_indicator: String,
     ) -> Vec<OptimizedStrategyCondition<'a>> {
         conditions
@@ -348,9 +348,9 @@ impl ConditionUtils {
     }
 
     /// Вычисляет статистику сигналов
-    pub fn calculate_signal_stats(signals: &[bool]) -> HashMap<String, f64> {
-        let total = signals.len() as f64;
-        let active = signals.iter().filter(|&&s| s).count() as f64;
+    pub fn calculate_signal_stats(signals: &[bool]) -> HashMap<String, f32> {
+        let total = signals.len() as f32;
+        let active = signals.iter().filter(|&&s| s).count() as f32;
         let inactive = total - active;
 
         let mut stats = HashMap::new();

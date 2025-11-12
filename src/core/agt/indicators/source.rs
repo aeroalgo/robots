@@ -9,11 +9,11 @@ use crate::core::agt::{
 use super::any::SimpleIndicators;
 
 pub struct SourceIndicators {
-    pub open: Vec<f64>,
-    pub high: Vec<f64>,
-    pub low: Vec<f64>,
-    pub close: Vec<f64>,
-    pub volume: Vec<f64>,
+    pub open: Vec<f32>,
+    pub high: Vec<f32>,
+    pub low: Vec<f32>,
+    pub close: Vec<f32>,
+    pub volume: Vec<f32>,
     pub timestamp: Vec<i32>,
     pub timeframe: i16,
     pub meta: IndicatorsMeta,
@@ -42,8 +42,8 @@ impl SourceIndicators {
     pub async fn get_indicator(
         &mut self,
         name: &IndicatorsEnum,
-        period: f64,
-        coeff_atr: f64,
+        period: f32,
+        coeff_atr: f32,
         meta: bool,
     ) -> IndicatorData {
         let mut simple_indicators = SimpleIndicators::new(self.close.clone()).await;
@@ -70,7 +70,7 @@ impl SourceIndicators {
         };
         return result;
     }
-    pub async fn get_vtrand(&mut self, period: f64, meta: bool) -> IndicatorData {
+    pub async fn get_vtrand(&mut self, period: f32, meta: bool) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
         self.meta.name = String::from("GEOMEAN");
         self.meta.name_param = vec!["period".to_string()];
@@ -89,13 +89,13 @@ impl SourceIndicators {
             meta: self.meta.clone(),
         };
     }
-    async fn calculate_vtrand(&self, hhv: Vec<f64>, llv: Vec<f64>, _period: f64) -> Vec<f64> {
+    async fn calculate_vtrand(&self, hhv: Vec<f32>, llv: Vec<f32>, _period: f32) -> Vec<f32> {
         hhv.into_iter()
             .zip(llv)
             .map(|(a, b)| (a + b) / 2.0)
             .collect()
     }
-    pub async fn get_atr_old(&mut self, period: f64, meta: bool) -> IndicatorData {
+    pub async fn get_atr_old(&mut self, period: f32, meta: bool) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
         self.meta.name = String::from("ATROLD");
         self.meta.name_param = vec!["period".to_string()];
@@ -112,9 +112,9 @@ impl SourceIndicators {
             meta: self.meta.clone(),
         };
     }
-    async fn calculate_atr_old(&self, period: f64) -> Vec<f64> {
+    async fn calculate_atr_old(&self, period: f32) -> Vec<f32> {
         let period = period;
-        let mut prev_atr: f64 = 0.0;
+        let mut prev_atr: f32 = 0.0;
         let count = *&self.close.len();
         let mut array = vec![0.0; count];
         for i in 1..count {
@@ -125,16 +125,16 @@ impl SourceIndicators {
                 array[i] = data;
                 prev_atr = data;
             } else {
-                let mut num = prev_atr * i as f64;
+                let mut num = prev_atr * i as f32;
                 num += true_range;
-                prev_atr = num / (i + 1) as f64;
-                array[i] = num / (i + 1) as f64;
+                prev_atr = num / (i + 1) as f32;
+                array[i] = num / (i + 1) as f32;
             }
         }
         // println!("{:?}", array);
         return array;
     }
-    async fn true_range_old(&self, i: usize) -> f64 {
+    async fn true_range_old(&self, i: usize) -> f32 {
         let high = self.high[i];
         let low = self.low[i];
         let close = self.close[i];
@@ -143,7 +143,7 @@ impl SourceIndicators {
         let num = num.max((close - low).abs());
         return num;
     }
-    pub async fn get_atr(&mut self, period: f64, meta: bool) -> IndicatorData {
+    pub async fn get_atr(&mut self, period: f32, meta: bool) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
         self.meta.name = String::from("ATR");
         self.meta.name_param = vec!["period".to_string()];
@@ -160,7 +160,7 @@ impl SourceIndicators {
             meta: self.meta.clone(),
         };
     }
-    async fn calculate_atr(&self, period: f64) -> Vec<f64> {
+    async fn calculate_atr(&self, period: f32) -> Vec<f32> {
         let period = period;
         let count = *&self.close.len();
         let mut array = vec![0.0; count];
@@ -173,7 +173,7 @@ impl SourceIndicators {
         // println!("{:?}", array);
         return array;
     }
-    async fn true_range(&self, period: usize, bar_num: usize) -> Vec<f64> {
+    async fn true_range(&self, period: usize, bar_num: usize) -> Vec<f32> {
         let mut list = vec![0.0; period as usize];
         let mut new_period = period;
         if bar_num < period {
@@ -192,8 +192,8 @@ impl SourceIndicators {
 
     pub async fn get_super_trend(
         &mut self,
-        period: f64,
-        coeff_atr: f64,
+        period: f32,
+        coeff_atr: f32,
         meta: bool,
     ) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
@@ -213,15 +213,15 @@ impl SourceIndicators {
             meta: self.meta.clone(),
         };
     }
-    async fn calculate_super_trend(&mut self, period: f64, coeff_atr: f64) -> Vec<f64> {
+    async fn calculate_super_trend(&mut self, period: f32, coeff_atr: f32) -> Vec<f32> {
         let list = self.get_watr(period, false).await;
         let list = list.data;
         let data = self.calculate_median_price().await;
         let count = *&self.close.len();
         let mut array = vec![0.0; count];
         for i in 2..count {
-            let num = data[i] + list[i] * coeff_atr as f64;
-            let num2 = data[i] - list[i] * coeff_atr as f64;
+            let num = data[i] + list[i] * coeff_atr as f32;
+            let num2 = data[i] - list[i] * coeff_atr as f32;
             if self.close[i] >= array[i - 1] {
                 if self.close[i - 1] < array[i - 1] {
                     array[i] = num2;
@@ -247,7 +247,7 @@ impl SourceIndicators {
         return array;
     }
 
-    async fn calculate_median_price(&self) -> Vec<f64> {
+    async fn calculate_median_price(&self) -> Vec<f32> {
         let count = *&self.close.len();
         let mut array = vec![];
         for i in 0..count {
@@ -256,7 +256,7 @@ impl SourceIndicators {
         // println!("{:?}", array);
         return array;
     }
-    pub async fn get_watr(&mut self, period: f64, meta: bool) -> IndicatorData {
+    pub async fn get_watr(&mut self, period: f32, meta: bool) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
         self.meta.name = String::from("WATR");
         self.meta.name_param = vec!["period".to_string()];
@@ -273,7 +273,7 @@ impl SourceIndicators {
             meta: self.meta.clone(),
         };
     }
-    async fn calculate_watr(&self, period: f64) -> Vec<f64> {
+    async fn calculate_watr(&self, period: f32) -> Vec<f32> {
         let period = period;
         let count = *&self.close.len();
         let mut array = vec![0.0; count];
@@ -286,7 +286,7 @@ impl SourceIndicators {
 
         return array;
     }
-    pub async fn get_maxfor(&mut self, period: f64, meta: bool) -> IndicatorData {
+    pub async fn get_maxfor(&mut self, period: f32, meta: bool) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
         self.meta.name = String::from("MAXFOR");
         self.meta.name_param = vec!["period".to_string()];
@@ -303,11 +303,11 @@ impl SourceIndicators {
             meta: self.meta.clone(),
         };
     }
-    async fn calculate_maxfor(&mut self, period: f64) -> Vec<f64> {
+    async fn calculate_maxfor(&mut self, period: f32) -> Vec<f32> {
         let data = &self.high;
         let count = data.len();
         let num = min(count, period as usize);
-        let mut result: Vec<f64> = Vec::new();
+        let mut result: Vec<f32> = Vec::new();
         for i in 0..num {
             let value = *data[0..i + 1].iter().try_max().unwrap().expect("msg");
             result.push(value);
@@ -322,7 +322,7 @@ impl SourceIndicators {
         }
         result
     }
-    pub async fn get_minfor(&mut self, period: f64, meta: bool) -> IndicatorData {
+    pub async fn get_minfor(&mut self, period: f32, meta: bool) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
         self.meta.name = String::from("MINFOR");
         self.meta.name_param = vec!["period".to_string()];
@@ -339,11 +339,11 @@ impl SourceIndicators {
             meta: self.meta.clone(),
         };
     }
-    async fn calculate_minfor(&mut self, period: f64) -> Vec<f64> {
+    async fn calculate_minfor(&mut self, period: f32) -> Vec<f32> {
         let data = &self.low;
         let count = data.len();
         let num = min(count, period as usize);
-        let mut result: Vec<f64> = Vec::new();
+        let mut result: Vec<f32> = Vec::new();
         for i in 0..num {
             let value = *data[0..i + 1].iter().try_min().unwrap().expect("msg");
             result.push(value);
@@ -358,7 +358,7 @@ impl SourceIndicators {
         }
         result
     }
-    pub async fn get_stochastic(&mut self, period: f64, meta: bool) -> IndicatorData {
+    pub async fn get_stochastic(&mut self, period: f32, meta: bool) -> IndicatorData {
         self.meta.current_param = HashMap::from([("period".to_string(), period)]);
         self.meta.name = String::from("STOCHASTIC");
         self.meta.name_param = vec!["period".to_string()];
@@ -379,13 +379,13 @@ impl SourceIndicators {
     }
     async fn calculate_stochastic(
         &mut self,
-        hhv: Vec<f64>,
-        llv: Vec<f64>,
-        _period: f64,
-    ) -> Vec<f64> {
+        hhv: Vec<f32>,
+        llv: Vec<f32>,
+        _period: f32,
+    ) -> Vec<f32> {
         let data = hhv;
         let data2 = llv;
-        let mut result: Vec<f64> = vec![0.0; self.close.len()];
+        let mut result: Vec<f32> = vec![0.0; self.close.len()];
         for i in 0..self.close.len() {
             let num = data[i] - data2[i];
             result[i] = if num == 0.0 {

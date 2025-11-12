@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 pub struct Candle {
     pub timestamp: DateTime<Utc>,
     pub symbol: String,
-    pub open: f64,
-    pub high: f64,
-    pub low: f64,
-    pub close: f64,
-    pub volume: f64,
+    pub open: f32,
+    pub high: f32,
+    pub low: f32,
+    pub close: f32,
+    pub volume: f32,
 }
 
 /// Торговая сделка
@@ -21,8 +21,8 @@ pub struct Trade {
     pub id: String,
     pub timestamp: DateTime<Utc>,
     pub symbol: String,
-    pub price: f64,
-    pub quantity: f64,
+    pub price: f32,
+    pub quantity: f32,
     pub side: TradeSide,
     pub order_id: Option<String>,
 }
@@ -41,8 +41,8 @@ pub struct Order {
     pub symbol: String,
     pub side: OrderSide,
     pub order_type: OrderType,
-    pub quantity: f64,
-    pub price: Option<f64>,
+    pub quantity: f32,
+    pub price: Option<f32>,
     pub status: OrderStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -89,19 +89,19 @@ pub struct User {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Balance {
     pub asset: String,
-    pub free: f64,
-    pub locked: f64,
-    pub total: f64,
+    pub free: f32,
+    pub locked: f32,
+    pub total: f32,
 }
 
 /// Текущая цена (тикер)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ticker {
     pub symbol: String,
-    pub price: f64,
-    pub bid: f64,
-    pub ask: f64,
-    pub volume: f64,
+    pub price: f32,
+    pub bid: f32,
+    pub ask: f32,
+    pub volume: f32,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -111,9 +111,9 @@ pub struct OrderRequest {
     pub symbol: String,
     pub side: OrderSide,
     pub order_type: OrderType,
-    pub quantity: f64,
-    pub price: Option<f64>,
-    pub stop_price: Option<f64>,
+    pub quantity: f32,
+    pub price: Option<f32>,
+    pub stop_price: Option<f32>,
     pub time_in_force: Option<TimeInForce>,
 }
 
@@ -122,8 +122,8 @@ pub struct OrderRequest {
 pub struct OrderResponse {
     pub order_id: String,
     pub status: OrderStatus,
-    pub filled_quantity: f64,
-    pub average_price: Option<f64>,
+    pub filled_quantity: f32,
+    pub average_price: Option<f32>,
 }
 
 /// Время действия ордера
@@ -153,13 +153,13 @@ pub struct BacktestResult {
     pub symbol: String,
     pub start_date: DateTime<Utc>,
     pub end_date: DateTime<Utc>,
-    pub total_return: f64,
-    pub sharpe_ratio: f64,
-    pub max_drawdown: f64,
+    pub total_return: f32,
+    pub sharpe_ratio: f32,
+    pub max_drawdown: f32,
     pub total_trades: u32,
     pub winning_trades: u32,
     pub losing_trades: u32,
-    pub win_rate: f64,
+    pub win_rate: f32,
     pub created_at: DateTime<Utc>,
 }
 
@@ -167,7 +167,7 @@ pub struct BacktestResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Indicator {
     pub name: String,
-    pub value: f64,
+    pub value: f32,
     pub timestamp: DateTime<Utc>,
     pub parameters: serde_json::Value,
 }
@@ -179,8 +179,8 @@ pub struct TradingSignal {
     pub strategy_id: String,
     pub symbol: String,
     pub signal_type: SignalType,
-    pub confidence: f64,
-    pub price: f64,
+    pub confidence: f32,
+    pub price: f32,
     pub timestamp: DateTime<Utc>,
     pub metadata: Option<serde_json::Value>,
 }
@@ -199,8 +199,8 @@ pub struct Portfolio {
     pub id: String,
     pub user_id: String,
     pub name: String,
-    pub total_value: f64,
-    pub cash: f64,
+    pub total_value: f32,
+    pub cash: f32,
     pub positions: Vec<Position>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -210,11 +210,11 @@ pub struct Portfolio {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Position {
     pub symbol: String,
-    pub quantity: f64,
-    pub average_price: f64,
-    pub current_price: f64,
-    pub unrealized_pnl: f64,
-    pub realized_pnl: f64,
+    pub quantity: f32,
+    pub average_price: f32,
+    pub current_price: f32,
+    pub unrealized_pnl: f32,
+    pub realized_pnl: f32,
 }
 
 /// Системное событие

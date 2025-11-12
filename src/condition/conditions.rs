@@ -42,7 +42,7 @@ impl Condition for AboveCondition {
         2
     }
 
-    async fn check_simple(&self, _data: &[f64]) -> ConditionResult<ConditionResultData> {
+    async fn check_simple(&self, _data: &[f32]) -> ConditionResult<ConditionResultData> {
         Err(ConditionError::InsufficientData {
             required: 2,
             actual: 1,
@@ -61,8 +61,8 @@ impl Condition for AboveCondition {
 
     async fn check_dual(
         &self,
-        data1: &[f64],
-        data2: &[f64],
+        data1: &[f32],
+        data2: &[f32],
     ) -> ConditionResult<ConditionResultData> {
         // Сравниваем data1 с data2 как порогом
         let start_time = Instant::now();
@@ -114,14 +114,14 @@ impl Condition for AboveCondition {
         })
     }
 
-    async fn check_single(&self, _index: usize, _data: &[f64]) -> ConditionResult<bool> {
+    async fn check_single(&self, _index: usize, _data: &[f32]) -> ConditionResult<bool> {
         Err(ConditionError::InsufficientData {
             required: 2,
             actual: 1,
         })
     }
 
-    fn validate_input_data(&self, data: &[f64]) -> Result<(), ConditionError> {
+    fn validate_input_data(&self, data: &[f32]) -> Result<(), ConditionError> {
         if data.len() < self.min_data_points() {
             Err(ConditionError::InsufficientData {
                 required: self.min_data_points(),
@@ -177,7 +177,7 @@ impl Condition for GreaterPercentCondition {
         2
     }
 
-    async fn check_simple(&self, _data: &[f64]) -> ConditionResult<ConditionResultData> {
+    async fn check_simple(&self, _data: &[f32]) -> ConditionResult<ConditionResultData> {
         Err(ConditionError::InsufficientData {
             required: 2,
             actual: 1,
@@ -196,8 +196,8 @@ impl Condition for GreaterPercentCondition {
 
     async fn check_dual(
         &self,
-        data1: &[f64],
-        data2: &[f64],
+        data1: &[f32],
+        data2: &[f32],
     ) -> ConditionResult<ConditionResultData> {
         let start_time = Instant::now();
 
@@ -248,14 +248,14 @@ impl Condition for GreaterPercentCondition {
         })
     }
 
-    async fn check_single(&self, _index: usize, _data: &[f64]) -> ConditionResult<bool> {
+    async fn check_single(&self, _index: usize, _data: &[f32]) -> ConditionResult<bool> {
         Err(ConditionError::InsufficientData {
             required: 2,
             actual: 1,
         })
     }
 
-    fn validate_input_data(&self, data: &[f64]) -> Result<(), ConditionError> {
+    fn validate_input_data(&self, data: &[f32]) -> Result<(), ConditionError> {
         if data.len() < self.min_data_points() {
             Err(ConditionError::InsufficientData {
                 required: self.min_data_points(),
@@ -275,9 +275,9 @@ impl Condition for GreaterPercentCondition {
 impl PercentageCondition for GreaterPercentCondition {
     async fn greater_percent(
         &self,
-        data1: &[f64],
-        data2: &[f64],
-        percent: f64,
+        data1: &[f32],
+        data2: &[f32],
+        percent: f32,
     ) -> ConditionResult<ConditionResultData> {
         let start_time = Instant::now();
 
@@ -331,9 +331,9 @@ impl PercentageCondition for GreaterPercentCondition {
 
     async fn lower_percent(
         &self,
-        data1: &[f64],
-        data2: &[f64],
-        percent: f64,
+        data1: &[f32],
+        data2: &[f32],
+        percent: f32,
     ) -> ConditionResult<ConditionResultData> {
         let start_time = Instant::now();
 
@@ -422,7 +422,7 @@ impl Condition for LowerPercentCondition {
         2
     }
 
-    async fn check_simple(&self, _data: &[f64]) -> ConditionResult<ConditionResultData> {
+    async fn check_simple(&self, _data: &[f32]) -> ConditionResult<ConditionResultData> {
         Err(ConditionError::InsufficientData {
             required: 2,
             actual: 1,
@@ -441,8 +441,8 @@ impl Condition for LowerPercentCondition {
 
     async fn check_dual(
         &self,
-        data1: &[f64],
-        data2: &[f64],
+        data1: &[f32],
+        data2: &[f32],
     ) -> ConditionResult<ConditionResultData> {
         let start_time = Instant::now();
 
@@ -493,14 +493,14 @@ impl Condition for LowerPercentCondition {
         })
     }
 
-    async fn check_single(&self, _index: usize, _data: &[f64]) -> ConditionResult<bool> {
+    async fn check_single(&self, _index: usize, _data: &[f32]) -> ConditionResult<bool> {
         Err(ConditionError::InsufficientData {
             required: 2,
             actual: 1,
         })
     }
 
-    fn validate_input_data(&self, data: &[f64]) -> Result<(), ConditionError> {
+    fn validate_input_data(&self, data: &[f32]) -> Result<(), ConditionError> {
         if data.len() < self.min_data_points() {
             Err(ConditionError::InsufficientData {
                 required: self.min_data_points(),
@@ -555,7 +555,7 @@ impl Condition for CrossesAboveCondition {
         2
     }
 
-    async fn check_simple(&self, _data: &[f64]) -> ConditionResult<ConditionResultData> {
+    async fn check_simple(&self, _data: &[f32]) -> ConditionResult<ConditionResultData> {
         Err(ConditionError::InsufficientData {
             required: 2,
             actual: 1,
@@ -571,8 +571,8 @@ impl Condition for CrossesAboveCondition {
 
     async fn check_dual(
         &self,
-        data1: &[f64],
-        data2: &[f64],
+        data1: &[f32],
+        data2: &[f32],
     ) -> ConditionResult<ConditionResultData> {
         let start_time = Instant::now();
 
@@ -628,14 +628,14 @@ impl Condition for CrossesAboveCondition {
         })
     }
 
-    async fn check_single(&self, _index: usize, _data: &[f64]) -> ConditionResult<bool> {
+    async fn check_single(&self, _index: usize, _data: &[f32]) -> ConditionResult<bool> {
         Err(ConditionError::InsufficientData {
             required: 2,
             actual: 1,
         })
     }
 
-    fn validate_input_data(&self, data: &[f64]) -> Result<(), ConditionError> {
+    fn validate_input_data(&self, data: &[f32]) -> Result<(), ConditionError> {
         if data.len() < self.min_data_points() {
             Err(ConditionError::InsufficientData {
                 required: self.min_data_points(),
@@ -662,7 +662,7 @@ pub struct RisingTrendCondition {
 }
 
 impl RisingTrendCondition {
-    pub fn new(period: f64) -> Result<Self, ConditionError> {
+    pub fn new(period: f32) -> Result<Self, ConditionError> {
         let period_usize = period as usize;
 
         let config = ConditionConfig {
@@ -696,7 +696,7 @@ impl Condition for RisingTrendCondition {
         self.period
     }
 
-    async fn check_simple(&self, data: &[f64]) -> ConditionResult<ConditionResultData> {
+    async fn check_simple(&self, data: &[f32]) -> ConditionResult<ConditionResultData> {
         let start_time = Instant::now();
         let period = self.period;
 
@@ -770,14 +770,14 @@ impl Condition for RisingTrendCondition {
 
     async fn check_dual(
         &self,
-        data1: &[f64],
-        _data2: &[f64],
+        data1: &[f32],
+        _data2: &[f32],
     ) -> ConditionResult<ConditionResultData> {
         // Для dual проверки используем data1 как основную линию
         self.check_simple(data1).await
     }
 
-    async fn check_single(&self, index: usize, data: &[f64]) -> ConditionResult<bool> {
+    async fn check_single(&self, index: usize, data: &[f32]) -> ConditionResult<bool> {
         let period = self.period;
 
         if index < period - 1 || index >= data.len() {
@@ -791,7 +791,7 @@ impl Condition for RisingTrendCondition {
         Ok(self.is_rising_trend(trend_data))
     }
 
-    fn validate_input_data(&self, data: &[f64]) -> Result<(), ConditionError> {
+    fn validate_input_data(&self, data: &[f32]) -> Result<(), ConditionError> {
         if data.len() < self.min_data_points() {
             Err(ConditionError::InsufficientData {
                 required: self.min_data_points(),
@@ -803,13 +803,13 @@ impl Condition for RisingTrendCondition {
     }
 
     fn clone_box(&self) -> Box<dyn Condition + Send + Sync> {
-        Box::new(Self::new(self.period as f64).unwrap())
+        Box::new(Self::new(self.period as f32).unwrap())
     }
 }
 
 impl RisingTrendCondition {
     // Вспомогательные методы
-    fn is_rising_trend(&self, data: &[f64]) -> bool {
+    fn is_rising_trend(&self, data: &[f32]) -> bool {
         if data.len() < 2 {
             return false;
         }
@@ -817,14 +817,14 @@ impl RisingTrendCondition {
         data.windows(2).all(|w| w[0] < w[1])
     }
 
-    fn calculate_slope(&self, data: &[f64]) -> f64 {
+    fn calculate_slope(&self, data: &[f32]) -> f32 {
         if data.len() < 2 {
             return 0.0;
         }
 
         let first = data[0];
         let last = data[data.len() - 1];
-        let period = data.len() as f64;
+        let period = data.len() as f32;
 
         (last - first) / (period - 1.0)
     }
@@ -869,7 +869,7 @@ impl Condition for BelowCondition {
         2
     }
 
-    async fn check_simple(&self, _data: &[f64]) -> ConditionResult<ConditionResultData> {
+    async fn check_simple(&self, _data: &[f32]) -> ConditionResult<ConditionResultData> {
         Err(ConditionError::InsufficientData {
             required: 2,
             actual: 1,
@@ -888,8 +888,8 @@ impl Condition for BelowCondition {
 
     async fn check_dual(
         &self,
-        data1: &[f64],
-        data2: &[f64],
+        data1: &[f32],
+        data2: &[f32],
     ) -> ConditionResult<ConditionResultData> {
         let start_time = Instant::now();
 
@@ -940,14 +940,14 @@ impl Condition for BelowCondition {
         })
     }
 
-    async fn check_single(&self, _index: usize, _data: &[f64]) -> ConditionResult<bool> {
+    async fn check_single(&self, _index: usize, _data: &[f32]) -> ConditionResult<bool> {
         Err(ConditionError::InsufficientData {
             required: 2,
             actual: 1,
         })
     }
 
-    fn validate_input_data(&self, data: &[f64]) -> Result<(), ConditionError> {
+    fn validate_input_data(&self, data: &[f32]) -> Result<(), ConditionError> {
         if data.len() < self.min_data_points() {
             Err(ConditionError::InsufficientData {
                 required: self.min_data_points(),
@@ -998,7 +998,7 @@ impl Condition for CrossesBelowCondition {
         2
     }
 
-    async fn check_simple(&self, _data: &[f64]) -> ConditionResult<ConditionResultData> {
+    async fn check_simple(&self, _data: &[f32]) -> ConditionResult<ConditionResultData> {
         Err(ConditionError::InsufficientData {
             required: 2,
             actual: 1,
@@ -1014,8 +1014,8 @@ impl Condition for CrossesBelowCondition {
 
     async fn check_dual(
         &self,
-        data1: &[f64],
-        data2: &[f64],
+        data1: &[f32],
+        data2: &[f32],
     ) -> ConditionResult<ConditionResultData> {
         let start_time = Instant::now();
 
@@ -1071,14 +1071,14 @@ impl Condition for CrossesBelowCondition {
         })
     }
 
-    async fn check_single(&self, _index: usize, _data: &[f64]) -> ConditionResult<bool> {
+    async fn check_single(&self, _index: usize, _data: &[f32]) -> ConditionResult<bool> {
         Err(ConditionError::InsufficientData {
             required: 2,
             actual: 1,
         })
     }
 
-    fn validate_input_data(&self, data: &[f64]) -> Result<(), ConditionError> {
+    fn validate_input_data(&self, data: &[f32]) -> Result<(), ConditionError> {
         if data.len() < self.min_data_points() {
             Err(ConditionError::InsufficientData {
                 required: self.min_data_points(),
@@ -1101,7 +1101,7 @@ pub struct FallingTrendCondition {
 }
 
 impl FallingTrendCondition {
-    pub fn new(period: f64) -> Result<Self, ConditionError> {
+    pub fn new(period: f32) -> Result<Self, ConditionError> {
         let period_usize = period as usize;
 
         let config = ConditionConfig {
@@ -1135,7 +1135,7 @@ impl Condition for FallingTrendCondition {
         self.period
     }
 
-    async fn check_simple(&self, data: &[f64]) -> ConditionResult<ConditionResultData> {
+    async fn check_simple(&self, data: &[f32]) -> ConditionResult<ConditionResultData> {
         let start_time = Instant::now();
         let period = self.period;
 
@@ -1209,14 +1209,14 @@ impl Condition for FallingTrendCondition {
 
     async fn check_dual(
         &self,
-        data1: &[f64],
-        _data2: &[f64],
+        data1: &[f32],
+        _data2: &[f32],
     ) -> ConditionResult<ConditionResultData> {
         // Для dual проверки используем data1 как основную линию
         self.check_simple(data1).await
     }
 
-    async fn check_single(&self, index: usize, data: &[f64]) -> ConditionResult<bool> {
+    async fn check_single(&self, index: usize, data: &[f32]) -> ConditionResult<bool> {
         let period = self.period;
 
         if index < period - 1 || index >= data.len() {
@@ -1230,7 +1230,7 @@ impl Condition for FallingTrendCondition {
         Ok(self.is_falling_trend(trend_data))
     }
 
-    fn validate_input_data(&self, data: &[f64]) -> Result<(), ConditionError> {
+    fn validate_input_data(&self, data: &[f32]) -> Result<(), ConditionError> {
         if data.len() < self.min_data_points() {
             Err(ConditionError::InsufficientData {
                 required: self.min_data_points(),
@@ -1242,13 +1242,13 @@ impl Condition for FallingTrendCondition {
     }
 
     fn clone_box(&self) -> Box<dyn Condition + Send + Sync> {
-        Box::new(Self::new(self.period as f64).unwrap())
+        Box::new(Self::new(self.period as f32).unwrap())
     }
 }
 
 impl FallingTrendCondition {
     // Вспомогательные методы
-    fn is_falling_trend(&self, data: &[f64]) -> bool {
+    fn is_falling_trend(&self, data: &[f32]) -> bool {
         if data.len() < 2 {
             return false;
         }
@@ -1256,14 +1256,14 @@ impl FallingTrendCondition {
         data.windows(2).all(|w| w[0] > w[1])
     }
 
-    fn calculate_slope(&self, data: &[f64]) -> f64 {
+    fn calculate_slope(&self, data: &[f32]) -> f32 {
         if data.len() < 2 {
             return 0.0;
         }
 
         let first = data[0];
         let last = data[data.len() - 1];
-        let period = data.len() as f64;
+        let period = data.len() as f32;
 
         (last - first) / (period - 1.0)
     }

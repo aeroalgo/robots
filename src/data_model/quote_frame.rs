@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use thiserror::Error;
 
 use crate::data_access::database::clickhouse::OhlcvData;
+use crate::indicators::OHLCData;
 
 use super::quote::Quote;
 use super::types::{
@@ -261,6 +262,18 @@ impl QuoteFrame {
 
     pub fn to_ohlcv(&self) -> Vec<OhlcvData> {
         self.quotes.iter().cloned().map(Into::into).collect()
+    }
+
+    pub fn to_indicator_ohlc(&self) -> OHLCData {
+        let open: Vec<f32> = self.opens().iter().collect();
+        let high: Vec<f32> = self.highs().iter().collect();
+        let low: Vec<f32> = self.lows().iter().collect();
+        let close: Vec<f32> = self.closes().iter().collect();
+        let volume: Vec<f32> = self.volumes().iter().collect();
+        let timestamp = self.timestamp_millis();
+        OHLCData::new(open, high, low, close)
+            .with_volume(volume)
+            .with_timestamp(timestamp)
     }
 
     pub fn validate(&self) -> Result<(), QuoteFrameError> {

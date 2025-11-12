@@ -746,7 +746,7 @@ impl ClickHouseTradeQueryBuilder {
     }
 
     /// Фильтр по диапазону цен
-    pub fn price_range(mut self, min_price: f64, max_price: f64) -> Self {
+    pub fn price_range(mut self, min_price: f32, max_price: f32) -> Self {
         self.builder = self
             .builder
             .where_gte("entry_price", &min_price.to_string())
@@ -837,13 +837,13 @@ impl ClickHouseBacktestQueryBuilder {
     }
 
     /// Минимальная доходность
-    pub fn min_return(mut self, min_pnl: f64) -> Self {
+    pub fn min_return(mut self, min_pnl: f32) -> Self {
         self.builder = self.builder.where_gte("total_pnl", &min_pnl.to_string());
         self
     }
 
     /// Минимальный Sharpe Ratio
-    pub fn min_sharpe(mut self, min_sharpe: f64) -> Self {
+    pub fn min_sharpe(mut self, min_sharpe: f32) -> Self {
         self.builder = self
             .builder
             .where_gte("sharpe_ratio", &min_sharpe.to_string());
@@ -851,13 +851,13 @@ impl ClickHouseBacktestQueryBuilder {
     }
 
     /// Максимальная просадка
-    pub fn max_drawdown(mut self, max_dd: f64) -> Self {
+    pub fn max_drawdown(mut self, max_dd: f32) -> Self {
         self.builder = self.builder.where_gte("max_drawdown", &max_dd.to_string());
         self
     }
 
     /// Минимальный win rate
-    pub fn min_win_rate(mut self, min_wr: f64) -> Self {
+    pub fn min_win_rate(mut self, min_wr: f32) -> Self {
         self.builder = self.builder.where_gte("win_rate", &min_wr.to_string());
         self
     }
@@ -944,7 +944,7 @@ impl SignalQueryBuilder {
         self
     }
 
-    pub fn min_strength(mut self, min: f64) -> Self {
+    pub fn min_strength(mut self, min: f32) -> Self {
         self.builder = self.builder.where_gte("signal_strength", &min.to_string());
         self
     }
@@ -1339,7 +1339,7 @@ impl GeneticPopulationQueryBuilder {
         self
     }
 
-    pub fn min_fitness(mut self, min_score: f64) -> Self {
+    pub fn min_fitness(mut self, min_score: f32) -> Self {
         self.builder = self
             .builder
             .where_gte("fitness_score", &min_score.to_string());
@@ -1529,14 +1529,14 @@ impl WalkForwardQueryBuilder {
         self
     }
 
-    pub fn min_efficiency(mut self, min_ratio: f64) -> Self {
+    pub fn min_efficiency(mut self, min_ratio: f32) -> Self {
         self.builder = self
             .builder
             .where_gte("efficiency_ratio", &min_ratio.to_string());
         self
     }
 
-    pub fn max_overfitting(mut self, max_score: f64) -> Self {
+    pub fn max_overfitting(mut self, max_score: f32) -> Self {
         self.builder = self
             .builder
             .where_lte("overfitting_score", &max_score.to_string());

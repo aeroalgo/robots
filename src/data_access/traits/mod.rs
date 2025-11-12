@@ -288,7 +288,7 @@ impl ToSql for i64 {
     }
 }
 
-impl ToSql for f64 {
+impl ToSql for f32 {
     fn to_sql(&self) -> String {
         self.to_string()
     }

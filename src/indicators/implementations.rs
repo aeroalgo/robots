@@ -9,6 +9,14 @@ use crate::indicators::{
 use async_trait::async_trait;
 use std::collections::HashMap;
 
+fn adjust_period(period: usize, len: usize) -> Option<usize> {
+    if len == 0 {
+        None
+    } else {
+        Some(period.max(1).min(len))
+    }
+}
+
 // ============================================================================
 // ВСПОМОГАТЕЛЬНЫЕ ИНДИКАТОРЫ
 // ============================================================================
@@ -19,7 +27,7 @@ pub struct MAXFOR {
 }
 
 impl MAXFOR {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -47,7 +55,7 @@ impl Indicator for MAXFOR {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::OHLC
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -55,20 +63,25 @@ impl Indicator for MAXFOR {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, _data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
-        let mut max_values = Vec::with_capacity(data.len());
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
+        let mut max_values = Vec::with_capacity(len);
 
-        for i in 0..data.len() {
-            let start_idx = if i >= period - 1 { i - period + 1 } else { 0 };
+        for i in 0..len {
+            let window = period.min(i + 1);
+            let start_idx = i + 1 - window;
             let end_idx = i + 1;
             let max_value = data.high[start_idx..end_idx]
                 .iter()
-                .fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+                .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
             max_values.push(max_value);
         }
 
@@ -86,7 +99,7 @@ pub struct MINFOR {
 }
 
 impl MINFOR {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -114,7 +127,7 @@ impl Indicator for MINFOR {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::OHLC
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -122,20 +135,25 @@ impl Indicator for MINFOR {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, _data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
-        let mut min_values = Vec::with_capacity(data.len());
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
+        let mut min_values = Vec::with_capacity(len);
 
-        for i in 0..data.len() {
-            let start_idx = if i >= period - 1 { i - period + 1 } else { 0 };
+        for i in 0..len {
+            let window = period.min(i + 1);
+            let start_idx = i + 1 - window;
             let end_idx = i + 1;
             let min_value = data.low[start_idx..end_idx]
                 .iter()
-                .fold(f64::INFINITY, |a, &b| a.min(b));
+                .fold(f32::INFINITY, |a, &b| a.min(b));
             min_values.push(min_value);
         }
 
@@ -153,7 +171,7 @@ pub struct ATR {
 }
 
 impl ATR {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -181,7 +199,7 @@ impl Indicator for ATR {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Universal
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -189,46 +207,47 @@ impl Indicator for ATR {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
+        let mut atr_values = vec![0.0; len];
 
-        if data.len() < period {
-            return Err(IndicatorError::InsufficientData {
-                required: period,
-                actual: data.len(),
-            });
-        }
-
-        let mut atr_values = vec![0.0; data.len()];
-
-        for i in 0..data.len() {
+        for i in 0..len {
             let true_ranges = self.true_range_simple(data, period, i).await;
-            let atr = true_ranges.iter().sum::<f64>() / period as f64;
+            let window_len = true_ranges.len().max(1) as f32;
+            let atr = true_ranges.iter().sum::<f32>() / window_len;
             atr_values[i] = atr;
         }
 
         Ok(atr_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
-        let mut atr_values = Vec::with_capacity(data.len());
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
+        let mut atr_values = Vec::with_capacity(len);
 
-        // Заполняем начальные значения нулями
-        for _ in 0..period - 1 {
+        for _ in 0..period.saturating_sub(1) {
             atr_values.push(0.0);
         }
 
-        // Вычисляем ATR
-        for i in period - 1..data.len() {
+        let start_index = period.saturating_sub(1);
+        for i in start_index..len {
             let mut true_ranges = Vec::new();
 
-            for j in i - period + 1..=i {
+            let start = i + 1 - period;
+            for j in start..=i {
                 let true_range = self.true_range_ohlc(data, j);
                 true_ranges.push(true_range);
             }
 
-            let atr = true_ranges.iter().sum::<f64>() / period as f64;
+            let atr = true_ranges.iter().sum::<f32>() / period as f32;
             atr_values.push(atr);
         }
 
@@ -242,11 +261,18 @@ impl Indicator for ATR {
 
 impl ATR {
     /// Вычисляет True Range по простым данным (как в any.rs)
-    async fn true_range_simple(&self, data: &[f64], period: usize, bar_num: usize) -> Vec<f64> {
+    async fn true_range_simple(&self, data: &[f32], period: usize, bar_num: usize) -> Vec<f32> {
         let mut true_ranges = Vec::new();
-        let new_period = if bar_num < period { bar_num } else { period };
 
-        for i in bar_num.saturating_sub(new_period - 1)..=bar_num {
+        if period == 0 {
+            return true_ranges;
+        }
+
+        let available = bar_num + 1;
+        let window = available.min(period);
+        let start = bar_num + 1 - window;
+
+        for i in start..=bar_num {
             if i > 0 {
                 let true_range = (data[i] - data[i - 1]).abs();
                 true_ranges.push(true_range);
@@ -259,7 +285,7 @@ impl ATR {
     }
 
     /// Вычисляет True Range по OHLC данным
-    fn true_range_ohlc(&self, data: &OHLCData, j: usize) -> f64 {
+    fn true_range_ohlc(&self, data: &OHLCData, j: usize) -> f32 {
         let high_low = data.high[j] - data.low[j];
         let high_close_prev = if j > 0 {
             (data.high[j] - data.close[j - 1]).abs()
@@ -279,7 +305,7 @@ impl ATR {
 // ATR теперь универсальный индикатор
 #[async_trait]
 impl VolatilityIndicator for ATR {
-    async fn get_volatility_level(&self, data: &[f64]) -> Result<f64, IndicatorError> {
+    async fn get_volatility_level(&self, data: &[f32]) -> Result<f32, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         Ok(values.last().copied().unwrap_or(0.0))
     }
@@ -291,7 +317,7 @@ pub struct SuperTrend {
 }
 
 impl SuperTrend {
-    pub fn new(period: f64, coeff_atr: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32, coeff_atr: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -327,7 +353,7 @@ impl Indicator for SuperTrend {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Universal
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -335,23 +361,18 @@ impl Indicator for SuperTrend {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let coeff_atr = self.parameters.get_value("coeff_atr").unwrap();
-
-        if data.len() < period {
-            return Err(IndicatorError::InsufficientData {
-                required: period,
-                actual: data.len(),
-            });
-        }
-
-        // Используем ATR индикатор для вычисления
-        let atr_indicator = ATR::new(period as f64)?;
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
+        let atr_indicator = ATR::new(period as f32)?;
         let atr_values = atr_indicator.calculate_simple(data).await?;
-        let mut supertrend_values = vec![0.0; data.len()];
+        let mut supertrend_values = vec![0.0; len];
 
-        for i in 2..data.len() {
+        for i in 2..len {
             let atr = atr_values[i];
             let current_price = data[i];
 
@@ -389,18 +410,21 @@ impl Indicator for SuperTrend {
         Ok(supertrend_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let coeff_atr = self.parameters.get_value("coeff_atr").unwrap();
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
 
-        // Создаем временный ATR индикатор для расчета
-        let atr_indicator = ATR::new(period as f64)?;
-        let atr_values = atr_indicator.calculate_ohlc(data).await?;
+        let watr_indicator = WATR::new(period as f32)?;
+        let atr_values = watr_indicator.calculate_ohlc(data).await?;
 
         let median_prices = self.calculate_median_price(data).await;
-        let mut supertrend_values = vec![0.0; data.len()];
+        let mut supertrend_values = vec![0.0; len];
 
-        for i in 2..data.len() {
+        for i in 2..len {
             let atr = atr_values[i];
             let median_price = median_prices[i];
 
@@ -409,11 +433,24 @@ impl Indicator for SuperTrend {
 
             let prev_supertrend = supertrend_values[i - 1];
             let current_close = data.close[i];
+            let prev_close = data.close[i - 1];
 
-            let supertrend = if current_close > upper_band {
-                lower_band
-            } else if current_close < lower_band {
-                upper_band
+            let supertrend = if current_close >= prev_supertrend {
+                if prev_close < prev_supertrend {
+                    lower_band
+                } else if lower_band > prev_supertrend {
+                    lower_band
+                } else {
+                    prev_supertrend
+                }
+            } else if current_close < prev_supertrend {
+                if prev_close > prev_supertrend {
+                    upper_band
+                } else if upper_band < prev_supertrend {
+                    upper_band
+                } else {
+                    prev_supertrend
+                }
             } else {
                 prev_supertrend
             };
@@ -432,14 +469,14 @@ impl Indicator for SuperTrend {
 }
 
 impl SuperTrend {
-    async fn calculate_median_price(&self, data: &OHLCData) -> Vec<f64> {
+    async fn calculate_median_price(&self, data: &OHLCData) -> Vec<f32> {
         data.get_median_price()
     }
 }
 
 #[async_trait]
 impl TrendIndicator for SuperTrend {
-    async fn get_trend_direction(&self, data: &[f64]) -> Result<TrendDirection, IndicatorError> {
+    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
@@ -465,7 +502,7 @@ pub struct Stochastic {
 }
 
 impl Stochastic {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -493,7 +530,7 @@ impl Indicator for Stochastic {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::OHLC
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -501,31 +538,34 @@ impl Indicator for Stochastic {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, _data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
-        let mut stochastic_values = Vec::with_capacity(data.len());
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
+        let mut stochastic_values = Vec::with_capacity(len);
 
-        // Заполняем начальные значения нулями
-        for _ in 0..period - 1 {
+        for _ in 0..period.saturating_sub(1) {
             stochastic_values.push(0.0);
         }
 
-        // Вычисляем Stochastic
-        for i in period - 1..data.len() {
-            let start_idx = i - period + 1;
+        let start_index = period.saturating_sub(1);
+        for i in start_index..len {
+            let start_idx = i + 1 - period;
             let end_idx = i + 1;
 
             let highest_high = data.high[start_idx..end_idx]
                 .iter()
-                .fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+                .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
 
             let lowest_low = data.low[start_idx..end_idx]
                 .iter()
-                .fold(f64::INFINITY, |a, &b| a.min(b));
+                .fold(f32::INFINITY, |a, &b| a.min(b));
 
             let current_close = data.close[i];
 
@@ -550,7 +590,7 @@ impl Indicator for Stochastic {
 impl OscillatorIndicator for Stochastic {
     async fn get_overbought_oversold_zones(
         &self,
-        data: &[f64],
+        data: &[f32],
     ) -> Result<OverboughtOversoldZones, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         if let Some(current_value) = values.last() {
@@ -563,13 +603,86 @@ impl OscillatorIndicator for Stochastic {
     }
 }
 
-/// WATR (Wilder's Average True Range)
+/// True Range (без параметров)
+pub struct TrueRange {
+    parameters: ParameterSet,
+}
+
+impl TrueRange {
+    pub fn new() -> Result<Self, IndicatorError> {
+        Ok(Self {
+            parameters: ParameterSet::new(),
+        })
+    }
+
+    fn series(data: &OHLCData) -> Vec<f32> {
+        let mut result = Vec::with_capacity(data.len());
+        for idx in 0..data.len() {
+            let high_low = data.high[idx] - data.low[idx];
+            let high_close_prev = if idx > 0 {
+                (data.high[idx] - data.close[idx - 1]).abs()
+            } else {
+                0.0
+            };
+            let low_close_prev = if idx > 0 {
+                (data.low[idx] - data.close[idx - 1]).abs()
+            } else {
+                0.0
+            };
+            result.push(high_low.max(high_close_prev).max(low_close_prev));
+        }
+        result
+    }
+}
+
+#[async_trait]
+impl Indicator for TrueRange {
+    fn name(&self) -> &str {
+        "TrueRange"
+    }
+    fn description(&self) -> &str {
+        "True Range - показатель истинного диапазона"
+    }
+    fn category(&self) -> IndicatorCategory {
+        IndicatorCategory::Volatility
+    }
+    fn indicator_type(&self) -> IndicatorType {
+        IndicatorType::OHLC
+    }
+    fn parameters(&self) -> &ParameterSet {
+        &self.parameters
+    }
+    fn min_data_points(&self) -> usize {
+        1
+    }
+
+    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+        Err(IndicatorError::OHLCDataRequired)
+    }
+
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+        Ok(Self::series(data))
+    }
+
+    fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
+        Box::new(Self::new().unwrap())
+    }
+}
+
+#[async_trait]
+impl VolatilityIndicator for TrueRange {
+    async fn get_volatility_level(&self, _data: &[f32]) -> Result<f32, IndicatorError> {
+        Err(IndicatorError::OHLCDataRequired)
+    }
+}
+
+/// WATR (Weighted Average True Range на основе WMA)
 pub struct WATR {
     parameters: ParameterSet,
 }
 
 impl WATR {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -589,7 +702,7 @@ impl Indicator for WATR {
         "WATR"
     }
     fn description(&self) -> &str {
-        "Wilder's Average True Range - средний истинный диапазон Уайлдера"
+        "Weighted Average True Range - средний истинный диапазон на основе WMA"
     }
     fn category(&self) -> IndicatorCategory {
         IndicatorCategory::Volatility
@@ -597,7 +710,7 @@ impl Indicator for WATR {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::OHLC
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -605,55 +718,21 @@ impl Indicator for WATR {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, _data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
-        let mut watr_values = Vec::with_capacity(data.len());
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
 
-        // Заполняем начальные значения нулями
-        for _ in 0..period - 1 {
-            watr_values.push(0.0);
-        }
-
-        // Вычисляем WATR (Wilder's ATR)
-        let mut sum_tr = 0.0;
-        for i in 0..period {
-            let high_low = data.high[i] - data.low[i];
-            let high_close_prev = if i > 0 {
-                (data.high[i] - data.close[i - 1]).abs()
-            } else {
-                0.0
-            };
-            let low_close_prev = if i > 0 {
-                (data.low[i] - data.close[i - 1]).abs()
-            } else {
-                0.0
-            };
-
-            let true_range = high_low.max(high_close_prev).max(low_close_prev);
-            sum_tr += true_range;
-        }
-
-        let mut watr = sum_tr / period as f64;
-        watr_values.push(watr);
-
-        // Вычисляем остальные значения
-        for i in period..data.len() {
-            let high_low = data.high[i] - data.low[i];
-            let high_close_prev = (data.high[i] - data.close[i - 1]).abs();
-            let low_close_prev = (data.low[i] - data.close[i - 1]).abs();
-
-            let true_range = high_low.max(high_close_prev).max(low_close_prev);
-
-            // Wilder's smoothing: (prev * (period - 1) + current) / period
-            watr = (watr * (period as f64 - 1.0) + true_range) / period as f64;
-            watr_values.push(watr);
-        }
-
-        Ok(watr_values)
+        let tr_indicator = TrueRange::new()?;
+        let true_ranges = tr_indicator.calculate_ohlc(data).await?;
+        let wma_indicator = WMA::new(period as f32)?;
+        wma_indicator.calculate_simple(&true_ranges).await
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -663,9 +742,8 @@ impl Indicator for WATR {
 
 #[async_trait]
 impl VolatilityIndicator for WATR {
-    async fn get_volatility_level(&self, data: &[f64]) -> Result<f64, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
-        Ok(values.last().copied().unwrap_or(0.0))
+    async fn get_volatility_level(&self, _data: &[f32]) -> Result<f32, IndicatorError> {
+        Err(IndicatorError::OHLCDataRequired)
     }
 }
 
@@ -675,7 +753,7 @@ pub struct VTRAND {
 }
 
 impl VTRAND {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -703,7 +781,7 @@ impl Indicator for VTRAND {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::OHLC
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -711,22 +789,22 @@ impl Indicator for VTRAND {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, _data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
 
         // Создаем временные индикаторы для расчета
-        let max_indicator = MAXFOR::new(period as f64)?;
-        let min_indicator = MINFOR::new(period as f64)?;
+        let max_indicator = MAXFOR::new(period as f32)?;
+        let min_indicator = MINFOR::new(period as f32)?;
 
         let max_result = max_indicator.calculate_ohlc(data).await?;
         let min_result = min_indicator.calculate_ohlc(data).await?;
 
         // VTRAND = (MAXFOR + MINFOR) / 2
-        let vtrand_values: Vec<f64> = max_result
+        let vtrand_values: Vec<f32> = max_result
             .into_iter()
             .zip(min_result)
             .map(|(max_val, min_val)| (max_val + min_val) / 2.0)
@@ -750,7 +828,7 @@ pub struct SMA {
 }
 
 impl SMA {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -778,7 +856,7 @@ impl Indicator for SMA {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Simple
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -786,33 +864,31 @@ impl Indicator for SMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
 
-        if data.len() < period {
-            return Err(IndicatorError::InsufficientData {
-                required: period,
-                actual: data.len(),
-            });
-        }
+        let mut sma_values = Vec::with_capacity(len);
 
-        let mut sma_values = Vec::with_capacity(data.len());
-
-        // Заполняем начальные значения нулями
-        for _ in 0..period - 1 {
+        for _ in 0..period.saturating_sub(1) {
             sma_values.push(0.0);
         }
 
-        // Вычисляем SMA
-        for i in period - 1..data.len() {
-            let sum: f64 = data[i - period + 1..=i].iter().sum();
-            sma_values.push(sum / period as f64);
+        let start_index = period.saturating_sub(1);
+        for i in start_index..len {
+            let current_window = period.min(i + 1);
+            let start = i + 1 - current_window;
+            let sum: f32 = data[start..=i].iter().sum();
+            sma_values.push(sum / current_window as f32);
         }
 
         Ok(sma_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для SMA используем close цены
         self.calculate_simple(&data.close).await
     }
@@ -826,7 +902,7 @@ impl SimpleIndicator for SMA {}
 
 #[async_trait]
 impl TrendIndicator for SMA {
-    async fn get_trend_direction(&self, data: &[f64]) -> Result<TrendDirection, IndicatorError> {
+    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
@@ -852,7 +928,7 @@ pub struct EMA {
 }
 
 impl EMA {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -880,7 +956,7 @@ impl Indicator for EMA {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Simple
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -888,36 +964,36 @@ impl Indicator for EMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
-        let period = self.parameters.get_value("period").unwrap() as f64;
-        let multiplier = 2.0 / (period + 1.0);
-
-        if data.is_empty() {
-            return Err(IndicatorError::InsufficientData {
-                required: 1,
-                actual: 0,
-            });
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+        let mut period = self.parameters.get_value("period").unwrap() as usize;
+        if period == 0 {
+            return Err(IndicatorError::InvalidParameter(
+                "EMA period must be greater than 0".to_string(),
+            ));
         }
 
-        let mut ema_values = Vec::with_capacity(data.len());
+        let len = data.len();
+        if len == 0 {
+            return Ok(Vec::new());
+        }
+        period = period.min(len);
 
-        // Первое значение - простое среднее
-        let first_sma: f64 = data[..period.min(data.len() as f64) as usize].iter().sum();
-        let first_ema = first_sma / period.min(data.len() as f64);
-        ema_values.push(first_ema);
+        let multiplier = 2.0 / (period as f32 + 1.0);
+        let mut ema_values = Vec::with_capacity(len);
 
-        // Остальные значения - EMA
-        for i in 1..data.len() {
-            let prev_ema = ema_values[i - 1];
-            let current_price = data[i];
-            let ema = (current_price * multiplier) + (prev_ema * (1.0 - multiplier));
-            ema_values.push(ema);
+        for (idx, &price) in data.iter().enumerate() {
+            if idx < period {
+                ema_values.push(price);
+            } else {
+                let prev = ema_values[idx - 1];
+                ema_values.push(prev + multiplier * (price - prev));
+            }
         }
 
         Ok(ema_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для EMA используем close цены
         self.calculate_simple(&data.close).await
     }
@@ -931,7 +1007,7 @@ impl SimpleIndicator for EMA {}
 
 #[async_trait]
 impl TrendIndicator for EMA {
-    async fn get_trend_direction(&self, data: &[f64]) -> Result<TrendDirection, IndicatorError> {
+    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
@@ -957,7 +1033,7 @@ pub struct RSI {
 }
 
 impl RSI {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -985,7 +1061,7 @@ impl Indicator for RSI {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Simple
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -993,54 +1069,55 @@ impl Indicator for RSI {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
-        let period = self.parameters.get_value("period").unwrap() as usize;
-
-        if data.len() < period + 1 {
-            return Err(IndicatorError::InsufficientData {
-                required: period + 1,
-                actual: data.len(),
-            });
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+        let mut period = self.parameters.get_value("period").unwrap() as usize;
+        if period == 0 {
+            period = 1;
         }
 
-        let mut rsi_values = Vec::with_capacity(data.len());
+        let len = data.len();
+        if len == 0 {
+            return Ok(Vec::new());
+        }
+        period = period.min(len);
 
-        // Заполняем начальные значения нулями
-        for _ in 0..period {
-            rsi_values.push(0.0);
+        let mut gains = vec![0.0; len];
+        let mut losses = vec![0.0; len];
+
+        for i in 1..len {
+            let change = data[i] - data[i - 1];
+            if change > 0.0 {
+                gains[i] = change;
+            } else if change < 0.0 {
+                losses[i] = -change;
+            }
         }
 
-        // Вычисляем RSI
-        for i in period..data.len() {
-            let mut gains = 0.0;
-            let mut losses = 0.0;
+        let ema_gains = EMA::new(period as f32)?.calculate_simple(&gains).await?;
+        let ema_losses = EMA::new(period as f32)?.calculate_simple(&losses).await?;
 
-            for j in i - period + 1..=i {
-                let change = data[j] - data[j - 1];
-                if change > 0.0 {
-                    gains += change;
+        let mut rsi_values = vec![0.0; len];
+
+        for i in 0..len {
+            let gain = ema_gains[i];
+            let loss = ema_losses[i];
+
+            if loss == 0.0 {
+                rsi_values[i] = 100.0;
+            } else {
+                let rs = gain / loss;
+                if (rs - 1.0).abs() < f32::EPSILON {
+                    rsi_values[i] = 0.0;
                 } else {
-                    losses += change.abs();
+                    rsi_values[i] = 100.0 - 100.0 / (1.0 + rs);
                 }
             }
-
-            let avg_gain = gains / period as f64;
-            let avg_loss = losses / period as f64;
-
-            let rs = if avg_loss == 0.0 {
-                100.0
-            } else {
-                avg_gain / avg_loss
-            };
-            let rsi = 100.0 - (100.0 / (1.0 + rs));
-
-            rsi_values.push(rsi);
         }
 
         Ok(rsi_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для RSI используем close цены
         self.calculate_simple(&data.close).await
     }
@@ -1056,7 +1133,7 @@ impl SimpleIndicator for RSI {}
 impl OscillatorIndicator for RSI {
     async fn get_overbought_oversold_zones(
         &self,
-        data: &[f64],
+        data: &[f32],
     ) -> Result<OverboughtOversoldZones, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         if let Some(current_value) = values.last() {
@@ -1075,7 +1152,7 @@ pub struct WMA {
 }
 
 impl WMA {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -1103,7 +1180,7 @@ impl Indicator for WMA {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Simple
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -1111,41 +1188,39 @@ impl Indicator for WMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
 
-        if data.len() < period {
-            return Err(IndicatorError::InsufficientData {
-                required: period,
-                actual: data.len(),
-            });
-        }
+        let mut wma_values = Vec::with_capacity(len);
 
-        let mut wma_values = Vec::with_capacity(data.len());
-
-        // Заполняем начальные значения нулями
-        for _ in 0..period - 1 {
+        for _ in 0..period.saturating_sub(1) {
             wma_values.push(0.0);
         }
 
-        // Вычисляем WMA
-        for i in period - 1..data.len() {
+        let start_index = period.saturating_sub(1);
+        for i in start_index..len {
+            let current_window = period.min(i + 1);
+            let start = i + 1 - current_window;
             let mut weighted_sum = 0.0;
             let mut weight_sum = 0.0;
 
-            for j in 0..period {
-                let weight = (j + 1) as f64;
-                weighted_sum += data[i - j] * weight;
+            for (offset, value) in data[start..=i].iter().enumerate() {
+                let weight = (offset + 1) as f32;
+                weighted_sum += value * weight;
                 weight_sum += weight;
             }
 
-            wma_values.push(weighted_sum / weight_sum);
+            wma_values.push(weighted_sum / weight_sum.max(1.0));
         }
 
         Ok(wma_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для WMA используем close цены
         self.calculate_simple(&data.close).await
     }
@@ -1159,7 +1234,7 @@ impl SimpleIndicator for WMA {}
 
 #[async_trait]
 impl TrendIndicator for WMA {
-    async fn get_trend_direction(&self, data: &[f64]) -> Result<TrendDirection, IndicatorError> {
+    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
@@ -1185,7 +1260,7 @@ pub struct AMA {
 }
 
 impl AMA {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -1213,7 +1288,7 @@ impl Indicator for AMA {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Simple
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -1221,44 +1296,55 @@ impl Indicator for AMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
-
-        if data.len() < period * 2 {
-            return Err(IndicatorError::InsufficientData {
-                required: period * 2,
-                actual: data.len(),
-            });
+        let len = data.len();
+        if len == 0 {
+            return Ok(Vec::new());
         }
 
-        let mut ama_values = Vec::with_capacity(data.len());
-
-        // Заполняем начальные значения нулями
-        for _ in 0..period * 2 - 1 {
-            ama_values.push(0.0);
+        if period == 0 {
+            return Ok(vec![0.0; len]);
         }
 
-        // Вычисляем AMA
-        for i in period * 2 - 1..data.len() {
-            let sma1 = SMA::new(period as f64)?
-                .calculate_simple(&data[i - period * 2 + 1..=i])
-                .await?;
-            let sma2 = SMA::new((period * 2) as f64)?
-                .calculate_simple(&data[i - period * 2 + 1..=i])
-                .await?;
+        let mut ama_values = vec![0.0; len];
+        let copy_limit = period.saturating_mul(2).min(len.saturating_sub(1));
+        for i in 0..=copy_limit {
+            ama_values[i] = data[i];
+        }
 
-            let sma1_value = *sma1.last().unwrap_or(&0.0);
-            let sma2_value = *sma2.last().unwrap_or(&0.0);
+        let mut ama_prev = if len < period || period + 1 >= len {
+            0.0
+        } else {
+            data[period + 1]
+        };
 
-            let amma = (sma1_value + sma2_value) / 2.0;
-            ama_values.push(amma);
+        for j in (period + 2)..len {
+            if j < period || j >= len {
+                continue;
+            }
+
+            let diff = (data[j] - data[j - period]).abs();
+            let mut denom = 1e-9_f32;
+
+            for k in 0..period {
+                let idx = j - k;
+                let prev_idx = idx - 1;
+                denom += (data[idx] - data[prev_idx]).abs();
+            }
+
+            let efficiency = if denom <= 0.0 { 0.0 } else { diff / denom };
+            let x = efficiency * 0.60215 + 0.06452;
+            let smoothing = x * x;
+            ama_prev = ama_prev + smoothing * (data[j] - ama_prev);
+            ama_values[j] = ama_prev;
         }
 
         Ok(ama_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
-        // Для AMA используем close цены
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+        // Для AMMA используем close цены
         self.calculate_simple(&data.close).await
     }
 
@@ -1271,7 +1357,7 @@ impl SimpleIndicator for AMA {}
 
 #[async_trait]
 impl TrendIndicator for AMA {
-    async fn get_trend_direction(&self, data: &[f64]) -> Result<TrendDirection, IndicatorError> {
+    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
@@ -1297,7 +1383,7 @@ pub struct ZLEMA {
 }
 
 impl ZLEMA {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -1325,7 +1411,7 @@ impl Indicator for ZLEMA {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Simple
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -1333,35 +1419,40 @@ impl Indicator for ZLEMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
-        let period = self.parameters.get_value("period").unwrap() as f64;
-        let lag = (period - 1.0) / 2.0;
-
-        if data.len() < lag as usize + 1 {
-            return Err(IndicatorError::InsufficientData {
-                required: lag as usize + 1,
-                actual: data.len(),
-            });
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+        let period = self.parameters.get_value("period").unwrap() as usize;
+        let len = data.len();
+        if len == 0 {
+            return Ok(Vec::new());
         }
 
-        let mut zlema_values = Vec::with_capacity(data.len());
-
-        // Заполняем начальные значения нулями
-        for _ in 0..lag as usize {
-            zlema_values.push(0.0);
+        if period == 0 {
+            return Ok(vec![0.0; len]);
         }
 
-        // Вычисляем ZLEMA
-        for i in lag as usize..data.len() {
-            let error = data[i] - data[i - lag as usize];
-            let zlema = data[i] + error;
-            zlema_values.push(zlema);
+        let alpha = 2.0 / (period as f32 + 1.0);
+        let lag = (period.saturating_sub(1)) / 2;
+        let mut zlema_values = vec![0.0; len];
+
+        for i in lag..len {
+            let prev_zlema = if i == 0 {
+                data[0]
+            } else {
+                zlema_values[i.saturating_sub(1)]
+            };
+
+            let reference_index = if i >= lag { i - lag } else { 0 };
+            let current_price = data[i];
+            let reference_price = data[reference_index];
+            let ema_input = current_price + (current_price - reference_price);
+
+            zlema_values[i] = prev_zlema + alpha * (ema_input - prev_zlema);
         }
 
         Ok(zlema_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для ZLEMA используем close цены
         self.calculate_simple(&data.close).await
     }
@@ -1375,7 +1466,7 @@ impl SimpleIndicator for ZLEMA {}
 
 #[async_trait]
 impl TrendIndicator for ZLEMA {
-    async fn get_trend_direction(&self, data: &[f64]) -> Result<TrendDirection, IndicatorError> {
+    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
@@ -1401,7 +1492,7 @@ pub struct GEOMEAN {
 }
 
 impl GEOMEAN {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -1429,7 +1520,7 @@ impl Indicator for GEOMEAN {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Simple
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -1437,34 +1528,36 @@ impl Indicator for GEOMEAN {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
 
-        if data.len() < period {
-            return Err(IndicatorError::InsufficientData {
-                required: period,
-                actual: data.len(),
-            });
-        }
+        let mut geomean_values = Vec::with_capacity(len);
 
-        let mut geomean_values = Vec::with_capacity(data.len());
-
-        // Заполняем начальные значения нулями
-        for _ in 0..period - 1 {
+        for _ in 0..period.saturating_sub(1) {
             geomean_values.push(0.0);
         }
 
-        // Вычисляем GEOMEAN
-        for i in period - 1..data.len() {
-            let product: f64 = data[i - period + 1..=i].iter().product();
-            let geomean = product.powf(1.0 / period as f64);
+        let start_index = period.saturating_sub(1);
+        for i in start_index..len {
+            let current_window = period.min(i + 1);
+            let start = i + 1 - current_window;
+            let product: f32 = data[start..=i].iter().product();
+            let geomean = if current_window == 0 {
+                0.0
+            } else {
+                product.powf(1.0 / current_window as f32)
+            };
             geomean_values.push(geomean);
         }
 
         Ok(geomean_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для GEOMEAN используем close цены
         self.calculate_simple(&data.close).await
     }
@@ -1478,7 +1571,7 @@ impl SimpleIndicator for GEOMEAN {}
 
 #[async_trait]
 impl TrendIndicator for GEOMEAN {
-    async fn get_trend_direction(&self, data: &[f64]) -> Result<TrendDirection, IndicatorError> {
+    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
@@ -1504,7 +1597,7 @@ pub struct AMMA {
 }
 
 impl AMMA {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -1532,7 +1625,7 @@ impl Indicator for AMMA {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Simple
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -1540,30 +1633,28 @@ impl Indicator for AMMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
-
-        if data.len() < period * 2 {
-            return Err(IndicatorError::InsufficientData {
-                required: period * 2,
-                actual: data.len(),
-            });
+        let len = data.len();
+        if len == 0 {
+            return Ok(Vec::new());
         }
 
-        let mut amma_values = Vec::with_capacity(data.len());
+        let window_double = (period.saturating_mul(2)).max(1).min(len);
+        let mut amma_values = Vec::with_capacity(len);
 
-        // Заполняем начальные значения нулями
-        for _ in 0..period * 2 - 1 {
+        for _ in 0..window_double.saturating_sub(1) {
             amma_values.push(0.0);
         }
 
-        // Вычисляем AMMA
-        for i in period * 2 - 1..data.len() {
-            let sma1 = SMA::new(period as f64)?
-                .calculate_simple(&data[i - period * 2 + 1..=i])
-                .await?;
-            let sma2 = SMA::new((period * 2) as f64)?
-                .calculate_simple(&data[i - period * 2 + 1..=i])
+        for i in window_double - 1..len {
+            let current_window = (period.saturating_mul(2)).min(i + 1);
+            let start = i + 1 - current_window;
+            let slice = &data[start..=i];
+
+            let sma1 = SMA::new(period as f32)?.calculate_simple(slice).await?;
+            let sma2 = SMA::new((period.saturating_mul(2)) as f32)?
+                .calculate_simple(slice)
                 .await?;
 
             let sma1_value = *sma1.last().unwrap_or(&0.0);
@@ -1576,7 +1667,7 @@ impl Indicator for AMMA {
         Ok(amma_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для AMMA используем close цены
         self.calculate_simple(&data.close).await
     }
@@ -1590,7 +1681,7 @@ impl SimpleIndicator for AMMA {}
 
 #[async_trait]
 impl TrendIndicator for AMMA {
-    async fn get_trend_direction(&self, data: &[f64]) -> Result<TrendDirection, IndicatorError> {
+    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
@@ -1616,7 +1707,7 @@ pub struct SQWMA {
 }
 
 impl SQWMA {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -1644,7 +1735,7 @@ impl Indicator for SQWMA {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Simple
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -1652,41 +1743,49 @@ impl Indicator for SQWMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
 
-        if data.len() < period {
-            return Err(IndicatorError::InsufficientData {
-                required: period,
-                actual: data.len(),
-            });
-        }
+        let mut sqwma_values = Vec::with_capacity(len);
 
-        let mut sqwma_values = Vec::with_capacity(data.len());
+        let period_f = period as f32;
+        let num = period_f * (period_f - 1.0) / 2.0;
+        let num2 = period_f * (period_f - 1.0) * (2.0 * period_f - 1.0) / 6.0;
 
-        // Заполняем начальные значения нулями
-        for _ in 0..period - 1 {
-            sqwma_values.push(0.0);
-        }
-
-        // Вычисляем SQWMA
-        for i in period - 1..data.len() {
-            let mut weighted_sum = 0.0;
-            let mut weight_sum = 0.0;
-
-            for j in 0..period {
-                let weight = ((j + 1) as f64).sqrt();
-                weighted_sum += data[i - j] * weight;
-                weight_sum += weight;
+        for i in 0..len {
+            if i < period {
+                sqwma_values.push(data[i]);
+                continue;
             }
 
-            sqwma_values.push(weighted_sum / weight_sum);
+            let mut sum = 0.0;
+            let mut weighted_sum = 0.0;
+
+            for j in 0..period {
+                let value = data[i - j];
+                let j_f = j as f32;
+                sum += value;
+                weighted_sum += value * j_f;
+            }
+
+            let denom = num2 * period_f - num * num;
+            let slope = if denom.abs() < f32::EPSILON {
+                0.0
+            } else {
+                (weighted_sum * period_f - num * sum) / denom
+            };
+            let intercept = (sum - num * slope) / period_f;
+            sqwma_values.push(intercept);
         }
 
         Ok(sqwma_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для SQWMA используем close цены
         self.calculate_simple(&data.close).await
     }
@@ -1700,7 +1799,7 @@ impl SimpleIndicator for SQWMA {}
 
 #[async_trait]
 impl TrendIndicator for SQWMA {
-    async fn get_trend_direction(&self, data: &[f64]) -> Result<TrendDirection, IndicatorError> {
+    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
@@ -1726,7 +1825,7 @@ pub struct SINEWMA {
 }
 
 impl SINEWMA {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -1754,7 +1853,7 @@ impl Indicator for SINEWMA {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Simple
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -1762,41 +1861,43 @@ impl Indicator for SINEWMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
 
-        if data.len() < period {
-            return Err(IndicatorError::InsufficientData {
-                required: period,
-                actual: data.len(),
-            });
-        }
+        let mut sinewma_values = Vec::with_capacity(len);
 
-        let mut sinewma_values = Vec::with_capacity(data.len());
+        for i in 0..len {
+            if i < period {
+                sinewma_values.push(data[i]);
+                continue;
+            }
 
-        // Заполняем начальные значения нулями
-        for _ in 0..period - 1 {
-            sinewma_values.push(0.0);
-        }
-
-        // Вычисляем SINEWMA
-        for i in period - 1..data.len() {
             let mut weighted_sum = 0.0;
             let mut weight_sum = 0.0;
+            let denom = period as f32 + 1.0;
 
-            for j in 0..period {
-                let weight = ((j + 1) as f64 * std::f64::consts::PI / period as f64).sin();
-                weighted_sum += data[i - j] * weight;
+            for j in 0..period.saturating_sub(1) {
+                let weight = (std::f32::consts::PI * (j as f32 + 1.0) / denom).sin();
+                let value = data[i - j];
+                weighted_sum += value * weight;
                 weight_sum += weight;
             }
 
-            sinewma_values.push(weighted_sum / weight_sum);
+            if weight_sum > 0.0 {
+                sinewma_values.push(weighted_sum / weight_sum);
+            } else {
+                sinewma_values.push(0.0);
+            }
         }
 
         Ok(sinewma_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для SINEWMA используем close цены
         self.calculate_simple(&data.close).await
     }
@@ -1810,7 +1911,7 @@ impl SimpleIndicator for SINEWMA {}
 
 #[async_trait]
 impl TrendIndicator for SINEWMA {
-    async fn get_trend_direction(&self, data: &[f64]) -> Result<TrendDirection, IndicatorError> {
+    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
@@ -1836,7 +1937,7 @@ pub struct TPBF {
 }
 
 impl TPBF {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -1847,6 +1948,47 @@ impl TPBF {
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
 
         Ok(Self { parameters: params })
+    }
+
+    fn filter(values: &[f32], period: usize) -> Vec<f32> {
+        let len = values.len();
+        if len == 0 {
+            return Vec::new();
+        }
+        if period == 0 {
+            return values.to_vec();
+        }
+
+        let pi = std::f32::consts::PI;
+        let period_f = period as f32;
+        let exp_term = (-pi / period_f).exp();
+        let exp_term_sq = exp_term * exp_term;
+        let cos_term = (pi * 3.0_f32.sqrt() / period_f).cos();
+
+        let coef1 = (1.0 - 2.0 * exp_term * cos_term + exp_term_sq) * (1.0 - exp_term_sq) / 8.0;
+        let coef2 = 2.0 * exp_term * cos_term + exp_term_sq;
+        let coef3 = -(exp_term_sq + 2.0 * exp_term.powi(3) * cos_term);
+        let coef4 = exp_term_sq * exp_term_sq;
+
+        let mut result = vec![0.0; len];
+
+        for i in 0..len {
+            if i < 4 {
+                result[i] = values[i];
+            } else {
+                let price_i = values[i];
+                let price_1 = values[i - 1];
+                let price_2 = values[i - 2];
+                let price_3 = values[i - 3];
+
+                result[i] = coef1 * (price_i + 3.0 * (price_1 + price_2) + price_3)
+                    + coef2 * result[i - 1]
+                    + coef3 * result[i - 2]
+                    + coef4 * result[i - 3];
+            }
+        }
+
+        result
     }
 }
 
@@ -1864,7 +2006,7 @@ impl Indicator for TPBF {
     fn indicator_type(&self) -> IndicatorType {
         IndicatorType::Simple
     }
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
     }
@@ -1872,36 +2014,28 @@ impl Indicator for TPBF {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
-
-        if data.len() < period {
-            return Err(IndicatorError::InsufficientData {
-                required: period,
-                actual: data.len(),
-            });
-        }
-
-        let mut tpbf_values = Vec::with_capacity(data.len());
-
-        // Заполняем начальные значения нулями
-        for _ in 0..period - 1 {
-            tpbf_values.push(0.0);
-        }
-
-        // Упрощенная реализация TPBF (в реальности это сложный фильтр)
-        for i in period - 1..data.len() {
-            let sum: f64 = data[i - period + 1..=i].iter().sum();
-            let tpbf = sum / period as f64;
-            tpbf_values.push(tpbf);
-        }
-
-        Ok(tpbf_values)
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
+        Ok(Self::filter(data, period))
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
-        // Для TPBF используем close цены
-        self.calculate_simple(&data.close).await
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+        let period = self.parameters.get_value("period").unwrap() as usize;
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
+        let median_prices = data
+            .high
+            .iter()
+            .zip(&data.low)
+            .map(|(&h, &l)| (h + l) / 2.0)
+            .collect::<Vec<_>>();
+        Ok(Self::filter(&median_prices, period))
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -1913,7 +2047,7 @@ impl SimpleIndicator for TPBF {}
 
 #[async_trait]
 impl TrendIndicator for TPBF {
-    async fn get_trend_direction(&self, data: &[f64]) -> Result<TrendDirection, IndicatorError> {
+    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
         let values = self.calculate_simple(data).await?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
@@ -1943,7 +2077,7 @@ pub struct BBMiddle {
 }
 
 impl BBMiddle {
-    pub fn new(period: f64, deviation: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32, deviation: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -1985,34 +2119,32 @@ impl Indicator for BBMiddle {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
 
-        if data.len() < period {
-            return Err(IndicatorError::InsufficientData {
-                required: period,
-                actual: data.len(),
-            });
-        }
+        let mut sma_values = Vec::with_capacity(len);
 
-        let mut sma_values = Vec::with_capacity(data.len());
-
-        // Заполняем начальные значения нулями
-        for _ in 0..period - 1 {
+        for _ in 0..period.saturating_sub(1) {
             sma_values.push(0.0);
         }
 
-        // Вычисляем SMA
-        for i in period - 1..data.len() {
-            let sum: f64 = data[i - period + 1..=i].iter().sum();
-            let sma = sum / period as f64;
+        let start_index = period.saturating_sub(1);
+        for i in start_index..len {
+            let current_window = period.min(i + 1);
+            let start = i + 1 - current_window;
+            let sum: f32 = data[start..=i].iter().sum();
+            let sma = sum / current_window as f32;
             sma_values.push(sma);
         }
 
         Ok(sma_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для BB используем close цены
         self.calculate_simple(&data.close).await
     }
@@ -2032,7 +2164,7 @@ pub struct BBUpper {
 }
 
 impl BBUpper {
-    pub fn new(period: f64, deviation: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32, deviation: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -2074,32 +2206,30 @@ impl Indicator for BBUpper {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let deviation = self.parameters.get_value("deviation").unwrap();
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
 
-        if data.len() < period {
-            return Err(IndicatorError::InsufficientData {
-                required: period,
-                actual: data.len(),
-            });
-        }
+        let mut upper_values = Vec::with_capacity(len);
 
-        let mut upper_values = Vec::with_capacity(data.len());
-
-        // Заполняем начальные значения нулями
-        for _ in 0..period - 1 {
+        for _ in 0..period.saturating_sub(1) {
             upper_values.push(0.0);
         }
 
-        // Вычисляем верхнюю линию BB
-        for i in period - 1..data.len() {
-            let window = &data[i - period + 1..=i];
-            let sma: f64 = window.iter().sum::<f64>() / period as f64;
+        let start_index = period.saturating_sub(1);
+        for i in start_index..len {
+            let current_window = period.min(i + 1);
+            let start = i + 1 - current_window;
+            let end = i + 1;
+            let window = &data[start..end];
+            let sma: f32 = window.iter().sum::<f32>() / current_window as f32;
 
-            // Вычисляем стандартное отклонение
-            let variance: f64 =
-                window.iter().map(|&x| (x - sma).powi(2)).sum::<f64>() / period as f64;
+            let variance: f32 =
+                window.iter().map(|&x| (x - sma).powi(2)).sum::<f32>() / current_window as f32;
             let std_dev = variance.sqrt();
 
             let upper = sma + (deviation * std_dev);
@@ -2109,7 +2239,7 @@ impl Indicator for BBUpper {
         Ok(upper_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для BB используем close цены
         self.calculate_simple(&data.close).await
     }
@@ -2129,7 +2259,7 @@ pub struct BBLower {
 }
 
 impl BBLower {
-    pub fn new(period: f64, deviation: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32, deviation: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -2171,32 +2301,30 @@ impl Indicator for BBLower {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let deviation = self.parameters.get_value("deviation").unwrap();
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
 
-        if data.len() < period {
-            return Err(IndicatorError::InsufficientData {
-                required: period,
-                actual: data.len(),
-            });
-        }
+        let mut lower_values = Vec::with_capacity(len);
 
-        let mut lower_values = Vec::with_capacity(data.len());
-
-        // Заполняем начальные значения нулями
-        for _ in 0..period - 1 {
+        for _ in 0..period.saturating_sub(1) {
             lower_values.push(0.0);
         }
 
-        // Вычисляем нижнюю линию BB
-        for i in period - 1..data.len() {
-            let window = &data[i - period + 1..=i];
-            let sma: f64 = window.iter().sum::<f64>() / period as f64;
+        let start_index = period.saturating_sub(1);
+        for i in start_index..len {
+            let current_window = period.min(i + 1);
+            let start = i + 1 - current_window;
+            let end = i + 1;
+            let window = &data[start..end];
+            let sma: f32 = window.iter().sum::<f32>() / current_window as f32;
 
-            // Вычисляем стандартное отклонение
-            let variance: f64 =
-                window.iter().map(|&x| (x - sma).powi(2)).sum::<f64>() / period as f64;
+            let variance: f32 =
+                window.iter().map(|&x| (x - sma).powi(2)).sum::<f32>() / current_window as f32;
             let std_dev = variance.sqrt();
 
             let lower = sma - (deviation * std_dev);
@@ -2206,7 +2334,7 @@ impl Indicator for BBLower {
         Ok(lower_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для BB используем close цены
         self.calculate_simple(&data.close).await
     }
@@ -2230,7 +2358,7 @@ pub struct KCMiddle {
 }
 
 impl KCMiddle {
-    pub fn new(period: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -2265,25 +2393,21 @@ impl Indicator for KCMiddle {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, _data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
+        let len = data.len();
+        let Some(period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
 
-        if data.len() < period {
-            return Err(IndicatorError::InsufficientData {
-                required: period,
-                actual: data.len(),
-            });
-        }
-
-        let mut ema_values = Vec::with_capacity(data.len());
+        let mut ema_values = Vec::with_capacity(len);
         let mut ema = 0.0;
 
-        // Вычисляем типичную цену и EMA
-        for i in 0..data.len() {
+        for i in 0..len {
             let high = data.high[i];
             let low = data.low[i];
             let close = data.close[i];
@@ -2293,7 +2417,7 @@ impl Indicator for KCMiddle {
             if i == 0 {
                 ema = typical_price;
             } else {
-                let multiplier = 2.0 / (period as f64 + 1.0);
+                let multiplier = 2.0 / (period as f32 + 1.0);
                 ema = (typical_price * multiplier) + (ema * (1.0 - multiplier));
             }
 
@@ -2317,7 +2441,7 @@ pub struct KCUpper {
 }
 
 impl KCUpper {
-    pub fn new(period: f64, atr_period: f64, atr_multiplier: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32, atr_period: f32, atr_multiplier: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -2368,35 +2492,33 @@ impl Indicator for KCUpper {
         std::cmp::max(period, atr_period)
     }
 
-    async fn calculate_simple(&self, _data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let atr_period = self.parameters.get_value("atr_period").unwrap() as usize;
         let atr_multiplier = self.parameters.get_value("atr_multiplier").unwrap();
+        let len = data.len();
+        let Some(ema_period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
+        let Some(atr_period) = adjust_period(atr_period, len) else {
+            return Ok(Vec::new());
+        };
 
-        if data.len() < std::cmp::max(period, atr_period) {
-            return Err(IndicatorError::InsufficientData {
-                required: std::cmp::max(period, atr_period),
-                actual: data.len(),
-            });
-        }
-
-        // Вычисляем среднюю линию (EMA)
-        let middle_indicator = KCMiddle::new(period as f64).unwrap();
+        let middle_indicator = KCMiddle::new(ema_period as f32).unwrap();
         let middle_values = middle_indicator.calculate_ohlc(data).await?;
 
-        // Вычисляем ATR
-        let atr_indicator = ATR::new(atr_period as f64).unwrap();
+        let atr_indicator = ATR::new(atr_period as f32).unwrap();
         let atr_values = atr_indicator.calculate_ohlc(data).await?;
 
-        // Вычисляем верхнюю линию
-        let mut upper_values = Vec::with_capacity(data.len());
-        for (middle, atr) in middle_values.iter().zip(atr_values.iter()) {
-            let upper = middle + (atr * atr_multiplier);
-            upper_values.push(upper);
+        let mut upper_values = Vec::with_capacity(len);
+        for i in 0..len {
+            let middle = middle_values.get(i).copied().unwrap_or(0.0);
+            let atr = atr_values.get(i).copied().unwrap_or(0.0);
+            upper_values.push(middle + (atr * atr_multiplier));
         }
 
         Ok(upper_values)
@@ -2418,7 +2540,7 @@ pub struct KCLower {
 }
 
 impl KCLower {
-    pub fn new(period: f64, atr_period: f64, atr_multiplier: f64) -> Result<Self, IndicatorError> {
+    pub fn new(period: f32, atr_period: f32, atr_multiplier: f32) -> Result<Self, IndicatorError> {
         let mut params = ParameterSet::new();
         params
             .add_parameter(create_period_parameter(
@@ -2469,35 +2591,33 @@ impl Indicator for KCLower {
         std::cmp::max(period, atr_period)
     }
 
-    async fn calculate_simple(&self, _data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let atr_period = self.parameters.get_value("atr_period").unwrap() as usize;
         let atr_multiplier = self.parameters.get_value("atr_multiplier").unwrap();
+        let len = data.len();
+        let Some(ema_period) = adjust_period(period, len) else {
+            return Ok(Vec::new());
+        };
+        let Some(atr_period) = adjust_period(atr_period, len) else {
+            return Ok(Vec::new());
+        };
 
-        if data.len() < std::cmp::max(period, atr_period) {
-            return Err(IndicatorError::InsufficientData {
-                required: std::cmp::max(period, atr_period),
-                actual: data.len(),
-            });
-        }
-
-        // Вычисляем среднюю линию (EMA)
-        let middle_indicator = KCMiddle::new(period as f64).unwrap();
+        let middle_indicator = KCMiddle::new(ema_period as f32).unwrap();
         let middle_values = middle_indicator.calculate_ohlc(data).await?;
 
-        // Вычисляем ATR
-        let atr_indicator = ATR::new(atr_period as f64).unwrap();
+        let atr_indicator = ATR::new(atr_period as f32).unwrap();
         let atr_values = atr_indicator.calculate_ohlc(data).await?;
 
-        // Вычисляем нижнюю линию
-        let mut lower_values = Vec::with_capacity(data.len());
-        for (middle, atr) in middle_values.iter().zip(atr_values.iter()) {
-            let lower = middle - (atr * atr_multiplier);
-            lower_values.push(lower);
+        let mut lower_values = Vec::with_capacity(len);
+        for i in 0..len {
+            let middle = middle_values.get(i).copied().unwrap_or(0.0);
+            let atr = atr_values.get(i).copied().unwrap_or(0.0);
+            lower_values.push(middle - (atr * atr_multiplier));
         }
 
         Ok(lower_values)

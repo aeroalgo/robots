@@ -71,7 +71,7 @@ namespace vvTSLtools
 		{
 			// Token: 0x0600034A RID: 842 RVA: 0x00012D5C File Offset: 0x00010F5C
 			get;
-			// Token: 0x0600034B RID: 843 RVA: 0x00012D64 File Offset: 0x00010F64
+			// Token: 0x0600034B RID: 843 RVA: 0x00012D64 File Offset: 0x00010f32
 			set;
 		}
 

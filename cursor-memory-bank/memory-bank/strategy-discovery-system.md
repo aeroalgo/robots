@@ -97,7 +97,7 @@ fn generate_strategies(indicators: Vec<Indicator>, conditions: Vec<Condition>) -
 
 **Формула**:
 ```rust
-fn calculate_fitness(strategy: &Strategy) -> f64 {
+fn calculate_fitness(strategy: &Strategy) -> f32 {
     let sharpe = strategy.sharpe_ratio;
     let drawdown = strategy.max_drawdown;
     let win_rate = strategy.win_rate;
@@ -130,8 +130,8 @@ fn calculate_fitness(strategy: &Strategy) -> f64 {
 
 **Реализация**:
 ```rust
-fn split_data(data: &DataFrame, split_ratio: f64) -> (DataFrame, DataFrame) {
-    let split_index = (data.len() as f64 * split_ratio) as usize;
+fn split_data(data: &DataFrame, split_ratio: f32) -> (DataFrame, DataFrame) {
+    let split_index = (data.len() as f32 * split_ratio) as usize;
     let in_sample = data.slice(0..split_index);
     let out_of_sample = data.slice(split_index..);
     (in_sample, out_of_sample)
@@ -243,8 +243,8 @@ fn walk_forward_analysis(strategy: &Strategy, data: &DataFrame) -> WalkForwardRe
 pub struct GeneticConfig {
     pub max_generations: u32,        // 5-100
     pub population_size: u32,        // 10-100+
-    pub crossover_probability: f64,  // 0.0-1.0
-    pub mutation_probability: f64,   // 0.0-1.0
+    pub crossover_probability: f32,  // 0.0-1.0
+    pub mutation_probability: f32,   // 0.0-1.0
 }
 
 impl Default for GeneticConfig {
@@ -294,17 +294,17 @@ impl Population {
 **Реализация**:
 ```rust
 pub struct GeneticOperators {
-    pub crossover_probability: f64,
-    pub mutation_probability: f64,
+    pub crossover_probability: f32,
+    pub mutation_probability: f32,
 }
 
 impl GeneticOperators {
     pub fn should_crossover(&self) -> bool {
-        rand::random::<f64>() < self.crossover_probability
+        rand::random::<f32>() < self.crossover_probability
     }
     
     pub fn should_mutate(&self) -> bool {
-        rand::random::<f64>() < self.mutation_probability
+        rand::random::<f32>() < self.mutation_probability
     }
 }
 ```
@@ -321,14 +321,14 @@ impl GeneticOperators {
 pub struct IslandManager {
     pub islands: Vec<Island>,
     pub migration_interval: u32,    // каждые X поколений
-    pub migration_rate: f64,        // процент мигрирующих стратегий
+    pub migration_rate: f32,        // процент мигрирующих стратегий
 }
 
 pub struct Island {
     pub id: u32,
     pub population: Population,
     pub generation: u32,
-    pub best_fitness: f64,
+    pub best_fitness: f32,
 }
 
 impl IslandManager {
@@ -371,7 +371,7 @@ impl IslandManager {
         
         for i in 0..self.islands.len() {
             let source_island = &mut self.islands[i];
-            let num_to_migrate = (source_island.population.size as f64 * self.migration_rate) as u32;
+            let num_to_migrate = (source_island.population.size as f32 * self.migration_rate) as u32;
             
             // Выбираем лучшие стратегии для миграции
             let mut strategies_to_migrate = source_island.population.select_best(num_to_migrate);
@@ -393,7 +393,7 @@ impl IslandManager {
 **Реализация**:
 ```rust
 impl Population {
-    pub fn calculate_migration_rate(&self) -> f64 {
+    pub fn calculate_migration_rate(&self) -> f32 {
         match self.size {
             1..=20 => 0.15,   // 15% для малых популяций
             21..=50 => 0.10,  // 10% для средних популяций
@@ -482,9 +482,9 @@ impl InitialPopulationGenerator {
 #[derive(Debug, Clone)]
 pub struct PopulationFilter {
     pub min_trades: u32,           // Минимальное количество сделок
-    pub min_profit: f64,           // Минимальная прибыльность
-    pub max_drawdown: f64,         // Максимальная просадка
-    pub min_sharpe_ratio: f64,     // Минимальный коэффициент Шарпа
+    pub min_profit: f32,           // Минимальная прибыльность
+    pub max_drawdown: f32,         // Максимальная просадка
+    pub min_sharpe_ratio: f32,     // Минимальный коэффициент Шарпа
 }
 
 impl PopulationFilter {
@@ -550,13 +550,13 @@ impl EvolutionManager {
 ```rust
 pub struct FitnessStagnationDetector {
     pub stagnation_threshold: u32,  // Количество поколений без улучшения
-    pub improvement_threshold: f64, // Минимальное улучшение для сброса счетчика
+    pub improvement_threshold: f32, // Минимальное улучшение для сброса счетчика
     pub generations_without_improvement: u32,
-    pub best_fitness: f64,
+    pub best_fitness: f32,
 }
 
 impl FitnessStagnationDetector {
-    pub fn check_stagnation(&mut self, current_best_fitness: f64) -> bool {
+    pub fn check_stagnation(&mut self, current_best_fitness: f32) -> bool {
         if current_best_fitness > self.best_fitness + self.improvement_threshold {
             self.best_fitness = current_best_fitness;
             self.generations_without_improvement = 0;
@@ -578,8 +578,8 @@ impl FitnessStagnationDetector {
 **Реализация**:
 ```rust
 pub struct StrategyDiversityManager {
-    pub similarity_threshold: f64,
-    pub replacement_rate: f64,
+    pub similarity_threshold: f32,
+    pub replacement_rate: f32,
 }
 
 impl StrategyDiversityManager {
@@ -616,7 +616,7 @@ impl StrategyDiversityManager {
 ```rust
 impl StrategyDiversityManager {
     pub fn replace_weakest_strategies(&mut self, population: &mut Vec<Strategy>) {
-        let num_to_replace = (population.len() as f64 * self.replacement_rate) as usize;
+        let num_to_replace = (population.len() as f32 * self.replacement_rate) as usize;
         
         // Сортируем по пригодности (худшие в начале)
         population.sort_by(|a, b| a.fitness_score.partial_cmp(&b.fitness_score).unwrap());

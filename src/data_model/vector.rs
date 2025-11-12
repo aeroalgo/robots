@@ -15,19 +15,19 @@ pub enum ValueVectorError {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ValueVector {
-    data: Arc<[f64]>,
+    data: Arc<[f32]>,
 }
 
 impl ValueVector {
-    pub fn new(data: Vec<f64>) -> Self {
+    pub fn new(data: Vec<f32>) -> Self {
         Self { data: data.into() }
     }
 
     pub fn from_quotes<F>(quotes: &[Quote], extractor: F) -> Self
     where
-        F: Fn(&Quote) -> f64,
+        F: Fn(&Quote) -> f32,
     {
-        let data: Vec<f64> = quotes.iter().map(extractor).collect();
+        let data: Vec<f32> = quotes.iter().map(extractor).collect();
         Self::new(data)
     }
 
@@ -39,37 +39,37 @@ impl ValueVector {
         self.data.is_empty()
     }
 
-    pub fn as_slice(&self) -> &[f64] {
+    pub fn as_slice(&self) -> &[f32] {
         &self.data
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = f64> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = f32> + '_ {
         self.data.iter().copied()
     }
 
-    pub fn sum(&self) -> f64 {
+    pub fn sum(&self) -> f32 {
         self.iter().sum()
     }
 
-    pub fn mean(&self) -> Option<f64> {
+    pub fn mean(&self) -> Option<f32> {
         if self.is_empty() {
             None
         } else {
-            Some(self.sum() / self.len() as f64)
+            Some(self.sum() / self.len() as f32)
         }
     }
 
     pub fn map<F>(&self, func: F) -> Self
     where
-        F: Fn(f64) -> f64,
+        F: Fn(f32) -> f32,
     {
-        let data: Vec<f64> = self.iter().map(func).collect();
+        let data: Vec<f32> = self.iter().map(func).collect();
         Self::new(data)
     }
 
     pub fn zip_with<F>(&self, other: &Self, func: F) -> Result<Self, ValueVectorError>
     where
-        F: Fn(f64, f64) -> f64,
+        F: Fn(f32, f32) -> f32,
     {
         if self.len() != other.len() {
             return Err(ValueVectorError::LengthMismatch {
@@ -77,7 +77,7 @@ impl ValueVector {
                 right: other.len(),
             });
         }
-        let data: Vec<f64> = self
+        let data: Vec<f32> = self
             .iter()
             .zip(other.iter())
             .map(|(l, r)| func(l, r))
@@ -93,7 +93,7 @@ impl ValueVector {
             return Ok(Self::new(Vec::new()));
         }
         let mut result = Vec::with_capacity(self.len() - window + 1);
-        let mut current = self.data[0..window].iter().sum::<f64>();
+        let mut current = self.data[0..window].iter().sum::<f32>();
         result.push(current);
         for i in window..self.len() {
             current += self.data[i];
@@ -105,14 +105,14 @@ impl ValueVector {
 
     pub fn rolling_mean(&self, window: usize) -> Result<Self, ValueVectorError> {
         let sum = self.rolling_sum(window)?;
-        Ok(sum.map(|value| value / window as f64))
+        Ok(sum.map(|value| value / window as f32))
     }
 
     pub fn diff(&self, period: usize) -> Self {
         if period == 0 || period >= self.len() {
             return Self::new(Vec::new());
         }
-        let data: Vec<f64> = self.data[period..]
+        let data: Vec<f32> = self.data[period..]
             .iter()
             .enumerate()
             .map(|(idx, value)| value - self.data[idx])
@@ -120,7 +120,7 @@ impl ValueVector {
         Self::new(data)
     }
 
-    pub fn scale(&self, factor: f64) -> Self {
+    pub fn scale(&self, factor: f32) -> Self {
         self.map(|value| value * factor)
     }
 
@@ -135,8 +135,8 @@ impl ValueVector {
                 let diff = value - mean;
                 diff * diff
             })
-            .sum::<f64>()
-            / (self.len() as f64);
+            .sum::<f32>()
+            / (self.len() as f32);
         let std_dev = variance.sqrt();
         if std_dev == 0.0 {
             return self.clone();
@@ -178,8 +178,8 @@ impl Div for ValueVector {
 }
 
 impl<'a> IntoIterator for &'a ValueVector {
-    type Item = f64;
-    type IntoIter = std::iter::Copied<std::slice::Iter<'a, f64>>;
+    type Item = f32;
+    type IntoIter = std::iter::Copied<std::slice::Iter<'a, f32>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.data.iter().copied()

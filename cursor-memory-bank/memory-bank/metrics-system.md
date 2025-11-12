@@ -282,7 +282,7 @@ pub mod metrics {
 
 ```rust
 pub trait Metric {
-    fn calculate(&self, trades: &[Trade]) -> f64;
+    fn calculate(&self, trades: &[Trade]) -> f32;
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
 }
@@ -297,16 +297,16 @@ pub trait MetricCalculator {
 
 ```rust
 pub struct SharpeRatio {
-    risk_free_rate: f64,
+    risk_free_rate: f32,
 }
 
 impl Metric for SharpeRatio {
-    fn calculate(&self, trades: &[Trade]) -> f64 {
+    fn calculate(&self, trades: &[Trade]) -> f32 {
         let returns = trades.iter().map(|t| t.return_pct).collect::<Vec<_>>();
-        let mean_return = returns.iter().sum::<f64>() / returns.len() as f64;
+        let mean_return = returns.iter().sum::<f32>() / returns.len() as f32;
         let variance = returns.iter()
             .map(|r| (r - mean_return).powi(2))
-            .sum::<f64>() / (returns.len() - 1) as f64;
+            .sum::<f32>() / (returns.len() - 1) as f32;
         let std_dev = variance.sqrt();
         
         if std_dev == 0.0 { 0.0 } else { (mean_return - self.risk_free_rate) / std_dev }

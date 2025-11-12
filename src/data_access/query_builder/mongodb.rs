@@ -590,7 +590,7 @@ impl CandleQueryBuilder {
     }
 
     /// Фильтр по объему
-    pub fn min_volume(mut self, min_volume: f64) -> Self {
+    pub fn min_volume(mut self, min_volume: f32) -> Self {
         self.builder = self.builder.where_gte("volume", &min_volume.to_string());
         self
     }
@@ -655,7 +655,7 @@ impl TradeQueryBuilder {
     }
 
     /// Фильтр по цене
-    pub fn price_range(mut self, min_price: f64, max_price: f64) -> Self {
+    pub fn price_range(mut self, min_price: f32, max_price: f32) -> Self {
         self.builder = self
             .builder
             .where_gte("price", &min_price.to_string())
@@ -713,7 +713,7 @@ impl BacktestQueryBuilder {
     }
 
     /// Фильтр по доходности
-    pub fn min_return(mut self, min_return: f64) -> Self {
+    pub fn min_return(mut self, min_return: f32) -> Self {
         self.builder = self
             .builder
             .where_gte("total_return", &min_return.to_string());
@@ -721,7 +721,7 @@ impl BacktestQueryBuilder {
     }
 
     /// Фильтр по Sharpe ratio
-    pub fn min_sharpe(mut self, min_sharpe: f64) -> Self {
+    pub fn min_sharpe(mut self, min_sharpe: f32) -> Self {
         self.builder = self
             .builder
             .where_gte("sharpe_ratio", &min_sharpe.to_string());
@@ -729,7 +729,7 @@ impl BacktestQueryBuilder {
     }
 
     /// Фильтр по максимальной просадке
-    pub fn max_drawdown(mut self, max_drawdown: f64) -> Self {
+    pub fn max_drawdown(mut self, max_drawdown: f32) -> Self {
         self.builder = self
             .builder
             .where_lte("max_drawdown", &max_drawdown.to_string());

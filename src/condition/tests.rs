@@ -5,7 +5,7 @@ mod tests {
     use crate::indicators::OHLCData;
     use std::collections::HashMap;
 
-    fn create_test_data() -> Vec<f64> {
+    fn create_test_data() -> Vec<f32> {
         vec![95.0, 98.0, 102.0, 105.0, 103.0, 108.0, 110.0]
     }
 

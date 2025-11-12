@@ -47,7 +47,7 @@ pub enum FilterOperator {
 #[derive(Debug, Clone)]
 pub enum FilterValue {
     String(String),
-    Number(f64),
+    Number(f32),
     Integer(i64),
     Boolean(bool),
     List(Vec<FilterValue>),
@@ -578,7 +578,7 @@ impl TradeArrowQueryBuilder {
     }
 
     /// Получение сделок по ценовому диапазону
-    pub fn by_price_range(mut self, min_price: f64, max_price: f64) -> Self {
+    pub fn by_price_range(mut self, min_price: f32, max_price: f32) -> Self {
         self.base_builder = self.base_builder.where_between(
             "price",
             FilterValue::Number(min_price),
@@ -642,7 +642,7 @@ impl BacktestArrowQueryBuilder {
     }
 
     /// Получение результатов с минимальной доходностью
-    pub fn min_return(mut self, min_return: f64) -> Self {
+    pub fn min_return(mut self, min_return: f32) -> Self {
         self.base_builder = self
             .base_builder
             .where_greater_than("total_return", FilterValue::Number(min_return));
@@ -650,7 +650,7 @@ impl BacktestArrowQueryBuilder {
     }
 
     /// Получение результатов с минимальным Sharpe ratio
-    pub fn min_sharpe(mut self, min_sharpe: f64) -> Self {
+    pub fn min_sharpe(mut self, min_sharpe: f32) -> Self {
         self.base_builder = self
             .base_builder
             .where_greater_than("sharpe_ratio", FilterValue::Number(min_sharpe));

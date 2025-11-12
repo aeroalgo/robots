@@ -7,20 +7,20 @@ use std::{array, cmp::min, collections::HashMap, convert::TryInto, ops::Index, v
 
 #[derive(Clone, Debug)]
 pub struct StrategyCondition {
-    data: Vec<f64>,
-    indicator: Vec<f64>,
-    constant: f64,
+    data: Vec<f32>,
+    indicator: Vec<f32>,
+    constant: f32,
     condition: ConditionEnum,
-    result: Vec<bool>, // Изменено с Vec<f64> на Vec<bool> для булевых сигналов
+    result: Vec<bool>, // Изменено с Vec<f32> на Vec<bool> для булевых сигналов
     name_indicator: String,
 }
 
 impl StrategyCondition {
     pub async fn new(
-        data: Vec<f64>,
-        indicator: Vec<f64>,
+        data: Vec<f32>,
+        indicator: Vec<f32>,
         condition: ConditionEnum,
-        constant: f64,
+        constant: f32,
         name_indicator: String,
     ) -> Self {
         // Оптимизация: избегаем клонирования, используем move
@@ -93,11 +93,11 @@ impl StrategyCondition {
 
     // Реализация всех функций для каждого enum
 
-    fn check_above(&self, value: f64, threshold: f64) -> bool {
+    fn check_above(&self, value: f32, threshold: f32) -> bool {
         value > threshold
     }
 
-    fn check_below(&self, value: f64, threshold: f64) -> bool {
+    fn check_below(&self, value: f32, threshold: f32) -> bool {
         value < threshold
     }
 

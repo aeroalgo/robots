@@ -67,11 +67,11 @@ struct OhlcvDataRaw {
     symbol: String,
     timeframe: String,
     timestamp: i64,
-    open: f64,
-    high: f64,
-    low: f64,
-    close: f64,
-    volume: f64,
+    open: f32,
+    high: f32,
+    low: f32,
+    close: f32,
+    volume: f32,
 }
 
 /// OHLCV данные (свечи)
@@ -80,11 +80,11 @@ pub struct OhlcvData {
     pub symbol: String,
     pub timeframe: String,
     pub timestamp: DateTime<Utc>,
-    pub open: f64,
-    pub high: f64,
-    pub low: f64,
-    pub close: f64,
-    pub volume: f64,
+    pub open: f32,
+    pub high: f32,
+    pub low: f32,
+    pub close: f32,
+    pub volume: f32,
 }
 
 /// Тиковые данные
@@ -92,10 +92,10 @@ pub struct OhlcvData {
 pub struct TickData {
     pub symbol: String,
     pub timestamp: DateTime<Utc>,
-    pub bid: f64,
-    pub ask: f64,
-    pub last_price: f64,
-    pub volume: f64,
+    pub bid: f32,
+    pub ask: f32,
+    pub last_price: f32,
+    pub volume: f32,
 }
 
 /// Информация о символе
@@ -113,7 +113,7 @@ pub struct Indicator {
     pub timeframe: String,
     pub indicator_name: String,
     pub timestamp: DateTime<Utc>,
-    pub value: f64,
+    pub value: f32,
     pub parameters: String, // JSON
 }
 
@@ -125,8 +125,8 @@ pub struct Signal {
     pub timeframe: String,
     pub timestamp: DateTime<Utc>,
     pub signal_type: String,
-    pub signal_strength: f64,
-    pub price: f64,
+    pub signal_strength: f32,
+    pub price: f32,
     pub metadata: String, // JSON
 }
 
@@ -137,13 +137,13 @@ pub struct TradeRecord {
     pub strategy_id: String,
     pub symbol: String,
     pub side: String,
-    pub quantity: f64,
-    pub entry_price: f64,
-    pub exit_price: Option<f64>,
+    pub quantity: f32,
+    pub entry_price: f32,
+    pub exit_price: Option<f32>,
     pub entry_time: DateTime<Utc>,
     pub exit_time: Option<DateTime<Utc>>,
-    pub pnl: Option<f64>,
-    pub commission: f64,
+    pub pnl: Option<f32>,
+    pub commission: f32,
     pub status: String,
     pub metadata: String, // JSON
 }
@@ -153,7 +153,7 @@ pub struct TradeRecord {
 pub struct StrategyMetric {
     pub strategy_id: String,
     pub metric_name: String,
-    pub metric_value: f64,
+    pub metric_value: f32,
     pub calculation_date: NaiveDate,
     pub period_start: NaiveDate,
     pub period_end: NaiveDate,
@@ -185,13 +185,13 @@ pub struct BacktestRecord {
     pub total_trades: i32,
     pub winning_trades: i32,
     pub losing_trades: i32,
-    pub total_pnl: f64,
-    pub max_drawdown: f64,
-    pub sharpe_ratio: f64,
-    pub profit_factor: f64,
-    pub win_rate: f64,
-    pub avg_win: f64,
-    pub avg_loss: f64,
+    pub total_pnl: f32,
+    pub max_drawdown: f32,
+    pub sharpe_ratio: f32,
+    pub profit_factor: f32,
+    pub win_rate: f32,
+    pub avg_win: f32,
+    pub avg_loss: f32,
     pub execution_time_ms: i32,
 }
 
@@ -202,12 +202,12 @@ pub struct Position {
     pub strategy_id: String,
     pub symbol: String,
     pub side: String,
-    pub quantity: f64,
-    pub entry_price: f64,
-    pub current_price: f64,
-    pub unrealized_pnl: f64,
-    pub stop_loss: Option<f64>,
-    pub take_profit: Option<f64>,
+    pub quantity: f32,
+    pub entry_price: f32,
+    pub current_price: f32,
+    pub unrealized_pnl: f32,
+    pub stop_loss: Option<f32>,
+    pub take_profit: Option<f32>,
     pub opened_at: DateTime<Utc>,
 }
 
@@ -220,12 +220,12 @@ pub struct OrderRecord {
     pub symbol: String,
     pub order_type: String,
     pub side: String,
-    pub quantity: f64,
-    pub price: f64,
+    pub quantity: f32,
+    pub price: f32,
     pub status: String,
-    pub filled_quantity: f64,
-    pub avg_fill_price: Option<f64>,
-    pub commission: f64,
+    pub filled_quantity: f32,
+    pub avg_fill_price: Option<f32>,
+    pub commission: f32,
     pub created_at: DateTime<Utc>,
     pub filled_at: Option<DateTime<Utc>>,
     pub cancelled_at: Option<DateTime<Utc>>,
@@ -237,11 +237,11 @@ pub struct GeneticIndividual {
     pub generation: i32,
     pub individual_id: String,
     pub strategy_id: String,
-    pub fitness_score: f64,
-    pub sharpe_ratio: f64,
-    pub max_drawdown: f64,
-    pub win_rate: f64,
-    pub profit_factor: f64,
+    pub fitness_score: f32,
+    pub sharpe_ratio: f32,
+    pub max_drawdown: f32,
+    pub win_rate: f32,
+    pub profit_factor: f32,
     pub genes: String, // JSON
 }
 
@@ -251,9 +251,9 @@ pub struct OptimizationResult {
     pub optimization_id: String,
     pub strategy_id: String,
     pub parameter_name: String,
-    pub parameter_value: f64,
+    pub parameter_value: f32,
     pub metric_name: String,
-    pub metric_value: f64,
+    pub metric_value: f32,
     pub iteration: i32,
 }
 
@@ -263,15 +263,15 @@ pub struct PortfolioSnapshot {
     pub snapshot_id: String,
     pub user_id: String,
     pub timestamp: DateTime<Utc>,
-    pub total_value: f64,
-    pub cash: f64,
-    pub positions_value: f64,
-    pub unrealized_pnl: f64,
-    pub realized_pnl: f64,
-    pub daily_return: f64,
-    pub total_return: f64,
-    pub sharpe_ratio: f64,
-    pub max_drawdown: f64,
+    pub total_value: f32,
+    pub cash: f32,
+    pub positions_value: f32,
+    pub unrealized_pnl: f32,
+    pub realized_pnl: f32,
+    pub daily_return: f32,
+    pub total_return: f32,
+    pub sharpe_ratio: f32,
+    pub max_drawdown: f32,
 }
 
 /// Результат Walk-Forward анализа
@@ -284,14 +284,14 @@ pub struct WalkForwardResult {
     pub in_sample_end: NaiveDate,
     pub out_sample_start: NaiveDate,
     pub out_sample_end: NaiveDate,
-    pub is_sharpe: f64,
-    pub oos_sharpe: f64,
-    pub is_profit: f64,
-    pub oos_profit: f64,
-    pub is_drawdown: f64,
-    pub oos_drawdown: f64,
-    pub efficiency_ratio: f64,
-    pub overfitting_score: f64,
+    pub is_sharpe: f32,
+    pub oos_sharpe: f32,
+    pub is_profit: f32,
+    pub oos_profit: f32,
+    pub is_drawdown: f32,
+    pub oos_drawdown: f32,
+    pub efficiency_ratio: f32,
+    pub overfitting_score: f32,
 }
 
 // ============================================================================
@@ -374,7 +374,7 @@ impl ClickHouseConnector {
              FROM {}.ohlcv_data 
              WHERE symbol = ? AND timeframe = ? 
              AND timestamp >= ? AND timestamp <= ? 
-             ORDER BY timestamp DESC",
+             ORDER BY timestamp ASC",
             self.database
         );
 
@@ -1481,7 +1481,7 @@ impl ClickHouseConnector {
         &self,
         symbol: &str,
         timeframe: &str,
-    ) -> Result<HashMap<String, f64>> {
+    ) -> Result<HashMap<String, f32>> {
         let query = format!(
             "SELECT 
                 COUNT(*) as total_candles,
@@ -1508,7 +1508,7 @@ impl ClickHouseConnector {
     }
 
     /// Получение статистики стратегии
-    pub async fn get_strategy_stats(&self, strategy_id: &str) -> Result<HashMap<String, f64>> {
+    pub async fn get_strategy_stats(&self, strategy_id: &str) -> Result<HashMap<String, f32>> {
         let query = format!(
             "SELECT 
                 COUNT(*) as total_trades,

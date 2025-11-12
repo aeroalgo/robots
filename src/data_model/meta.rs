@@ -22,8 +22,8 @@ pub struct InstrumentMeta {
     symbol: Symbol,
     asset_class: AssetClass,
     quote_currency: Option<String>,
-    tick_size: f64,
-    lot_size: f64,
+    tick_size: f32,
+    lot_size: f32,
     timezone: Option<String>,
     additional: HashMap<String, String>,
 }
@@ -45,11 +45,11 @@ impl InstrumentMeta {
         self.quote_currency.as_deref()
     }
 
-    pub fn tick_size(&self) -> f64 {
+    pub fn tick_size(&self) -> f32 {
         self.tick_size
     }
 
-    pub fn lot_size(&self) -> f64 {
+    pub fn lot_size(&self) -> f32 {
         self.lot_size
     }
 
@@ -66,8 +66,8 @@ pub struct InstrumentMetaBuilder {
     symbol: Symbol,
     asset_class: AssetClass,
     quote_currency: Option<String>,
-    tick_size: f64,
-    lot_size: f64,
+    tick_size: f32,
+    lot_size: f32,
     timezone: Option<String>,
     additional: HashMap<String, String>,
 }
@@ -95,12 +95,12 @@ impl InstrumentMetaBuilder {
         self
     }
 
-    pub fn tick_size(mut self, value: f64) -> Self {
+    pub fn tick_size(mut self, value: f32) -> Self {
         self.tick_size = value;
         self
     }
 
-    pub fn lot_size(mut self, value: f64) -> Self {
+    pub fn lot_size(mut self, value: f32) -> Self {
         self.lot_size = value;
         self
     }

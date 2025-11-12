@@ -8,7 +8,7 @@ pub struct TickerCandle {
     #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
     pub id: Option<ObjectId>,
     pub name: String,
-    pub candles: Vec<f64>,
+    pub candles: Vec<f32>,
     pub timestamp: i32,
     pub tf: i16,
     pub key: String,

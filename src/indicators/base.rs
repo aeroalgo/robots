@@ -20,7 +20,7 @@ pub trait Indicator: Send + Sync {
     /// Тип индикатора
     fn indicator_type(&self) -> IndicatorType;
 
-    // output_type удален - все индикаторы возвращают Vec<f64>
+    // output_type удален - все индикаторы возвращают Vec<f32>
 
     /// Параметры индикатора
     fn parameters(&self) -> &ParameterSet;
@@ -29,13 +29,13 @@ pub trait Indicator: Send + Sync {
     fn min_data_points(&self) -> usize;
 
     /// Вычислить индикатор с простыми данными
-    async fn calculate_simple(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError>;
+    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError>;
 
     /// Вычислить индикатор с OHLC данными
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError>;
+    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError>;
 
     /// Универсальный метод вычисления
-    async fn calculate(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         match self.indicator_type() {
             IndicatorType::Simple => self.calculate_simple(data).await,
             IndicatorType::OHLC => Err(IndicatorError::DataTypeMismatch {
@@ -51,7 +51,7 @@ pub trait Indicator: Send + Sync {
     }
 
     /// Универсальный метод вычисления с OHLC
-    async fn calculate_with_ohlc(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn calculate_with_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         match self.indicator_type() {
             IndicatorType::Simple => {
                 // Конвертируем OHLC в простые данные (по умолчанию используем close)
@@ -115,7 +115,7 @@ pub trait Indicator: Send + Sync {
     }
 
     /// Валидация входных данных
-    fn validate_input_data(&self, data: &[f64]) -> Result<(), IndicatorError> {
+    fn validate_input_data(&self, data: &[f32]) -> Result<(), IndicatorError> {
         if data.len() < self.min_data_points() {
             return Err(IndicatorError::InsufficientData {
                 required: self.min_data_points(),
@@ -144,7 +144,7 @@ pub trait Indicator: Send + Sync {
     /// Получить результат с метаданными
     async fn calculate_with_metadata(
         &self,
-        data: &[f64],
+        data: &[f32],
     ) -> Result<IndicatorResultData, IndicatorError> {
         let values = self.calculate(data).await?;
         Ok(IndicatorResultData {
@@ -173,7 +173,7 @@ pub trait Indicator: Send + Sync {
 #[async_trait]
 pub trait TrendIndicator: Indicator {
     /// Получить направление тренда
-    async fn get_trend_direction(&self, data: &[f64]) -> Result<TrendDirection, IndicatorError>;
+    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError>;
 }
 
 /// Трейт для осцилляторов
@@ -182,7 +182,7 @@ pub trait OscillatorIndicator: Indicator {
     /// Получить зоны перекупленности/перепроданности
     async fn get_overbought_oversold_zones(
         &self,
-        data: &[f64],
+        data: &[f32],
     ) -> Result<OverboughtOversoldZones, IndicatorError>;
 }
 
@@ -190,14 +190,14 @@ pub trait OscillatorIndicator: Indicator {
 #[async_trait]
 pub trait VolatilityIndicator: Indicator {
     /// Получить уровень волатильности
-    async fn get_volatility_level(&self, data: &[f64]) -> Result<f64, IndicatorError>;
+    async fn get_volatility_level(&self, data: &[f32]) -> Result<f32, IndicatorError>;
 }
 
 /// Трейт для простых индикаторов
 #[async_trait]
 pub trait SimpleIndicator: Indicator {
     /// Вычислить индикатор (алиас для calculate_simple)
-    async fn compute(&self, data: &[f64]) -> Result<Vec<f64>, IndicatorError> {
+    async fn compute(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         self.calculate_simple(data).await
     }
 }
@@ -206,7 +206,7 @@ pub trait SimpleIndicator: Indicator {
 #[async_trait]
 pub trait OHLCIndicator: Indicator {
     /// Вычислить индикатор (алиас для calculate_ohlc)
-    async fn compute(&self, data: &OHLCData) -> Result<Vec<f64>, IndicatorError> {
+    async fn compute(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         self.calculate_ohlc(data).await
     }
 }
@@ -223,15 +223,15 @@ pub enum TrendDirection {
 /// Зоны перекупленности/перепроданности
 #[derive(Debug, Clone)]
 pub struct OverboughtOversoldZones {
-    pub overbought_threshold: f64,
-    pub oversold_threshold: f64,
-    pub current_value: f64,
+    pub overbought_threshold: f32,
+    pub oversold_threshold: f32,
+    pub current_value: f32,
     pub is_overbought: bool,
     pub is_oversold: bool,
 }
 
 impl OverboughtOversoldZones {
-    pub fn new(overbought_threshold: f64, oversold_threshold: f64, current_value: f64) -> Self {
+    pub fn new(overbought_threshold: f32, oversold_threshold: f32, current_value: f32) -> Self {
         Self {
             overbought_threshold,
             oversold_threshold,
@@ -245,14 +245,14 @@ impl OverboughtOversoldZones {
 /// Трейт для оптимизации параметров
 pub trait ParameterOptimizer {
     /// Получить все возможные комбинации параметров
-    fn get_parameter_combinations(&self) -> Vec<HashMap<String, f64>>;
+    fn get_parameter_combinations(&self) -> Vec<HashMap<String, f32>>;
 
     /// Оптимизировать параметры на основе данных
     async fn optimize_parameters(
         &self,
-        data: &[f64],
+        data: &[f32],
         target_metric: &str,
-    ) -> Result<HashMap<String, f64>, IndicatorError>;
+    ) -> Result<HashMap<String, f32>, IndicatorError>;
 
     /// Получить количество комбинаций параметров
     fn get_total_combinations(&self) -> usize;
@@ -260,12 +260,12 @@ pub trait ParameterOptimizer {
 
 /// Реализация оптимизатора параметров для базового индикатора
 impl<T: Indicator> ParameterOptimizer for T {
-    fn get_parameter_combinations(&self) -> Vec<HashMap<String, f64>> {
+    fn get_parameter_combinations(&self) -> Vec<HashMap<String, f32>> {
         let mut combinations = Vec::new();
         let ranges = self.parameters().get_optimization_ranges();
 
         // Простая реализация: генерируем все комбинации
-        let mut current_values: HashMap<String, f64> =
+        let mut current_values: HashMap<String, f32> =
             ranges.iter().map(|(k, v)| (k.clone(), v.start)).collect();
 
         loop {
@@ -303,9 +303,9 @@ impl<T: Indicator> ParameterOptimizer for T {
 
     async fn optimize_parameters(
         &self,
-        _data: &[f64],
+        _data: &[f32],
         _target_metric: &str,
-    ) -> Result<HashMap<String, f64>, IndicatorError> {
+    ) -> Result<HashMap<String, f32>, IndicatorError> {
         // Базовая реализация: возвращаем текущие параметры
         // В реальной реализации здесь должна быть логика оптимизации
         Ok(self.parameters().get_current_values())

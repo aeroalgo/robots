@@ -45,7 +45,7 @@ namespace vvTSLtools
 		// Token: 0x17000119 RID: 281
 		public IContext Context
 		{
-			// Token: 0x06000345 RID: 837 RVA: 0x00012D32 File Offset: 0x00010f64
+			// Token: 0x06000345 RID: 837 RVA: 0x00012D32 File Offset: 0x00010f32
 			get;
 			// Token: 0x06000346 RID: 838 RVA: 0x00012D3A File Offset: 0x00010F3A
 			set;

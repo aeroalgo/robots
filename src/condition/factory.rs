@@ -12,7 +12,7 @@ impl ConditionFactory {
     /// Создать условие по имени и параметрам
     pub fn create_condition(
         name: &str,
-        parameters: HashMap<String, f64>,
+        parameters: HashMap<String, f32>,
     ) -> Result<Box<dyn Condition + Send + Sync>, ConditionError> {
         match name.to_uppercase().as_str() {
             // Условия сравнения
