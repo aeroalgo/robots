@@ -1,0 +1,684 @@
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
+
+use async_trait::async_trait;
+
+use crate::condition::factory::ConditionFactory;
+use crate::condition::types::{ConditionError, SignalStrength, TrendDirection};
+
+use super::base::{Strategy, StrategyDescriptor};
+use super::context::StrategyContext;
+use super::stops::{StopEvaluationContext, StopHandlerError, StopHandlerFactory};
+use super::types::{
+    ConditionBindingSpec, ConditionEvaluation, ConditionInputSpec, DataSeriesSource,
+    IndicatorBindingSpec, IndicatorSourceSpec, PositionDirection, PreparedCondition,
+    PreparedStopHandler, PriceField, RuleLogic, StopSignal, StopSignalKind, StrategyDecision,
+    StrategyDefinition, StrategyError, StrategyId, StrategyMetadata, StrategyParamValue,
+    StrategyParameterMap, StrategyRuleSpec, StrategySignal, StrategySignalType, StrategyUserInput,
+    TimeframeRequirement,
+};
+
+#[derive(Clone)]
+pub struct DynamicStrategy {
+    metadata: StrategyMetadata,
+    definition: StrategyDefinition,
+    indicator_bindings: Vec<IndicatorBindingSpec>,
+    conditions: Vec<PreparedCondition>,
+    entry_rules: Vec<StrategyRuleSpec>,
+    exit_rules: Vec<StrategyRuleSpec>,
+    stop_handlers: Vec<PreparedStopHandler>,
+    timeframe_requirements: Vec<TimeframeRequirement>,
+    parameters: StrategyParameterMap,
+}
+
+impl DynamicStrategy {
+    pub fn new(
+        metadata: StrategyMetadata,
+        definition: StrategyDefinition,
+        indicator_bindings: Vec<IndicatorBindingSpec>,
+        conditions: Vec<PreparedCondition>,
+        entry_rules: Vec<StrategyRuleSpec>,
+        exit_rules: Vec<StrategyRuleSpec>,
+        stop_handlers: Vec<PreparedStopHandler>,
+        timeframe_requirements: Vec<TimeframeRequirement>,
+        parameters: StrategyParameterMap,
+    ) -> Self {
+        Self {
+            metadata,
+            definition,
+            indicator_bindings,
+            conditions,
+            entry_rules,
+            exit_rules,
+            stop_handlers,
+            timeframe_requirements,
+            parameters,
+        }
+    }
+
+    pub fn metadata(&self) -> &StrategyMetadata {
+        &self.metadata
+    }
+
+    pub fn definition(&self) -> &StrategyDefinition {
+        &self.definition
+    }
+
+    async fn evaluate_conditions(
+        &self,
+        context: &StrategyContext,
+    ) -> Result<HashMap<String, ConditionEvaluation>, StrategyError> {
+        let mut result = HashMap::new();
+        for condition in &self.conditions {
+            let input = context.prepare_condition_input(condition)?;
+            let timeframe_data = context.timeframe(&condition.timeframe)?;
+            let raw = condition.condition.check(input).await.map_err(|err| {
+                StrategyError::ConditionFailure {
+                    condition_id: condition.id.clone(),
+                    source: err,
+                }
+            })?;
+            let idx = self.resolve_index(timeframe_data.index(), raw.signals.len());
+            let satisfied = raw.signals.get(idx).copied().unwrap_or(false);
+            let strength = raw
+                .strengths
+                .get(idx)
+                .copied()
+                .unwrap_or(SignalStrength::Weak);
+            let trend = raw
+                .directions
+                .get(idx)
+                .copied()
+                .unwrap_or(TrendDirection::Sideways);
+            result.insert(
+                condition.id.clone(),
+                ConditionEvaluation {
+                    condition_id: condition.id.clone(),
+                    satisfied,
+                    strength,
+                    trend,
+                    weight: condition.weight(),
+                },
+            );
+        }
+        Ok(result)
+    }
+
+    fn resolve_index(&self, requested: usize, available: usize) -> usize {
+        if available == 0 {
+            0
+        } else if requested >= available {
+            available - 1
+        } else {
+            requested
+        }
+    }
+
+    fn evaluate_rule(
+        &self,
+        rule: &StrategyRuleSpec,
+        evaluations: &HashMap<String, ConditionEvaluation>,
+        condition_lookup: &HashMap<String, &PreparedCondition>,
+    ) -> Result<Option<StrategySignal>, StrategyError> {
+        if rule.conditions.is_empty() {
+            return Err(StrategyError::DefinitionError(format!(
+                "rule {} has no conditions",
+                rule.id
+            )));
+        }
+        let mut satisfied_count = 0usize;
+        let mut weight_sum = 0.0f32;
+        let mut weighted_score = 0.0f32;
+        let mut strength_values = Vec::new();
+        let mut trend_weights: HashMap<TrendDirection, f32> = HashMap::new();
+        for condition_id in &rule.conditions {
+            let evaluation = evaluations.get(condition_id).ok_or_else(|| {
+                StrategyError::UnknownConditionReference {
+                    rule_id: rule.id.clone(),
+                    condition_id: condition_id.clone(),
+                }
+            })?;
+            strength_values.push(evaluation.strength);
+            if evaluation.satisfied {
+                satisfied_count += 1;
+                let weight = evaluation.weight.max(0.0);
+                weight_sum += weight;
+                weighted_score += weight * (evaluation.strength as i32 as f32);
+                let entry = trend_weights.entry(evaluation.trend).or_insert(0.0);
+                *entry += weight;
+            }
+        }
+        let satisfied = match rule.logic {
+            RuleLogic::All => satisfied_count == rule.conditions.len(),
+            RuleLogic::Any => satisfied_count > 0,
+            RuleLogic::AtLeast(required) => satisfied_count >= required,
+            RuleLogic::Weighted { min_total } => weighted_score >= min_total,
+            RuleLogic::Expression(ref expr) => {
+                return Err(StrategyError::UnsupportedRuleLogic(expr.clone()))
+            }
+        };
+        if !satisfied {
+            return Ok(None);
+        }
+        let average_score = if weight_sum > 0.0 {
+            weighted_score / weight_sum
+        } else {
+            0.0
+        };
+        let strength = self.determine_strength(average_score, &strength_values);
+        let trend = trend_weights
+            .into_iter()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(trend, _)| trend)
+            .unwrap_or(TrendDirection::Sideways);
+        let timeframe = rule
+            .conditions
+            .iter()
+            .find_map(|id| condition_lookup.get(id).map(|cond| cond.timeframe.clone()))
+            .unwrap_or_else(|| {
+                self.timeframe_requirements
+                    .first()
+                    .map(|req| req.timeframe.clone())
+                    .unwrap_or_else(|| crate::data_model::types::TimeFrame::Minutes(1))
+            });
+        let signal = StrategySignal {
+            rule_id: rule.id.clone(),
+            signal_type: rule.signal.clone(),
+            direction: rule.direction.clone(),
+            timeframe,
+            strength,
+            trend,
+            quantity: rule.quantity,
+            tags: rule.tags.clone(),
+        };
+        Ok(Some(signal))
+    }
+
+    fn determine_strength(
+        &self,
+        average_score: f32,
+        strengths: &[SignalStrength],
+    ) -> SignalStrength {
+        if strengths.is_empty() {
+            return SignalStrength::Weak;
+        }
+        if average_score >= 3.5 {
+            SignalStrength::VeryStrong
+        } else if average_score >= 2.5 {
+            SignalStrength::Strong
+        } else if average_score >= 1.5 {
+            SignalStrength::Medium
+        } else {
+            strengths
+                .iter()
+                .copied()
+                .max()
+                .unwrap_or(SignalStrength::Weak)
+        }
+    }
+
+    fn evaluate_stop_handlers(
+        &self,
+        context: &StrategyContext,
+    ) -> Result<Vec<StopSignal>, StrategyError> {
+        let mut signals = Vec::new();
+        let Some(position) = context.active_position() else {
+            return Ok(signals);
+        };
+        for handler in &self.stop_handlers {
+            if !self.stop_direction_matches(&handler.direction, &position.direction) {
+                continue;
+            }
+            let timeframe_data = context.timeframe(&handler.timeframe)?;
+            let series = timeframe_data
+                .price_series_slice(&handler.price_field)
+                .ok_or_else(|| StrategyError::MissingPriceSeries {
+                    field: handler.price_field.clone(),
+                    timeframe: handler.timeframe.clone(),
+                })?;
+            if series.is_empty() {
+                continue;
+            }
+            let index = timeframe_data.index().min(series.len() - 1);
+            let current_price = series[index] as f64;
+            let eval_ctx = StopEvaluationContext {
+                position,
+                timeframe_data,
+                price_field: handler.price_field.clone(),
+                index,
+                current_price,
+            };
+            if let Some(mut outcome) = handler.handler.evaluate(&eval_ctx) {
+                let mut signal = StrategySignal {
+                    rule_id: handler.id.clone(),
+                    signal_type: StrategySignalType::Exit,
+                    direction: position.direction.clone(),
+                    timeframe: handler.timeframe.clone(),
+                    strength: SignalStrength::VeryStrong,
+                    trend: TrendDirection::Sideways,
+                    quantity: Some(position.quantity),
+                    tags: handler.tags.clone(),
+                };
+                if !signal.tags.iter().any(|tag| tag == "stop") {
+                    signal.tags.push("stop".to_string());
+                }
+                let mut metadata = outcome.metadata;
+                metadata.insert("handler_name".to_string(), handler.name.clone());
+                signals.push(StopSignal {
+                    handler_id: handler.id.clone(),
+                    signal,
+                    exit_price: outcome.exit_price,
+                    kind: outcome.kind,
+                    priority: handler.priority,
+                    metadata,
+                });
+            }
+        }
+        signals.sort_by(|a, b| a.priority.cmp(&b.priority));
+        Ok(signals)
+    }
+
+    fn stop_direction_matches(
+        &self,
+        handler_direction: &PositionDirection,
+        position_direction: &PositionDirection,
+    ) -> bool {
+        match handler_direction {
+            PositionDirection::Both => matches!(
+                position_direction,
+                PositionDirection::Long | PositionDirection::Short
+            ),
+            PositionDirection::Long => matches!(position_direction, PositionDirection::Long),
+            PositionDirection::Short => matches!(position_direction, PositionDirection::Short),
+            PositionDirection::Flat => false,
+        }
+    }
+}
+
+#[async_trait]
+impl Strategy for DynamicStrategy {
+    fn id(&self) -> &StrategyId {
+        &self.metadata.id
+    }
+
+    fn metadata(&self) -> &StrategyMetadata {
+        &self.metadata
+    }
+
+    fn parameters(&self) -> &StrategyParameterMap {
+        &self.parameters
+    }
+
+    fn indicator_bindings(&self) -> &[IndicatorBindingSpec] {
+        &self.indicator_bindings
+    }
+
+    fn conditions(&self) -> &[PreparedCondition] {
+        &self.conditions
+    }
+
+    fn entry_rules(&self) -> &[StrategyRuleSpec] {
+        &self.entry_rules
+    }
+
+    fn exit_rules(&self) -> &[StrategyRuleSpec] {
+        &self.exit_rules
+    }
+
+    fn timeframe_requirements(&self) -> &[TimeframeRequirement] {
+        &self.timeframe_requirements
+    }
+
+    async fn evaluate(&self, context: &StrategyContext) -> Result<StrategyDecision, StrategyError> {
+        let evaluations = self.evaluate_conditions(context).await?;
+        let condition_lookup: HashMap<_, _> = self
+            .conditions
+            .iter()
+            .map(|condition| (condition.id.clone(), condition))
+            .collect();
+        let mut stop_signals = self.evaluate_stop_handlers(context)?;
+        let mut decision = StrategyDecision::empty();
+        for stop in &stop_signals {
+            decision.exits.push(stop.signal.clone());
+            decision.metadata.insert(
+                format!("stop.{}.exit_price", stop.handler_id),
+                stop.exit_price.to_string(),
+            );
+        }
+        for rule in &self.entry_rules {
+            if let Some(signal) = self.evaluate_rule(rule, &evaluations, &condition_lookup)? {
+                match signal.signal_type {
+                    StrategySignalType::Entry => decision.entries.push(signal),
+                    StrategySignalType::Exit => decision.exits.push(signal),
+                    StrategySignalType::Custom(_) => decision.custom.push(signal),
+                }
+            }
+        }
+        for rule in &self.exit_rules {
+            if let Some(signal) = self.evaluate_rule(rule, &evaluations, &condition_lookup)? {
+                match signal.signal_type {
+                    StrategySignalType::Entry => decision.entries.push(signal),
+                    StrategySignalType::Exit => decision.exits.push(signal),
+                    StrategySignalType::Custom(_) => decision.custom.push(signal),
+                }
+            }
+        }
+        decision.stop_signals = stop_signals;
+        Ok(decision)
+    }
+
+    fn clone_box(&self) -> Box<dyn Strategy> {
+        Box::new(self.clone())
+    }
+}
+
+impl StrategyDescriptor for DynamicStrategy {
+    fn definition(&self) -> &StrategyDefinition {
+        &self.definition
+    }
+}
+
+pub struct StrategyBuilder {
+    definition: StrategyDefinition,
+    parameter_overrides: StrategyParameterMap,
+}
+
+impl StrategyBuilder {
+    pub fn new(definition: StrategyDefinition) -> Self {
+        Self {
+            definition,
+            parameter_overrides: HashMap::new(),
+        }
+    }
+
+    pub fn with_parameter(mut self, name: impl Into<String>, value: StrategyParamValue) -> Self {
+        self.parameter_overrides.insert(name.into(), value);
+        self
+    }
+
+    pub fn with_parameters(mut self, parameters: StrategyParameterMap) -> Self {
+        for (key, value) in parameters {
+            self.parameter_overrides.insert(key, value);
+        }
+        self
+    }
+
+    pub fn build(self) -> Result<DynamicStrategy, StrategyError> {
+        let indicator_bindings = self.definition.indicator_bindings.clone();
+        let mut prepared_conditions = Vec::new();
+        for binding in &self.definition.condition_bindings {
+            let condition = ConditionFactory::create_condition(
+                &binding.condition_name,
+                binding.parameters.clone(),
+            )
+            .map_err(|err| map_condition_error(&binding.condition_name, err))?;
+            let metadata = ConditionFactory::get_condition_info(&binding.condition_name);
+            prepared_conditions.push(PreparedCondition {
+                id: binding.id.clone(),
+                condition: Arc::from(condition),
+                input: binding.input.clone(),
+                timeframe: binding.timeframe.clone(),
+                weight: binding.weight,
+                metadata,
+                tags: binding.tags.clone(),
+            });
+        }
+        let condition_ids: HashSet<String> = prepared_conditions
+            .iter()
+            .map(|condition| condition.id.clone())
+            .collect();
+        for rule in self
+            .definition
+            .entry_rules
+            .iter()
+            .chain(self.definition.exit_rules.iter())
+        {
+            for condition_id in &rule.conditions {
+                if !condition_ids.contains(condition_id) {
+                    return Err(StrategyError::UnknownConditionReference {
+                        rule_id: rule.id.clone(),
+                        condition_id: condition_id.clone(),
+                    });
+                }
+            }
+        }
+        let mut prepared_stop_handlers = Vec::new();
+        for handler in &self.definition.stop_handlers {
+            let mut normalized_params = HashMap::new();
+            for (key, value) in &handler.parameters {
+                normalized_params.insert(key.to_ascii_lowercase(), value.clone());
+            }
+            let instance = StopHandlerFactory::create(&handler.handler_name, &normalized_params)
+                .map_err(|err| map_stop_error(&handler.handler_name, err))?;
+            prepared_stop_handlers.push(PreparedStopHandler {
+                id: handler.id.clone(),
+                name: handler.name.clone(),
+                handler: Arc::from(instance),
+                timeframe: handler.timeframe.clone(),
+                price_field: handler.price_field.clone(),
+                direction: handler.direction.clone(),
+                priority: handler.priority,
+                tags: handler.tags.clone(),
+            });
+        }
+
+        let mut parameters = self.definition.defaults.clone();
+        for (key, value) in self.parameter_overrides {
+            parameters.insert(key, value);
+        }
+        let strategy = DynamicStrategy::new(
+            self.definition.metadata.clone(),
+            self.definition.clone(),
+            indicator_bindings,
+            prepared_conditions,
+            self.definition.entry_rules.clone(),
+            self.definition.exit_rules.clone(),
+            prepared_stop_handlers,
+            self.definition.timeframe_requirements.clone(),
+            parameters,
+        );
+        Ok(strategy)
+    }
+
+    pub fn from_user_input(input: StrategyUserInput) -> Result<Self, StrategyError> {
+        let metadata = StrategyMetadata::with_id(input.name.clone(), input.name.clone());
+        let mut indicator_bindings = Vec::new();
+        for indicator in &input.indicators {
+            let timeframe =
+                crate::data_model::types::TimeFrame::from_identifier(&indicator.timeframe);
+            let mut numeric_params = HashMap::new();
+            let mut string_params = HashMap::new();
+            for (key, value) in &indicator.parameters {
+                if let Some(number) = value.as_f64() {
+                    numeric_params.insert(key.clone(), number as f32);
+                } else if let Some(text) = value.as_str() {
+                    string_params.insert(key.clone(), text.to_string());
+                }
+            }
+            let source = if let Some(name) = string_params.get("name") {
+                IndicatorSourceSpec::Registry {
+                    name: name.clone(),
+                    parameters: numeric_params.clone(),
+                }
+            } else {
+                IndicatorSourceSpec::Formula {
+                    expression: indicator.expression.clone(),
+                }
+            };
+            indicator_bindings.push(IndicatorBindingSpec {
+                alias: indicator.alias.clone(),
+                timeframe,
+                source,
+                tags: Vec::new(),
+            });
+        }
+        let mut condition_bindings = Vec::new();
+        for condition in &input.conditions {
+            let timeframe =
+                crate::data_model::types::TimeFrame::from_identifier(&condition.timeframe);
+            let condition_name = extract_condition_name(condition)?;
+            let parameters = extract_numeric_parameters(&condition.parameters);
+            let input_spec = build_condition_input_spec(&condition.parameters)?;
+            condition_bindings.push(ConditionBindingSpec {
+                id: condition.id.clone(),
+                name: condition.id.clone(),
+                timeframe,
+                condition_name,
+                parameters,
+                input: input_spec,
+                weight: 1.0,
+                tags: Vec::new(),
+                user_formula: Some(condition.expression.clone()),
+            });
+        }
+        let mut entry_rules = Vec::new();
+        let mut exit_rules = Vec::new();
+        for action in &input.actions {
+            let rule = StrategyRuleSpec {
+                id: action.rule_id.clone(),
+                name: action.rule_id.clone(),
+                logic: action.logic.clone(),
+                conditions: action.condition_ids.clone(),
+                signal: action.signal.clone(),
+                direction: action.direction.clone(),
+                quantity: action.quantity,
+                tags: action.tags.clone(),
+            };
+            match action.signal {
+                StrategySignalType::Entry => entry_rules.push(rule),
+                StrategySignalType::Exit => exit_rules.push(rule),
+                StrategySignalType::Custom(_) => entry_rules.push(rule),
+            }
+        }
+        let timeframe_requirements = indicator_bindings
+            .iter()
+            .map(|binding| TimeframeRequirement {
+                alias: binding.alias.clone(),
+                timeframe: binding.timeframe.clone(),
+            })
+            .collect();
+        let defaults = input.parameters.clone();
+        let definition = StrategyDefinition {
+            metadata,
+            parameters: Vec::new(),
+            indicator_bindings,
+            condition_bindings,
+            entry_rules,
+            exit_rules,
+            stop_handlers: Vec::new(),
+            timeframe_requirements,
+            defaults,
+            optimizer_hints: BTreeMap::new(),
+        };
+        Ok(Self::new(definition))
+    }
+}
+
+fn map_condition_error(name: &str, error: ConditionError) -> StrategyError {
+    StrategyError::DefinitionError(format!("condition {} creation failed: {}", name, error))
+}
+
+fn map_stop_error(name: &str, error: StopHandlerError) -> StrategyError {
+    StrategyError::DefinitionError(format!("stop handler {} creation failed: {}", name, error))
+}
+
+fn extract_condition_name(step: &super::types::UserConditionStep) -> Result<String, StrategyError> {
+    if let Some(name) = step
+        .parameters
+        .get("condition_name")
+        .and_then(|value| value.as_str())
+    {
+        return Ok(name.to_string());
+    }
+    if let Some(name) = step.parameters.get("name").and_then(|value| value.as_str()) {
+        return Ok(name.to_string());
+    }
+    if !step.expression.is_empty() {
+        return Ok(step.expression.to_string());
+    }
+    Err(StrategyError::DefinitionError(format!(
+        "condition {} has no identifiable name",
+        step.id
+    )))
+}
+
+fn extract_numeric_parameters(parameters: &StrategyParameterMap) -> HashMap<String, f32> {
+    let mut result = HashMap::new();
+    for (key, value) in parameters {
+        if let Some(number) = value.as_f64() {
+            result.insert(key.clone(), number as f32);
+        }
+    }
+    result
+}
+
+fn build_condition_input_spec(
+    parameters: &StrategyParameterMap,
+) -> Result<ConditionInputSpec, StrategyError> {
+    let primary = parameters
+        .get("primary")
+        .and_then(parse_series_source)
+        .ok_or_else(|| {
+            StrategyError::DefinitionError("condition primary source not specified".to_string())
+        })?;
+    if let Some(secondary_value) = parameters.get("secondary").and_then(parse_series_source) {
+        if let Some(percent_value) = parameters.get("percent").and_then(|value| value.as_f64()) {
+            return Ok(ConditionInputSpec::DualWithPercent {
+                primary,
+                secondary: secondary_value,
+                percent: percent_value as f32,
+            });
+        }
+        return Ok(ConditionInputSpec::Dual {
+            primary,
+            secondary: secondary_value,
+        });
+    }
+    if let Some(index_offset) = parameters
+        .get("index_offset")
+        .and_then(|value| value.as_f64())
+        .map(|value| value.max(0.0) as usize)
+    {
+        return Ok(ConditionInputSpec::Indexed {
+            source: primary,
+            index_offset,
+        });
+    }
+    Ok(ConditionInputSpec::Single { source: primary })
+}
+
+fn parse_series_source(value: &StrategyParamValue) -> Option<DataSeriesSource> {
+    if let Some(text) = value.as_str() {
+        parse_series_source_text(text)
+    } else {
+        None
+    }
+}
+
+fn parse_series_source_text(value: &str) -> Option<DataSeriesSource> {
+    let lower = value.to_ascii_lowercase();
+    if let Some(rest) = lower.strip_prefix("indicator:") {
+        return Some(DataSeriesSource::Indicator {
+            alias: rest.to_string(),
+        });
+    }
+    if let Some(rest) = lower.strip_prefix("price:") {
+        let field = match rest {
+            "open" => PriceField::Open,
+            "high" => PriceField::High,
+            "low" => PriceField::Low,
+            "close" => PriceField::Close,
+            "volume" => PriceField::Volume,
+            _ => PriceField::Close,
+        };
+        return Some(DataSeriesSource::Price { field });
+    }
+    if let Some(rest) = lower.strip_prefix("custom:") {
+        return Some(DataSeriesSource::Custom {
+            key: rest.to_string(),
+        });
+    }
+    Some(DataSeriesSource::Indicator {
+        alias: value.to_string(),
+    })
+}

@@ -294,13 +294,11 @@ impl ArrowQueryBuilder {
                         AggregationFunction::Distinct => "DISTINCT",
                     };
 
-                    let alias = if let Some(alias) = &agg.alias {
-                        format!("{} AS {}", func_name, alias)
+                    if let Some(alias) = &agg.alias {
+                        format!("{}({}) AS {}", func_name, agg.column, alias)
                     } else {
-                        func_name.to_string()
-                    };
-
-                    format!("{}({})", alias, agg.column)
+                        format!("{}({})", func_name, agg.column)
+                    }
                 })
                 .collect();
             sql.push_str(&agg_parts.join(", "));

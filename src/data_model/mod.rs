@@ -1,9 +1,9 @@
+pub mod adapters;
 pub mod meta;
 pub mod quote;
 pub mod quote_frame;
 pub mod types;
 pub mod vector;
-pub mod adapters;
 
 pub use meta::*;
 pub use quote::*;

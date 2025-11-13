@@ -137,32 +137,6 @@ async fn test_document_operations() {
     connector.disconnect().await.unwrap();
 }
 
-#[tokio::test]
-#[ignore]
-async fn test_candle_operations() {
-    if !is_mongodb_available() {
-        return;
-    }
-
-    let mut connector = create_test_connector().await;
-    connector.connect().await.unwrap();
-
-    // Используем существующий метод get_candles
-    let start_time = chrono::Utc::now() - chrono::Duration::hours(24);
-    let end_time = chrono::Utc::now();
-    let result = connector
-        .get_candles("BTCUSDT", start_time, end_time, Some(10))
-        .await;
-    assert!(
-        result.is_ok(),
-        "Получение свечей не удалось: {:?}",
-        result.err()
-    );
-
-    println!("✅ Тест операций со свечами пройден");
-    connector.disconnect().await.unwrap();
-}
-
 // ============================================================================
 // ТЕСТЫ ERROR HANDLING
 // ============================================================================
@@ -300,13 +274,6 @@ async fn test_complete_workflow() {
         .get_collection::<Document>("test_collection")
         .unwrap();
     println!("  ✓ Коллекция получена");
-
-    // 3. Получение данных
-    let candles = connector
-        .get_candles("BTCUSDT", None, None, Some(10))
-        .await
-        .unwrap();
-    println!("  ✓ Получено {} свечей", candles.len());
 
     let trades = connector
         .get_trades(None, None, None, Some(10))

@@ -500,24 +500,28 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires local Parquet dataset"]
     async fn test_parquet_example() {
         let result = parquet_example().await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
+    #[ignore = "requires local Parquet dataset"]
     async fn test_datafusion_example() {
         let result = datafusion_example().await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
+    #[ignore = "requires local Parquet dataset"]
     async fn test_comprehensive_example() {
         let result = comprehensive_example().await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
+    #[ignore = "requires local Parquet dataset"]
     async fn test_specialized_connectors_example() {
         let result = specialized_connectors_example().await;
         assert!(result.is_ok());

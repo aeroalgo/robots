@@ -26,7 +26,7 @@
 //!
 //! ## Архитектура хранения данных
 //!
-//! ```
+//! ```text
 //! Redis (L1 Cache) -> Arrow Flight (L2 Transfer) -> Parquet (L3 Storage) -> ClickHouse (L4 Analytics)
 //! ```
 //!

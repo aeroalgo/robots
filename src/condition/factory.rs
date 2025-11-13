@@ -1,7 +1,7 @@
 use crate::condition::{
     base::Condition,
     conditions::*,
-    types::{ConditionConfig, ConditionError},
+    types::{ConditionConfig, ConditionError, ConditionInput},
 };
 use std::collections::HashMap;
 
@@ -67,6 +67,7 @@ impl ConditionFactory {
                 category: crate::condition::types::ConditionCategory::Filter,
                 min_data_points: 2,
                 is_reversible: true,
+                required_inputs: vec![ConditionInput::Dual],
             }),
             "BELOW" => Some(ConditionConfig {
                 name: "Below".to_string(),
@@ -75,6 +76,7 @@ impl ConditionFactory {
                 category: crate::condition::types::ConditionCategory::Filter,
                 min_data_points: 2,
                 is_reversible: true,
+                required_inputs: vec![ConditionInput::Dual],
             }),
             "CROSSESABOVE" => Some(ConditionConfig {
                 name: "CrossesAbove".to_string(),
@@ -83,6 +85,7 @@ impl ConditionFactory {
                 category: crate::condition::types::ConditionCategory::Entry,
                 min_data_points: 2,
                 is_reversible: false,
+                required_inputs: vec![ConditionInput::Dual],
             }),
             "CROSSESBELOW" => Some(ConditionConfig {
                 name: "CrossesBelow".to_string(),
@@ -91,6 +94,7 @@ impl ConditionFactory {
                 category: crate::condition::types::ConditionCategory::Entry,
                 min_data_points: 2,
                 is_reversible: false,
+                required_inputs: vec![ConditionInput::Dual],
             }),
             "RISINGTREND" => Some(ConditionConfig {
                 name: "RisingTrend".to_string(),
@@ -99,6 +103,11 @@ impl ConditionFactory {
                 category: crate::condition::types::ConditionCategory::Filter,
                 min_data_points: 20,
                 is_reversible: true,
+                required_inputs: vec![
+                    ConditionInput::Single,
+                    ConditionInput::Dual,
+                    ConditionInput::Ohlc,
+                ],
             }),
             "FALLINGTREND" => Some(ConditionConfig {
                 name: "FallingTrend".to_string(),
@@ -107,6 +116,11 @@ impl ConditionFactory {
                 category: crate::condition::types::ConditionCategory::Filter,
                 min_data_points: 20,
                 is_reversible: true,
+                required_inputs: vec![
+                    ConditionInput::Single,
+                    ConditionInput::Dual,
+                    ConditionInput::Ohlc,
+                ],
             }),
             "GREATERPERCENT" => Some(ConditionConfig {
                 name: "GreaterPercent".to_string(),
@@ -116,6 +130,7 @@ impl ConditionFactory {
                 category: crate::condition::types::ConditionCategory::Filter,
                 min_data_points: 2,
                 is_reversible: true,
+                required_inputs: vec![ConditionInput::DualWithPercent],
             }),
             "LOWERPERCENT" => Some(ConditionConfig {
                 name: "LowerPercent".to_string(),
@@ -125,6 +140,7 @@ impl ConditionFactory {
                 category: crate::condition::types::ConditionCategory::Filter,
                 min_data_points: 2,
                 is_reversible: true,
+                required_inputs: vec![ConditionInput::DualWithPercent],
             }),
             _ => None,
         }

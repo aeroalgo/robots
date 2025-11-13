@@ -1,11 +1,13 @@
+use std::collections::HashMap;
+
+use anyhow::{Context, Result};
 use chrono::Utc;
 use robots::data_access::database::clickhouse::{ClickHouseConfig, ClickHouseConnector};
 use robots::data_access::{DataSource, Database};
 use robots::data_model::quote_frame::QuoteFrame;
 use robots::data_model::types::{Symbol, TimeFrame};
-use robots::indicators::IndicatorFactory;
-use std::collections::HashMap;
-use std::error::Error;
+use robots::strategy::executor::BacktestExecutor;
+use robots::strategy::presets::default_strategy_definitions;
 
 #[tokio::main]
 async fn main() {
@@ -14,10 +16,16 @@ async fn main() {
     }
 }
 
-async fn run() -> Result<(), Box<dyn Error>> {
+async fn run() -> Result<()> {
     let mut connector = ClickHouseConnector::with_config(ClickHouseConfig::default());
-    connector.connect().await?;
-    connector.ping().await?;
+    connector
+        .connect()
+        .await
+        .context("Не удалось подключиться к ClickHouse")?;
+    connector
+        .ping()
+        .await
+        .context("ClickHouse не отвечает на ping")?;
 
     let symbol = Symbol::from_descriptor("AFLT.MM");
     let timeframe = TimeFrame::from_identifier("60");
@@ -26,39 +34,89 @@ async fn run() -> Result<(), Box<dyn Error>> {
 
     let candles = connector
         .get_ohlcv_typed(&symbol, &timeframe, start, end, None)
-        .await?;
-    println!("DB candles fetched: {}", candles.len());
+        .await
+        .context("Не удалось получить свечи из ClickHouse")?;
+
+    println!(
+        "Получено {} свечей для {} {}",
+        candles.len(),
+        symbol.descriptor(),
+        timeframe.identifier()
+    );
     if let Some(last) = candles.last() {
         println!(
-            "DB last candle: close={}, ts={:?}",
+            "Последняя свеча: close={}, ts={}",
             last.close, last.timestamp
         );
     }
     if candles.is_empty() {
         println!(
-            "Нет данных для {} {}",
+            "Нет данных для {} {} за указанный период",
             symbol.descriptor(),
             timeframe.identifier()
         );
         return Ok(());
     }
 
-    let frame = QuoteFrame::try_from_ohlcv(candles, symbol.clone(), timeframe.clone())?;
+    let frame = QuoteFrame::try_from_ohlcv(candles.clone(), symbol.clone(), timeframe.clone())
+        .context("Не удалось построить QuoteFrame из данных ClickHouse")?;
 
+    let mut frames = HashMap::new();
+    frames.insert(timeframe.clone(), frame);
+
+    let definition = default_strategy_definitions()
+        .into_iter()
+        .find(|def| def.metadata.id == "SMA_CROSSOVER_LONG")
+        .context("Стратегия SMA_CROSSOVER_LONG не найдена")?;
+
+    let mut executor =
+        BacktestExecutor::from_definition(definition, None, frames).map_err(anyhow::Error::new)?;
+
+    let report = executor.run_backtest().await.map_err(anyhow::Error::new)?;
+
+    println!("Стратегия: SMA_CROSSOVER_LONG");
+    println!("Символ: {}", symbol.descriptor());
     println!(
-        "Получено {} свечей для {} {}",
-        frame.len(),
-        symbol.descriptor(),
-        timeframe.identifier()
+        "Таймфрейм: {} минут",
+        timeframe.total_minutes().unwrap_or_default()
+    );
+    println!(
+        "Всего сделок: {} | PnL: {:.2} | Win rate: {:.2}% | Средняя сделка: {:.2}",
+        report.metrics.total_trades,
+        report.metrics.total_pnl,
+        report.metrics.win_rate * 100.0,
+        report.metrics.average_trade
     );
 
-    let ohlc = frame.to_indicator_ohlc();
-    let input_len = ohlc.close.len();
+    if report.trades.is_empty() {
+        println!("Сделки отсутствуют");
+    } else {
+        println!("Сделки:");
+        for trade in &report.trades {
+            let entry_time = trade
+                .entry_time
+                .map(|ts| ts.to_rfc3339())
+                .unwrap_or_else(|| "n/a".to_string());
+            let exit_time = trade
+                .exit_time
+                .map(|ts| ts.to_rfc3339())
+                .unwrap_or_else(|| "n/a".to_string());
+            println!(
+                "- {:?} qty {:.2} вход {:.2} ({}) выход {:.2} ({}) pnl {:.2}",
+                trade.direction,
+                trade.quantity,
+                trade.entry_price,
+                entry_time,
+                trade.exit_price,
+                exit_time,
+                trade.pnl
+            );
+        }
+    }
 
-    let params = HashMap::from([("period".to_string(), 10.0), ("coeff_atr".to_string(), 3.0)]);
+    if let Some(last_equity) = report.equity_curve.last() {
+        println!("Финальная equity: {:.2}", last_equity);
+    }
 
-    let indicator = IndicatorFactory::create_indicator("WMA", params.clone())?;
-    let values = indicator.calculate_ohlc(&ohlc).await?;
-    println!("{:?}", values);
     Ok(())
 }

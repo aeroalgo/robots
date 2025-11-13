@@ -59,21 +59,21 @@ mod tests {
         let middle_values = kc_middle.calculate_ohlc(&ohlc_data).await.unwrap();
 
         assert_eq!(middle_values.len(), ohlc_data.len());
-        assert!(middle_values[0] > 0.0); // EMA должна быть положительной
+        assert!(middle_values[4] > 0.0); // EMA должна быть положительной после прогрева периода
 
         // Тестируем KCUpper
         let kc_upper = KCUpper::new(5.0, 5.0, 2.0).unwrap();
         let upper_values = kc_upper.calculate_ohlc(&ohlc_data).await.unwrap();
 
         assert_eq!(upper_values.len(), ohlc_data.len());
-        assert!(upper_values[0] > middle_values[0]); // Верхняя линия должна быть выше средней
+        assert!(upper_values[4] > middle_values[4]); // Верхняя линия должна быть выше средней после прогрева
 
         // Тестируем KCLower
         let kc_lower = KCLower::new(5.0, 5.0, 2.0).unwrap();
         let lower_values = kc_lower.calculate_ohlc(&ohlc_data).await.unwrap();
 
         assert_eq!(lower_values.len(), ohlc_data.len());
-        assert!(lower_values[0] < middle_values[0]); // Нижняя линия должна быть ниже средней
+        assert!(lower_values[4] < middle_values[4]); // Нижняя линия должна быть ниже средней после прогрева
     }
 
     #[tokio::test]

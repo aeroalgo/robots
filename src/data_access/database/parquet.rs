@@ -104,6 +104,12 @@ impl ParquetConnector {
 
     /// Запись в Parquet файл
     pub async fn write_parquet(&self, file_path: &str, batches: Vec<RecordBatch>) -> Result<()> {
+        if batches.is_empty() {
+            return Err(DataAccessError::Arrow(
+                "No record batches provided for Parquet write".to_string(),
+            ));
+        }
+
         let path = Path::new(&self.config.base_path).join(file_path);
 
         if self.config.create_directories {

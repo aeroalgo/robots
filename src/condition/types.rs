@@ -1,3 +1,4 @@
+use crate::indicators::types::OHLCData;
 use thiserror::Error;
 
 /// Ошибки системы условий
@@ -23,7 +24,7 @@ pub enum ConditionError {
 pub type ConditionResult<T> = Result<T, ConditionError>;
 
 /// Направление тренда
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TrendDirection {
     Rising,
     Falling,
@@ -31,7 +32,7 @@ pub enum TrendDirection {
 }
 
 /// Сила сигнала
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SignalStrength {
     Weak = 1,
     Medium = 2,
@@ -60,7 +61,35 @@ pub enum ConditionCategory {
     Confirmation, // Подтверждения
     Divergence,   // Дивергенции
 }
+/// Допустимые типы входных данных условия
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ConditionInput {
+    Single,
+    Dual,
+    DualWithPercent,
+    Indexed,
+    Ohlc,
+}
 
+/// Входные данные для проверки условия
+#[derive(Clone, Copy, Debug)]
+pub enum ConditionInputData<'a> {
+    Single {
+        data: &'a [f32],
+    },
+    Dual {
+        primary: &'a [f32],
+        secondary: &'a [f32],
+        percent: Option<f32>,
+    },
+    Indexed {
+        data: &'a [f32],
+        index: usize,
+    },
+    Ohlc {
+        data: &'a OHLCData,
+    },
+}
 /// Конфигурация условия
 #[derive(Debug, Clone)]
 pub struct ConditionConfig {
@@ -70,6 +99,7 @@ pub struct ConditionConfig {
     pub category: ConditionCategory,
     pub min_data_points: usize,
     pub is_reversible: bool,
+    pub required_inputs: Vec<ConditionInput>,
 }
 
 /// Результат условия
@@ -88,4 +118,57 @@ pub struct ConditionMetadata {
     pub data_points_processed: usize,
     pub confidence_score: f32,
     pub additional_info: std::collections::HashMap<String, String>,
+}
+
+impl<'a> ConditionInputData<'a> {
+    pub fn single(data: &'a [f32]) -> Self {
+        Self::Single { data }
+    }
+
+    pub fn dual(primary: &'a [f32], secondary: &'a [f32]) -> Self {
+        Self::Dual {
+            primary,
+            secondary,
+            percent: None,
+        }
+    }
+
+    pub fn dual_with_percent(primary: &'a [f32], secondary: &'a [f32], percent: f32) -> Self {
+        Self::Dual {
+            primary,
+            secondary,
+            percent: Some(percent),
+        }
+    }
+
+    pub fn indexed(data: &'a [f32], index: usize) -> Self {
+        Self::Indexed { data, index }
+    }
+
+    pub fn ohlc(data: &'a OHLCData) -> Self {
+        Self::Ohlc { data }
+    }
+
+    pub fn primary_len(&self) -> usize {
+        match self {
+            Self::Single { data } => data.len(),
+            Self::Dual { primary, .. } => primary.len(),
+            Self::Indexed { data, .. } => data.len(),
+            Self::Ohlc { data } => data.len(),
+        }
+    }
+
+    pub fn secondary_len(&self) -> Option<usize> {
+        match self {
+            Self::Dual { secondary, .. } => Some(secondary.len()),
+            _ => None,
+        }
+    }
+
+    pub fn percent(&self) -> Option<f32> {
+        match self {
+            Self::Dual { percent, .. } => *percent,
+            _ => None,
+        }
+    }
 }

@@ -1,0 +1,842 @@
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::sync::Arc;
+
+use anyhow::anyhow;
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+
+use crate::data_model::types::{Symbol, TimeFrame};
+
+use super::context::StrategyContext;
+use super::types::{
+    ActivePosition, PositionDirection, PriceField, StopSignal, StopSignalKind, StrategyDecision,
+    StrategyError, StrategyId, StrategySignal,
+};
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct PositionKey {
+    pub symbol: Symbol,
+    pub timeframe: TimeFrame,
+    pub direction: PositionDirection,
+}
+
+impl PositionKey {
+    pub fn new(symbol: Symbol, timeframe: TimeFrame, direction: PositionDirection) -> Self {
+        Self {
+            symbol,
+            timeframe,
+            direction,
+        }
+    }
+}
+
+impl fmt::Display for PositionKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}@{}:{:?}",
+            self.symbol.descriptor(),
+            self.timeframe.identifier(),
+            self.direction
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PositionStatus {
+    PendingEntry,
+    Open,
+    Closing,
+    Closed,
+    Cancelled,
+}
+
+#[derive(Clone, Debug)]
+pub struct PositionState {
+    pub id: String,
+    pub key: PositionKey,
+    pub status: PositionStatus,
+    pub quantity: f64,
+    pub average_price: f64,
+    pub current_price: f64,
+    pub realized_pnl: f64,
+    pub unrealized_pnl: f64,
+    pub opened_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub closed_at: Option<DateTime<Utc>>,
+    pub metadata: HashMap<String, String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OrderType {
+    Market,
+    Limit,
+    Stop,
+    StopLimit,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OrderStatus {
+    Created,
+    Submitted,
+    PartiallyFilled,
+    Filled,
+    Cancelled,
+    Rejected,
+}
+
+#[derive(Clone, Debug)]
+pub struct OrderTicket {
+    pub id: String,
+    pub position_id: String,
+    pub symbol: Symbol,
+    pub timeframe: TimeFrame,
+    pub direction: PositionDirection,
+    pub order_type: OrderType,
+    pub status: OrderStatus,
+    pub quantity: f64,
+    pub price: f64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub metadata: HashMap<String, String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PortfolioState {
+    pub realized_pnl: f64,
+    pub unrealized_pnl: f64,
+    pub exposure: f64,
+    pub total_equity: f64,
+}
+
+#[derive(Clone, Debug)]
+pub enum PositionEvent {
+    OrderFilled(OrderTicket),
+    PositionOpened(PositionState),
+    PositionUpdated(PositionState),
+    PositionClosed(PositionState),
+}
+
+#[derive(Clone, Debug)]
+pub struct ClosedTrade {
+    pub position_id: String,
+    pub symbol: Symbol,
+    pub timeframe: TimeFrame,
+    pub direction: PositionDirection,
+    pub quantity: f64,
+    pub entry_price: f64,
+    pub exit_price: f64,
+    pub entry_time: Option<DateTime<Utc>>,
+    pub exit_time: Option<DateTime<Utc>>,
+    pub pnl: f64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ExecutionReport {
+    pub orders: Vec<OrderTicket>,
+    pub opened_positions: Vec<PositionState>,
+    pub updated_positions: Vec<PositionState>,
+    pub closed_positions: Vec<PositionState>,
+    pub closed_trades: Vec<ClosedTrade>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PositionError {
+    #[error(transparent)]
+    Strategy(#[from] StrategyError),
+    #[error("missing symbol for timeframe {0:?}")]
+    MissingSymbol(TimeFrame),
+    #[error("missing price series for timeframe {0:?} field {1:?}")]
+    MissingPriceSeries(TimeFrame, PriceField),
+    #[error("unsupported direction {0:?}")]
+    UnsupportedDirection(PositionDirection),
+    #[error("persistence error: {0}")]
+    Persistence(#[source] anyhow::Error),
+    #[error("event handler error: {0}")]
+    Event(#[source] anyhow::Error),
+}
+
+#[async_trait]
+pub trait PositionPersistence: Send + Sync {
+    async fn persist_position(&self, position: &PositionState) -> anyhow::Result<()>;
+    async fn persist_order(&self, order: &OrderTicket) -> anyhow::Result<()>;
+    async fn persist_event(&self, event: &PositionEvent) -> anyhow::Result<()>;
+}
+
+#[async_trait]
+pub trait PositionEventListener: Send + Sync {
+    async fn on_event(&self, event: &PositionEvent) -> anyhow::Result<()>;
+}
+
+pub struct PositionManager {
+    strategy_id: StrategyId,
+    positions: HashMap<String, PositionState>,
+    open_index: HashMap<PositionKey, String>,
+    orders: HashMap<String, OrderTicket>,
+    event_history: Vec<PositionEvent>,
+    listeners: Vec<Arc<dyn PositionEventListener>>,
+    persistence: Option<Arc<dyn PositionPersistence>>,
+    sequence: u64,
+    portfolio: PortfolioState,
+}
+
+impl PositionManager {
+    pub fn new(strategy_id: impl Into<StrategyId>) -> Self {
+        Self {
+            strategy_id: strategy_id.into(),
+            positions: HashMap::new(),
+            open_index: HashMap::new(),
+            orders: HashMap::new(),
+            event_history: Vec::new(),
+            listeners: Vec::new(),
+            persistence: None,
+            sequence: 0,
+            portfolio: PortfolioState::default(),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.positions.clear();
+        self.open_index.clear();
+        self.orders.clear();
+        self.event_history.clear();
+        self.sequence = 0;
+        self.portfolio = PortfolioState::default();
+    }
+
+    pub fn set_persistence(&mut self, persistence: Option<Arc<dyn PositionPersistence>>) {
+        self.persistence = persistence;
+    }
+
+    pub fn register_listener(&mut self, listener: Arc<dyn PositionEventListener>) {
+        self.listeners.push(listener);
+    }
+
+    pub fn strategy_id(&self) -> &StrategyId {
+        &self.strategy_id
+    }
+
+    pub fn positions(&self) -> impl Iterator<Item = &PositionState> {
+        self.positions.values()
+    }
+
+    pub fn portfolio_state(&self) -> &PortfolioState {
+        &self.portfolio
+    }
+
+    pub fn event_history(&self) -> &[PositionEvent] {
+        &self.event_history
+    }
+
+    pub fn open_position_count(&self) -> usize {
+        self.open_index.len()
+    }
+
+    pub async fn process_decision(
+        &mut self,
+        context: &mut StrategyContext,
+        decision: &StrategyDecision,
+    ) -> Result<ExecutionReport, PositionError> {
+        let mut report = ExecutionReport::default();
+        let mut stop_ids: HashSet<String> = HashSet::new();
+        let mut stop_signals: Vec<&StopSignal> = decision.stop_signals.iter().collect();
+        stop_signals.sort_by_key(|signal| signal.priority);
+        for stop in stop_signals {
+            stop_ids.insert(stop.signal.rule_id.clone());
+            let reason = format!("stop:{:?}", stop.kind);
+            self.handle_exit_signal(
+                context,
+                &stop.signal,
+                Some(stop.exit_price),
+                Some(reason),
+                &mut report,
+            )
+            .await?;
+        }
+        for exit in &decision.exits {
+            if stop_ids.contains(&exit.rule_id)
+                && exit.tags.iter().any(|tag| tag.eq_ignore_ascii_case("stop"))
+            {
+                continue;
+            }
+            self.handle_exit_signal(context, exit, None, None, &mut report)
+                .await?;
+        }
+        for entry in &decision.entries {
+            self.handle_entry_signal(context, entry, &mut report)
+                .await?;
+        }
+        let snapshot = self.snapshot_active_positions();
+        context.set_active_positions(snapshot);
+        Ok(report)
+    }
+
+    async fn handle_entry_signal(
+        &mut self,
+        context: &StrategyContext,
+        signal: &StrategySignal,
+        report: &mut ExecutionReport,
+    ) -> Result<(), PositionError> {
+        let direction = match signal.direction.clone() {
+            PositionDirection::Long => PositionDirection::Long,
+            PositionDirection::Short => PositionDirection::Short,
+            PositionDirection::Flat => return Ok(()),
+            PositionDirection::Both => {
+                return Err(PositionError::UnsupportedDirection(PositionDirection::Both))
+            }
+        };
+        let mut quantity = signal.quantity.unwrap_or(1.0);
+        if quantity.abs() <= f64::EPSILON {
+            quantity = 1.0;
+        }
+        let info = Self::resolve_market_snapshot(context, &signal.timeframe, None)?;
+        if let Some(opposite_direction) = opposite_direction(&direction) {
+            let opposite_key = PositionKey::new(
+                info.symbol.clone(),
+                info.timeframe.clone(),
+                opposite_direction.clone(),
+            );
+            if let Some(opposite_id) = self.open_index.get(&opposite_key).cloned() {
+                self.close_position(
+                    opposite_id,
+                    info.price,
+                    quantity,
+                    Some("reversal".to_string()),
+                    report,
+                )
+                .await?;
+            }
+        }
+        let key = PositionKey::new(
+            info.symbol.clone(),
+            info.timeframe.clone(),
+            direction.clone(),
+        );
+        if let Some(existing_id) = self.open_index.get(&key).cloned() {
+            self.scale_position(existing_id, quantity, info.price, signal, report)
+                .await?
+        } else {
+            self.open_new_position(key, quantity, info.price, signal, report)
+                .await?
+        }
+        Ok(())
+    }
+
+    async fn handle_exit_signal(
+        &mut self,
+        context: &StrategyContext,
+        signal: &StrategySignal,
+        price_hint: Option<f64>,
+        reason: Option<String>,
+        report: &mut ExecutionReport,
+    ) -> Result<(), PositionError> {
+        let direction = match signal.direction.clone() {
+            PositionDirection::Long => PositionDirection::Long,
+            PositionDirection::Short => PositionDirection::Short,
+            PositionDirection::Flat => return Ok(()),
+            PositionDirection::Both => {
+                return Err(PositionError::UnsupportedDirection(PositionDirection::Both))
+            }
+        };
+        let info = Self::resolve_market_snapshot(context, &signal.timeframe, price_hint)?;
+        let key = PositionKey::new(
+            info.symbol.clone(),
+            info.timeframe.clone(),
+            direction.clone(),
+        );
+        let position_id = match self.open_index.get(&key).cloned() {
+            Some(id) => id,
+            None => return Ok(()),
+        };
+        let quantity = signal.quantity.unwrap_or_else(|| {
+            self.positions
+                .get(&position_id)
+                .map(|state| state.quantity)
+                .unwrap_or(0.0)
+        });
+        if quantity.abs() <= f64::EPSILON {
+            return Ok(());
+        }
+        self.close_position(position_id, info.price, quantity, reason, report)
+            .await
+    }
+
+    async fn open_new_position(
+        &mut self,
+        key: PositionKey,
+        quantity: f64,
+        price: f64,
+        signal: &StrategySignal,
+        report: &mut ExecutionReport,
+    ) -> Result<(), PositionError> {
+        let position_id = self.next_id("pos");
+        let now = Utc::now();
+        let mut metadata = HashMap::new();
+        metadata.insert("entry_rule".to_string(), signal.rule_id.clone());
+        let state = PositionState {
+            id: position_id.clone(),
+            key: key.clone(),
+            status: PositionStatus::Open,
+            quantity,
+            average_price: price,
+            current_price: price,
+            realized_pnl: 0.0,
+            unrealized_pnl: 0.0,
+            opened_at: now,
+            updated_at: now,
+            closed_at: None,
+            metadata,
+        };
+        let order = self.build_order(&position_id, &key, quantity, price);
+        self.positions.insert(position_id.clone(), state.clone());
+        self.open_index.insert(key, position_id.clone());
+        self.orders.insert(order.id.clone(), order.clone());
+        self.persist_order(&order).await?;
+        self.persist_position(&state).await?;
+        self.record_event(PositionEvent::OrderFilled(order.clone()))
+            .await?;
+        self.record_event(PositionEvent::PositionOpened(state.clone()))
+            .await?;
+        self.refresh_portfolio_metrics();
+        report.orders.push(order);
+        report.opened_positions.push(state);
+        Ok(())
+    }
+
+    async fn scale_position(
+        &mut self,
+        position_id: String,
+        quantity: f64,
+        price: f64,
+        signal: &StrategySignal,
+        report: &mut ExecutionReport,
+    ) -> Result<(), PositionError> {
+        let now = Utc::now();
+        if quantity.abs() <= f64::EPSILON {
+            return Ok(());
+        }
+        let state = self.positions.get_mut(&position_id).ok_or_else(|| {
+            PositionError::Persistence(anyhow!("position {} missing for scale", position_id))
+        })?;
+        let new_quantity = state.quantity + quantity;
+        if new_quantity <= f64::EPSILON {
+            drop(state);
+            return self
+                .close_position(
+                    position_id,
+                    price,
+                    quantity.abs(),
+                    Some("scale_to_flat".to_string()),
+                    report,
+                )
+                .await;
+        }
+        state.average_price =
+            ((state.average_price * state.quantity) + (price * quantity)) / new_quantity;
+        state.quantity = new_quantity;
+        state.current_price = price;
+        state.status = PositionStatus::Open;
+        state.updated_at = now;
+        state
+            .metadata
+            .insert("last_entry_rule".to_string(), signal.rule_id.clone());
+        let snapshot = state.clone();
+        drop(state);
+        let order = self.build_order(&position_id, &snapshot.key, quantity, price);
+        self.orders.insert(order.id.clone(), order.clone());
+        self.persist_order(&order).await?;
+        self.persist_position(&snapshot).await?;
+        self.record_event(PositionEvent::OrderFilled(order.clone()))
+            .await?;
+        self.record_event(PositionEvent::PositionUpdated(snapshot.clone()))
+            .await?;
+        self.refresh_portfolio_metrics();
+        report.orders.push(order);
+        report.updated_positions.push(snapshot);
+        Ok(())
+    }
+
+    async fn close_position(
+        &mut self,
+        position_id: String,
+        price: f64,
+        quantity: f64,
+        reason: Option<String>,
+        report: &mut ExecutionReport,
+    ) -> Result<(), PositionError> {
+        if quantity.abs() <= f64::EPSILON {
+            return Ok(());
+        }
+        let now = Utc::now();
+        let state = self.positions.get_mut(&position_id).ok_or_else(|| {
+            PositionError::Persistence(anyhow!("position {} missing for close", position_id))
+        })?;
+        let exit_quantity = quantity.min(state.quantity);
+        if exit_quantity.abs() <= f64::EPSILON {
+            return Ok(());
+        }
+        state.current_price = price;
+        let direction = state.key.direction.clone();
+        let pnl = match direction {
+            PositionDirection::Long => (price - state.average_price) * exit_quantity,
+            PositionDirection::Short => (state.average_price - price) * exit_quantity,
+            PositionDirection::Flat | PositionDirection::Both => 0.0,
+        };
+        state.quantity -= exit_quantity;
+        state.realized_pnl += pnl;
+        state.unrealized_pnl = 0.0;
+        state.updated_at = now;
+        if state.quantity <= f64::EPSILON {
+            state.status = PositionStatus::Closed;
+            state.closed_at = Some(now);
+        } else {
+            state.status = PositionStatus::Open;
+        }
+        if let Some(reason_value) = reason.clone() {
+            state
+                .metadata
+                .insert("close_reason".to_string(), reason_value);
+        }
+        let snapshot = state.clone();
+        if snapshot.status == PositionStatus::Closed {
+            self.open_index.remove(&snapshot.key);
+        }
+        drop(state);
+        self.portfolio.realized_pnl += pnl;
+        let trade = ClosedTrade {
+            position_id: position_id.clone(),
+            symbol: snapshot.key.symbol.clone(),
+            timeframe: snapshot.key.timeframe.clone(),
+            direction,
+            quantity: exit_quantity,
+            entry_price: snapshot.average_price,
+            exit_price: price,
+            entry_time: Some(snapshot.opened_at),
+            exit_time: Some(now),
+            pnl,
+        };
+        let order = self.build_order(&position_id, &snapshot.key, exit_quantity, price);
+        self.orders.insert(order.id.clone(), order.clone());
+        self.persist_order(&order).await?;
+        self.persist_position(&snapshot).await?;
+        self.record_event(PositionEvent::OrderFilled(order.clone()))
+            .await?;
+        if snapshot.status == PositionStatus::Closed {
+            self.record_event(PositionEvent::PositionClosed(snapshot.clone()))
+                .await?;
+            report.closed_positions.push(snapshot.clone());
+        } else {
+            self.record_event(PositionEvent::PositionUpdated(snapshot.clone()))
+                .await?;
+            report.updated_positions.push(snapshot.clone());
+        }
+        self.refresh_portfolio_metrics();
+        report.orders.push(order);
+        report.closed_trades.push(trade);
+        Ok(())
+    }
+
+    fn build_order(
+        &mut self,
+        position_id: &str,
+        key: &PositionKey,
+        quantity: f64,
+        price: f64,
+    ) -> OrderTicket {
+        let now = Utc::now();
+        OrderTicket {
+            id: self.next_id("ord"),
+            position_id: position_id.to_string(),
+            symbol: key.symbol.clone(),
+            timeframe: key.timeframe.clone(),
+            direction: key.direction.clone(),
+            order_type: OrderType::Market,
+            status: OrderStatus::Filled,
+            quantity,
+            price,
+            created_at: now,
+            updated_at: now,
+            metadata: HashMap::new(),
+        }
+    }
+
+    async fn persist_position(&self, position: &PositionState) -> Result<(), PositionError> {
+        if let Some(persistence) = &self.persistence {
+            persistence
+                .persist_position(position)
+                .await
+                .map_err(PositionError::Persistence)?;
+        }
+        Ok(())
+    }
+
+    async fn persist_order(&self, order: &OrderTicket) -> Result<(), PositionError> {
+        if let Some(persistence) = &self.persistence {
+            persistence
+                .persist_order(order)
+                .await
+                .map_err(PositionError::Persistence)?;
+        }
+        Ok(())
+    }
+
+    async fn record_event(&mut self, event: PositionEvent) -> Result<(), PositionError> {
+        if let Some(persistence) = &self.persistence {
+            persistence
+                .persist_event(&event)
+                .await
+                .map_err(PositionError::Persistence)?;
+        }
+        for listener in &self.listeners {
+            listener
+                .on_event(&event)
+                .await
+                .map_err(PositionError::Event)?;
+        }
+        self.event_history.push(event);
+        Ok(())
+    }
+
+    fn snapshot_active_positions(&self) -> HashMap<String, ActivePosition> {
+        self.open_index
+            .values()
+            .filter_map(|position_id| self.positions.get(position_id))
+            .map(|state| {
+                let active = ActivePosition {
+                    id: state.id.clone(),
+                    symbol: state.key.symbol.clone(),
+                    timeframe: state.key.timeframe.clone(),
+                    direction: state.key.direction.clone(),
+                    entry_price: state.average_price,
+                    quantity: state.quantity,
+                    opened_at: Some(state.opened_at),
+                    last_price: Some(state.current_price),
+                    unrealized_pnl: Some(state.unrealized_pnl),
+                    metadata: state.metadata.clone(),
+                };
+                (state.id.clone(), active)
+            })
+            .collect()
+    }
+
+    fn refresh_portfolio_metrics(&mut self) {
+        let mut exposure = 0.0;
+        let mut unrealized = 0.0;
+        for position_id in self.open_index.values() {
+            if let Some(state) = self.positions.get_mut(position_id) {
+                let pos_exposure = state.quantity.abs() * state.current_price;
+                exposure += pos_exposure;
+                let pnl = match state.key.direction {
+                    PositionDirection::Long => {
+                        (state.current_price - state.average_price) * state.quantity
+                    }
+                    PositionDirection::Short => {
+                        (state.average_price - state.current_price) * state.quantity
+                    }
+                    PositionDirection::Flat | PositionDirection::Both => 0.0,
+                };
+                state.unrealized_pnl = pnl;
+                unrealized += pnl;
+            }
+        }
+        self.portfolio.exposure = exposure;
+        self.portfolio.unrealized_pnl = unrealized;
+        self.portfolio.total_equity = self.portfolio.realized_pnl + self.portfolio.unrealized_pnl;
+    }
+
+    fn resolve_market_snapshot(
+        context: &StrategyContext,
+        timeframe: &TimeFrame,
+        price_hint: Option<f64>,
+    ) -> Result<MarketSnapshot, PositionError> {
+        let data = context.timeframe(timeframe).map_err(PositionError::from)?;
+        let symbol = data
+            .symbol()
+            .cloned()
+            .ok_or_else(|| PositionError::MissingSymbol(timeframe.clone()))?;
+        let series = data.price_series_slice(&PriceField::Close).ok_or_else(|| {
+            PositionError::MissingPriceSeries(timeframe.clone(), PriceField::Close)
+        })?;
+        if series.is_empty() {
+            return Err(PositionError::MissingPriceSeries(
+                timeframe.clone(),
+                PriceField::Close,
+            ));
+        }
+        let index = data.index().min(series.len().saturating_sub(1));
+        let price = price_hint.unwrap_or(f64::from(series[index]));
+        let timestamp = data.timestamp_at(index);
+        Ok(MarketSnapshot {
+            symbol,
+            timeframe: timeframe.clone(),
+            price,
+            index,
+            timestamp,
+        })
+    }
+
+    fn next_id(&mut self, prefix: &str) -> String {
+        self.sequence += 1;
+        format!("{}-{}-{}", prefix, self.strategy_id, self.sequence)
+    }
+}
+
+struct MarketSnapshot {
+    symbol: Symbol,
+    timeframe: TimeFrame,
+    price: f64,
+    index: usize,
+    timestamp: Option<DateTime<Utc>>,
+}
+
+fn opposite_direction(direction: &PositionDirection) -> Option<PositionDirection> {
+    match direction {
+        PositionDirection::Long => Some(PositionDirection::Short),
+        PositionDirection::Short => Some(PositionDirection::Long),
+        PositionDirection::Flat | PositionDirection::Both => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_model::quote::Quote;
+    use crate::data_model::quote_frame::QuoteFrame;
+    use crate::strategy::context::TimeframeData;
+    use crate::strategy::types::{
+        SignalStrength, StrategyDecision, StrategySignal, StrategySignalType, TrendDirection,
+    };
+    use std::collections::HashMap;
+
+    fn build_context(prices: &[f32], symbol: &Symbol, timeframe: &TimeFrame) -> StrategyContext {
+        let mut frame = QuoteFrame::new(symbol.clone(), timeframe.clone());
+        for (idx, price) in prices.iter().enumerate() {
+            let quote = Quote::from_parts(
+                symbol.clone(),
+                timeframe.clone(),
+                chrono::Utc::now() + chrono::Duration::minutes(idx as i64),
+                *price,
+                *price,
+                *price,
+                *price,
+                1.0,
+            );
+            frame.push(quote).unwrap();
+        }
+        let tf_data = TimeframeData::with_quote_frame(&frame, prices.len().saturating_sub(1));
+        let mut context = StrategyContext::new();
+        context.insert_timeframe(timeframe.clone(), tf_data);
+        context
+    }
+
+    fn entry_signal(timeframe: &TimeFrame) -> StrategySignal {
+        StrategySignal {
+            rule_id: "enter-long".to_string(),
+            signal_type: StrategySignalType::Entry,
+            direction: PositionDirection::Long,
+            timeframe: timeframe.clone(),
+            strength: SignalStrength::Strong,
+            trend: TrendDirection::Up,
+            quantity: Some(1.0),
+            tags: Vec::new(),
+        }
+    }
+
+    fn exit_signal(timeframe: &TimeFrame) -> StrategySignal {
+        StrategySignal {
+            rule_id: "exit-long".to_string(),
+            signal_type: StrategySignalType::Exit,
+            direction: PositionDirection::Long,
+            timeframe: timeframe.clone(),
+            strength: SignalStrength::Strong,
+            trend: TrendDirection::Down,
+            quantity: Some(1.0),
+            tags: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn opens_and_closes_position() {
+        let symbol = Symbol::from_descriptor("TEST.TEST");
+        let timeframe = TimeFrame::minutes(1);
+        let mut context = build_context(&[100.0, 101.0], &symbol, &timeframe);
+        let mut manager = PositionManager::new("strategy-1");
+
+        let mut decision = StrategyDecision::empty();
+        decision.entries.push(entry_signal(&timeframe));
+        let report = manager
+            .process_decision(&mut context, &decision)
+            .await
+            .expect("entry processing failed");
+        assert_eq!(report.opened_positions.len(), 1);
+        assert_eq!(manager.open_position_count(), 1);
+        assert_eq!(context.active_positions().len(), 1);
+
+        let mut exit_decision = StrategyDecision::empty();
+        exit_decision.exits.push(exit_signal(&timeframe));
+        let mut exit_context = build_context(&[105.0, 105.0], &symbol, &timeframe);
+        let exit_report = manager
+            .process_decision(&mut exit_context, &exit_decision)
+            .await
+            .expect("exit processing failed");
+        assert_eq!(exit_report.closed_positions.len(), 1);
+        assert_eq!(manager.open_position_count(), 0);
+        assert!(exit_context.active_positions().is_empty());
+        let pnl = manager.portfolio_state().realized_pnl;
+        assert!((pnl - 5.0).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn stop_signal_closes_position_first() {
+        let symbol = Symbol::from_descriptor("TEST.TEST");
+        let timeframe = TimeFrame::minutes(1);
+        let mut context = build_context(&[100.0, 100.0], &symbol, &timeframe);
+        let mut manager = PositionManager::new("strategy-2");
+
+        let mut decision = StrategyDecision::empty();
+        decision.entries.push(entry_signal(&timeframe));
+        manager
+            .process_decision(&mut context, &decision)
+            .await
+            .expect("entry failed");
+
+        let mut stop_decision = StrategyDecision::empty();
+        let mut stop_exit = exit_signal(&timeframe);
+        stop_exit.rule_id = "stop_exit".to_string();
+        stop_exit.tags.push("stop".to_string());
+        let stop_signal = StopSignal {
+            handler_id: "stop_exit".to_string(),
+            signal: stop_exit.clone(),
+            exit_price: 95.0,
+            kind: StopSignalKind::StopLoss,
+            priority: 0,
+            metadata: HashMap::new(),
+        };
+        stop_decision.stop_signals.push(stop_signal);
+        stop_decision.exits.push(stop_exit);
+        stop_decision.exits.push(exit_signal(&timeframe));
+        let mut exit_context = build_context(&[110.0, 110.0], &symbol, &timeframe);
+        manager
+            .process_decision(&mut exit_context, &stop_decision)
+            .await
+            .expect("stop exit failed");
+        assert_eq!(manager.open_position_count(), 0);
+        assert!(exit_context.active_positions().is_empty());
+        let pnl = manager.portfolio_state().realized_pnl;
+        assert!((pnl + 5.0).abs() < 1e-6);
+        let closed_event = manager
+            .event_history()
+            .iter()
+            .filter_map(|event| match event {
+                PositionEvent::PositionClosed(state) => Some(state),
+                _ => None,
+            })
+            .last()
+            .expect("no close event");
+        let reason = closed_event.metadata.get("close_reason");
+        assert!(reason
+            .map(|value| value.starts_with("stop:"))
+            .unwrap_or(false));
+    }
+}

@@ -111,7 +111,14 @@ impl Quote {
     }
 
     pub fn into_parts(self) -> (QuoteId, Price, Price, Price, Price, Volume) {
-        (self.id, self.open, self.high, self.low, self.close, self.volume)
+        (
+            self.id,
+            self.open,
+            self.high,
+            self.low,
+            self.close,
+            self.volume,
+        )
     }
 
     pub fn typical_price(&self) -> Price {

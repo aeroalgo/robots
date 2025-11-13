@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::condition::{base::Condition, factory::ConditionFactory};
+    use crate::condition::{factory::ConditionFactory, types::ConditionInputData};
     use crate::indicators::OHLCData;
     use std::collections::HashMap;
 
@@ -24,15 +24,15 @@ mod tests {
         let data1 = create_test_data();
         let data2 = vec![100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0];
 
-        let result = condition.check_dual(&data1, &data2).await.unwrap();
+        let result = condition
+            .check(ConditionInputData::dual(&data1, &data2))
+            .await
+            .unwrap();
 
-        // Проверяем, что сигналы корректны
         assert_eq!(result.signals.len(), data1.len());
-        assert_eq!(result.signals[0], false); // 95 < 100
-        assert_eq!(result.signals[2], true); // 102 > 100
-        assert_eq!(result.signals[6], true); // 110 > 100
-
-        // Проверяем силы сигналов
+        assert_eq!(result.signals[0], false);
+        assert_eq!(result.signals[2], true);
+        assert_eq!(result.signals[6], true);
         assert_eq!(result.strengths.len(), data1.len());
         assert_eq!(result.directions.len(), data1.len());
     }
@@ -40,15 +40,16 @@ mod tests {
     #[tokio::test]
     async fn test_crosses_above_condition() {
         let condition = ConditionFactory::create_condition_default("CrossesAbove").unwrap();
-        let data = create_test_data();
+        let line1 = vec![95.0, 98.0, 102.0, 105.0];
+        let line2 = vec![100.0, 100.0, 100.0, 100.0];
 
-        let result = condition.check_simple(&data).await.unwrap();
+        let result = condition
+            .check(ConditionInputData::dual(&line1, &line2))
+            .await
+            .unwrap();
 
-        // Первый элемент не может быть пересечением
         assert_eq!(result.signals[0], false);
-
-        // Проверяем, что есть сигналы пересечения
-        assert_eq!(result.signals.len(), data.len());
+        assert_eq!(result.signals.len(), line1.len());
         assert!(result.signals.iter().any(|&s| s));
     }
 
@@ -60,69 +61,65 @@ mod tests {
         let condition = ConditionFactory::create_condition("RisingTrend", params).unwrap();
         let data = create_test_data();
 
-        let result = condition.check_simple(&data).await.unwrap();
+        let result = condition
+            .check(ConditionInputData::single(&data))
+            .await
+            .unwrap();
 
-        // Первые 2 элемента не могут быть трендом (период = 3)
         assert_eq!(result.signals[0], false);
         assert_eq!(result.signals[1], false);
-
-        // Проверяем, что есть сигналы тренда
         assert_eq!(result.signals.len(), data.len());
         assert!(result.signals.iter().any(|&s| s));
     }
 
     #[tokio::test]
-    async fn test_dual_condition() {
+    async fn test_crosses_above_dual_condition() {
         let condition = ConditionFactory::create_condition_default("CrossesAbove").unwrap();
         let line1 = vec![95.0, 98.0, 102.0, 105.0];
         let line2 = vec![100.0, 100.0, 100.0, 100.0];
 
-        let result = condition.check_dual(&line1, &line2).await.unwrap();
+        let result = condition
+            .check(ConditionInputData::dual(&line1, &line2))
+            .await
+            .unwrap();
 
-        // Проверяем пересечение выше
-        assert_eq!(result.signals[0], false); // Первый элемент
-        assert_eq!(result.signals[2], true); // 102 > 100 и 98 <= 100
-        assert_eq!(result.signals[3], false); // 105 > 100 но 102 > 100 (уже выше)
+        assert_eq!(result.signals[0], false);
+        assert_eq!(result.signals[2], true);
+        assert_eq!(result.signals[3], false);
     }
 
     #[tokio::test]
-    async fn test_ohlc_condition() {
-        let mut params = HashMap::new();
-        params.insert("threshold".to_string(), 102.0);
-
-        let condition = ConditionFactory::create_condition("Above", params).unwrap();
+    async fn test_ohlc_condition_returns_error() {
+        let condition = ConditionFactory::create_condition_default("Above").unwrap();
         let ohlc_data = create_test_ohlc_data();
 
-        let result = condition.check_ohlc(&ohlc_data).await.unwrap();
-
-        // Проверяем, что результат основан на close ценах
-        assert_eq!(result.signals.len(), ohlc_data.close.len());
-        assert_eq!(result.signals[0], false); // 100.5 < 102.0
-        assert_eq!(result.signals[2], true); // 102.5 > 102.0
+        let result = condition.check(ConditionInputData::ohlc(&ohlc_data)).await;
+        assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_condition_parameters() {
         let condition = ConditionFactory::create_condition_default("Above").unwrap();
+        let data1 = vec![1.0, 2.0, 3.0];
+        let data2 = vec![0.5, 0.5, 0.5];
 
-        // Валидация входных данных
-        let data = vec![1.0, 2.0, 3.0];
-        assert!(condition.validate_input_data(&data).is_ok());
+        assert!(condition
+            .validate(&ConditionInputData::dual(&data1, &data2))
+            .is_ok());
 
-        // Проверяем минимальное количество точек
         let short_data = vec![1.0];
-        assert!(condition.validate_input_data(&short_data).is_err());
+        assert!(condition
+            .validate(&ConditionInputData::dual(&short_data, &data2[..1]))
+            .is_err());
     }
 
     #[tokio::test]
     async fn test_condition_factory() {
-        // Проверяем доступные условия
         let available = ConditionFactory::get_available_conditions();
         assert!(available.contains(&"Above"));
         assert!(available.contains(&"CrossesAbove"));
         assert!(available.contains(&"RisingTrend"));
 
-        // Проверяем информацию об условиях
         let above_info = ConditionFactory::get_condition_info("Above");
         assert!(above_info.is_some());
 
@@ -130,7 +127,6 @@ mod tests {
         assert_eq!(info.name, "Above");
         assert_eq!(info.min_data_points, 2);
 
-        // Проверяем создание с параметрами по умолчанию
         let condition = ConditionFactory::create_condition_default("Above").unwrap();
         assert_eq!(condition.min_data_points(), 2);
     }
@@ -140,12 +136,17 @@ mod tests {
         let condition = ConditionFactory::create_condition_default("Above").unwrap();
         let cloned = condition.clone_box();
 
-        // Проверяем, что клонированное условие работает
         let data1 = create_test_data();
         let data2 = vec![100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0];
 
-        let original_result = condition.check_dual(&data1, &data2).await.unwrap();
-        let cloned_result = cloned.check_dual(&data1, &data2).await.unwrap();
+        let original_result = condition
+            .check(ConditionInputData::dual(&data1, &data2))
+            .await
+            .unwrap();
+        let cloned_result = cloned
+            .check(ConditionInputData::dual(&data1, &data2))
+            .await
+            .unwrap();
 
         assert_eq!(original_result.signals, cloned_result.signals);
         assert_eq!(original_result.strengths, cloned_result.strengths);
@@ -154,17 +155,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_error_handling() {
-        // Тест с недостаточными данными
         let mut params = HashMap::new();
         params.insert("period".to_string(), 10.0);
 
         let condition = ConditionFactory::create_condition("RisingTrend", params).unwrap();
-        let short_data = vec![1.0, 2.0, 3.0]; // Меньше чем period
+        let short_data = vec![1.0, 2.0, 3.0];
 
-        let result = condition.check_simple(&short_data).await;
+        let result = condition
+            .check(ConditionInputData::single(&short_data))
+            .await;
         assert!(result.is_err());
 
-        // Тест с неверным именем условия
         let result = ConditionFactory::create_condition("UnknownCondition", HashMap::new());
         assert!(result.is_err());
     }
