@@ -2,8 +2,9 @@ use async_trait::async_trait;
 
 use super::context::StrategyContext;
 use super::types::{
-    IndicatorBindingSpec, PreparedCondition, StrategyDecision, StrategyDefinition, StrategyError,
-    StrategyId, StrategyMetadata, StrategyParameterMap, StrategyRuleSpec, TimeframeRequirement,
+    IndicatorBindingSpec, PreparedCondition, StopSignal, StrategyDecision, StrategyDefinition,
+    StrategyError, StrategyId, StrategyMetadata, StrategyParameterMap, StrategyRuleSpec,
+    TimeframeRequirement,
 };
 
 #[async_trait]
@@ -17,6 +18,12 @@ pub trait Strategy: Send + Sync {
     fn exit_rules(&self) -> &[StrategyRuleSpec];
     fn timeframe_requirements(&self) -> &[TimeframeRequirement];
     async fn evaluate(&self, context: &StrategyContext) -> Result<StrategyDecision, StrategyError>;
+    fn evaluate_stop_signals(
+        &self,
+        _context: &StrategyContext,
+    ) -> Result<Vec<StopSignal>, StrategyError> {
+        Ok(Vec::new())
+    }
     fn clone_box(&self) -> Box<dyn Strategy>;
 }
 

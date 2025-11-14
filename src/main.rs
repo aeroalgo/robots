@@ -6,6 +6,7 @@ use robots::data_access::database::clickhouse::{ClickHouseConfig, ClickHouseConn
 use robots::data_access::{DataSource, Database};
 use robots::data_model::quote_frame::QuoteFrame;
 use robots::data_model::types::{Symbol, TimeFrame};
+use robots::indicators::registry::IndicatorFactory;
 use robots::strategy::executor::BacktestExecutor;
 use robots::strategy::presets::default_strategy_definitions;
 
@@ -29,7 +30,7 @@ async fn run() -> Result<()> {
 
     let symbol = Symbol::from_descriptor("AFLT.MM");
     let timeframe = TimeFrame::from_identifier("60");
-    let start = Utc::now() - chrono::Duration::days(30);
+    let start = Utc::now() - chrono::Duration::days(91);
     let end = Utc::now() + chrono::Duration::hours(3);
 
     let candles = connector
@@ -88,6 +89,17 @@ async fn run() -> Result<()> {
         report.metrics.average_trade
     );
 
+    let close_prices: Vec<f32> = candles.iter().map(|candle| candle.close as f32).collect();
+    let sma_period = 10;
+    let mut sma_params = HashMap::new();
+    sma_params.insert("period".to_string(), sma_period as f32);
+    let sma_indicator = IndicatorFactory::create_indicator("SMA", sma_params)
+        .context("Не удалось создать индикатор SMA")?;
+    let sma_values = sma_indicator
+        .calculate_simple(&close_prices)
+        .await
+        .context("Не удалось рассчитать SMA")?;
+    println!("SMA values: {:?}", sma_values);
     if report.trades.is_empty() {
         println!("Сделки отсутствуют");
     } else {

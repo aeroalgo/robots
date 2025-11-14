@@ -290,7 +290,10 @@ impl PositionManager {
         if quantity.abs() <= f64::EPSILON {
             quantity = 1.0;
         }
-        let info = Self::resolve_market_snapshot(context, &signal.timeframe, None)?;
+        let info = match Self::resolve_entry_snapshot(context, &signal.timeframe)? {
+            Some(snapshot) => snapshot,
+            None => return Ok(()),
+        };
         if let Some(opposite_direction) = opposite_direction(&direction) {
             let opposite_key = PositionKey::new(
                 info.symbol.clone(),
@@ -302,6 +305,7 @@ impl PositionManager {
                     opposite_id,
                     info.price,
                     quantity,
+                    info.timestamp,
                     Some("reversal".to_string()),
                     report,
                 )
@@ -317,7 +321,7 @@ impl PositionManager {
             self.scale_position(existing_id, quantity, info.price, signal, report)
                 .await?
         } else {
-            self.open_new_position(key, quantity, info.price, signal, report)
+            self.open_new_position(key, quantity, info.price, info.timestamp, signal, report)
                 .await?
         }
         Ok(())
@@ -331,6 +335,7 @@ impl PositionManager {
         reason: Option<String>,
         report: &mut ExecutionReport,
     ) -> Result<(), PositionError> {
+        dbg!(("handle_exit_signal", &signal.rule_id));
         let direction = match signal.direction.clone() {
             PositionDirection::Long => PositionDirection::Long,
             PositionDirection::Short => PositionDirection::Short,
@@ -347,7 +352,10 @@ impl PositionManager {
         );
         let position_id = match self.open_index.get(&key).cloned() {
             Some(id) => id,
-            None => return Ok(()),
+            None => {
+                dbg!("no_position_for_exit", &key);
+                return Ok(());
+            }
         };
         let quantity = signal.quantity.unwrap_or_else(|| {
             self.positions
@@ -358,8 +366,15 @@ impl PositionManager {
         if quantity.abs() <= f64::EPSILON {
             return Ok(());
         }
-        self.close_position(position_id, info.price, quantity, reason, report)
-            .await
+        self.close_position(
+            position_id,
+            info.price,
+            quantity,
+            info.timestamp,
+            reason,
+            report,
+        )
+        .await
     }
 
     async fn open_new_position(
@@ -367,11 +382,13 @@ impl PositionManager {
         key: PositionKey,
         quantity: f64,
         price: f64,
+        timestamp: Option<DateTime<Utc>>,
         signal: &StrategySignal,
         report: &mut ExecutionReport,
     ) -> Result<(), PositionError> {
+        dbg!(("open_new_position", &key, price));
         let position_id = self.next_id("pos");
-        let now = Utc::now();
+        let event_time = timestamp.unwrap_or_else(Utc::now);
         let mut metadata = HashMap::new();
         metadata.insert("entry_rule".to_string(), signal.rule_id.clone());
         let state = PositionState {
@@ -383,8 +400,8 @@ impl PositionManager {
             current_price: price,
             realized_pnl: 0.0,
             unrealized_pnl: 0.0,
-            opened_at: now,
-            updated_at: now,
+            opened_at: event_time,
+            updated_at: event_time,
             closed_at: None,
             metadata,
         };
@@ -427,6 +444,7 @@ impl PositionManager {
                     position_id,
                     price,
                     quantity.abs(),
+                    None,
                     Some("scale_to_flat".to_string()),
                     report,
                 )
@@ -462,13 +480,14 @@ impl PositionManager {
         position_id: String,
         price: f64,
         quantity: f64,
+        timestamp: Option<DateTime<Utc>>,
         reason: Option<String>,
         report: &mut ExecutionReport,
     ) -> Result<(), PositionError> {
         if quantity.abs() <= f64::EPSILON {
             return Ok(());
         }
-        let now = Utc::now();
+        let event_time = timestamp.unwrap_or_else(Utc::now);
         let state = self.positions.get_mut(&position_id).ok_or_else(|| {
             PositionError::Persistence(anyhow!("position {} missing for close", position_id))
         })?;
@@ -486,10 +505,10 @@ impl PositionManager {
         state.quantity -= exit_quantity;
         state.realized_pnl += pnl;
         state.unrealized_pnl = 0.0;
-        state.updated_at = now;
+        state.updated_at = event_time;
         if state.quantity <= f64::EPSILON {
             state.status = PositionStatus::Closed;
-            state.closed_at = Some(now);
+            state.closed_at = Some(event_time);
         } else {
             state.status = PositionStatus::Open;
         }
@@ -513,7 +532,7 @@ impl PositionManager {
             entry_price: snapshot.average_price,
             exit_price: price,
             entry_time: Some(snapshot.opened_at),
-            exit_time: Some(now),
+            exit_time: Some(event_time),
             pnl,
         };
         let order = self.build_order(&position_id, &snapshot.key, exit_quantity, price);
@@ -645,6 +664,50 @@ impl PositionManager {
         self.portfolio.total_equity = self.portfolio.realized_pnl + self.portfolio.unrealized_pnl;
     }
 
+    fn resolve_entry_snapshot(
+        context: &StrategyContext,
+        timeframe: &TimeFrame,
+    ) -> Result<Option<MarketSnapshot>, PositionError> {
+        let data = context.timeframe(timeframe).map_err(PositionError::from)?;
+        let symbol = data
+            .symbol()
+            .cloned()
+            .ok_or_else(|| PositionError::MissingSymbol(timeframe.clone()))?;
+        let series = data.price_series_slice(&PriceField::Open).ok_or_else(|| {
+            PositionError::MissingPriceSeries(timeframe.clone(), PriceField::Open)
+        })?;
+        if series.is_empty() {
+            return Err(PositionError::MissingPriceSeries(
+                timeframe.clone(),
+                PriceField::Open,
+            ));
+        }
+        let current_index = data.index().min(series.len().saturating_sub(1));
+        let use_current_bar = context
+            .metadata
+            .get("deferred_entries")
+            .map(|value| value == "true")
+            .unwrap_or(false);
+        let target_index = if use_current_bar {
+            current_index
+        } else {
+            let next_index = current_index.saturating_add(1);
+            if next_index >= series.len() {
+                return Ok(None);
+            }
+            next_index
+        };
+        let price = f64::from(series[target_index]);
+        let timestamp = data.timestamp_at(target_index);
+        Ok(Some(MarketSnapshot {
+            symbol,
+            timeframe: timeframe.clone(),
+            price,
+            index: target_index,
+            timestamp,
+        }))
+    }
+
     fn resolve_market_snapshot(
         context: &StrategyContext,
         timeframe: &TimeFrame,
@@ -655,16 +718,24 @@ impl PositionManager {
             .symbol()
             .cloned()
             .ok_or_else(|| PositionError::MissingSymbol(timeframe.clone()))?;
-        let series = data.price_series_slice(&PriceField::Close).ok_or_else(|| {
-            PositionError::MissingPriceSeries(timeframe.clone(), PriceField::Close)
+        let series = data.price_series_slice(&PriceField::Open).ok_or_else(|| {
+            PositionError::MissingPriceSeries(timeframe.clone(), PriceField::Open)
         })?;
         if series.is_empty() {
             return Err(PositionError::MissingPriceSeries(
                 timeframe.clone(),
-                PriceField::Close,
+                PriceField::Open,
             ));
         }
         let index = data.index().min(series.len().saturating_sub(1));
+        dbg!((
+            "resolve_snapshot_price",
+            timeframe,
+            index,
+            series.get(0),
+            series.get(1),
+            series.get(2)
+        ));
         let price = price_hint.unwrap_or(f64::from(series[index]));
         let timestamp = data.timestamp_at(index);
         Ok(MarketSnapshot {
@@ -701,12 +772,11 @@ fn opposite_direction(direction: &PositionDirection) -> Option<PositionDirection
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::condition::types::{SignalStrength, TrendDirection};
     use crate::data_model::quote::Quote;
     use crate::data_model::quote_frame::QuoteFrame;
     use crate::strategy::context::TimeframeData;
-    use crate::strategy::types::{
-        SignalStrength, StrategyDecision, StrategySignal, StrategySignalType, TrendDirection,
-    };
+    use crate::strategy::types::{StrategyDecision, StrategySignal, StrategySignalType};
     use std::collections::HashMap;
 
     fn build_context(prices: &[f32], symbol: &Symbol, timeframe: &TimeFrame) -> StrategyContext {
@@ -737,7 +807,7 @@ mod tests {
             direction: PositionDirection::Long,
             timeframe: timeframe.clone(),
             strength: SignalStrength::Strong,
-            trend: TrendDirection::Up,
+            trend: TrendDirection::Rising,
             quantity: Some(1.0),
             tags: Vec::new(),
         }
@@ -750,7 +820,7 @@ mod tests {
             direction: PositionDirection::Long,
             timeframe: timeframe.clone(),
             strength: SignalStrength::Strong,
-            trend: TrendDirection::Down,
+            trend: TrendDirection::Falling,
             quantity: Some(1.0),
             tags: Vec::new(),
         }

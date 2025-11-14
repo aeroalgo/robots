@@ -13,8 +13,8 @@ use super::builder::StrategyBuilder;
 use super::context::{StrategyContext, TimeframeData};
 use super::positions::{ClosedTrade, PositionError, PositionManager};
 use super::types::{
-    IndicatorSourceSpec, PositionDirection, StrategyDefinition, StrategyError,
-    StrategyParameterMap, StrategySignal, StrategySignalType,
+    IndicatorSourceSpec, PositionDirection, StrategyDecision, StrategyDefinition, StrategyError,
+    StrategyParameterMap,
 };
 
 #[derive(Clone, Debug)]
@@ -86,6 +86,14 @@ pub struct BacktestExecutor {
     context: StrategyContext,
     trades: Vec<StrategyTrade>,
     equity_curve: Vec<f64>,
+    warmup_bars: usize,
+    deferred_decision: Option<StrategyDecision>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct SessionState {
+    is_session_start: bool,
+    is_session_end: bool,
 }
 
 impl BacktestExecutor {
@@ -108,7 +116,25 @@ impl BacktestExecutor {
             context,
             trades: Vec::new(),
             equity_curve: Vec::new(),
+            warmup_bars: 0,
+            deferred_decision: None,
         })
+    }
+
+    fn compute_warmup_bars(&self) -> usize {
+        let max_period = self
+            .strategy
+            .indicator_bindings()
+            .iter()
+            .filter_map(|binding| match &binding.source {
+                IndicatorSourceSpec::Registry { parameters, .. } => parameters
+                    .get("period")
+                    .map(|value| value.max(1.0).round() as usize),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0);
+        max_period.saturating_mul(2)
     }
 
     pub fn from_definition(
@@ -121,7 +147,9 @@ impl BacktestExecutor {
             builder = builder.with_parameters(overrides);
         }
         let strategy = builder.build().map_err(StrategyExecutionError::Strategy)?;
-        Self::new(Box::new(strategy), frames)
+        let mut executor = Self::new(Box::new(strategy), frames)?;
+        executor.warmup_bars = executor.compute_warmup_bars();
+        Ok(executor)
     }
 
     pub fn context(&self) -> &StrategyContext {
@@ -141,11 +169,15 @@ impl BacktestExecutor {
     }
 
     pub async fn run_backtest(&mut self) -> Result<BacktestReport, StrategyExecutionError> {
+        if self.warmup_bars == 0 {
+            self.warmup_bars = self.compute_warmup_bars();
+        }
         self.position_manager.reset();
         self.context.set_active_positions(HashMap::new());
         self.feed.reset();
         self.trades.clear();
         self.equity_curve.clear();
+        self.deferred_decision = None;
         for timeframe in self.feed.frames.keys() {
             if let Ok(data) = self.context.timeframe_mut(timeframe) {
                 data.set_index(0);
@@ -157,20 +189,73 @@ impl BacktestExecutor {
         self.populate_indicators().await?;
         self.equity_curve
             .push(self.position_manager.portfolio_state().total_equity);
+        let mut processed_bars = 0usize;
         while self.feed.step(&mut self.context) {
+            processed_bars += 1;
+            let session_state = self.session_state();
+            self.update_session_metadata(session_state);
+            if processed_bars < self.warmup_bars {
+                self.equity_curve
+                    .push(self.position_manager.portfolio_state().total_equity);
+                continue;
+            }
+            if let Some(pending) = self.deferred_decision.take() {
+                if !pending.is_empty() {
+                    self.context
+                        .metadata
+                        .insert("deferred_entries".to_string(), "true".to_string());
+                    let result = self
+                        .position_manager
+                        .process_decision(&mut self.context, &pending)
+                        .await;
+                    self.context.metadata.remove("deferred_entries");
+                    let report = result.map_err(StrategyExecutionError::Position)?;
+                    self.collect_report(&report);
+                    self.process_immediate_stop_checks().await?;
+                }
+            }
             let decision = self
                 .strategy
                 .evaluate(&self.context)
                 .await
                 .map_err(StrategyExecutionError::Strategy)?;
-            let report = self
-                .position_manager
-                .process_decision(&mut self.context, &decision)
-                .await
-                .map_err(StrategyExecutionError::Position)?;
-            self.collect_report(&report);
+            if session_state
+                .map(|state| state.is_session_end)
+                .unwrap_or(false)
+            {
+                if !decision.is_empty() {
+                    self.deferred_decision = Some(decision);
+                }
+                self.equity_curve
+                    .push(self.position_manager.portfolio_state().total_equity);
+                continue;
+            }
+            if !decision.is_empty() {
+                let report = self
+                    .position_manager
+                    .process_decision(&mut self.context, &decision)
+                    .await
+                    .map_err(StrategyExecutionError::Position)?;
+                self.collect_report(&report);
+            self.process_immediate_stop_checks().await?;
+            }
             self.equity_curve
                 .push(self.position_manager.portfolio_state().total_equity);
+        }
+        if let Some(pending) = self.deferred_decision.take() {
+            if !pending.is_empty() {
+                self.context
+                    .metadata
+                    .insert("deferred_entries".to_string(), "true".to_string());
+                let result = self
+                    .position_manager
+                    .process_decision(&mut self.context, &pending)
+                    .await;
+                self.context.metadata.remove("deferred_entries");
+                let report = result.map_err(StrategyExecutionError::Position)?;
+                self.collect_report(&report);
+                self.process_immediate_stop_checks().await?;
+            }
         }
         let metrics = BacktestMetrics::from_data(
             &self.trades,
@@ -228,10 +313,80 @@ impl BacktestExecutor {
         Ok(())
     }
 
+    fn session_state(&self) -> Option<SessionState> {
+        let primary = &self.feed.primary_timeframe;
+        let frame = self.feed.frames.get(primary)?;
+        let timeframe_data = self.context.timeframe(primary).ok()?;
+        let idx = timeframe_data.index();
+        if frame.len() == 0 || idx >= frame.len() {
+            return None;
+        }
+        let duration = primary.duration()?;
+        let current = frame.get(idx)?;
+        let mut state = SessionState::default();
+        if idx == 0 {
+            state.is_session_start = true;
+        } else if let Some(prev) = frame.get(idx.saturating_sub(1)) {
+            let delta = current.timestamp() - prev.timestamp();
+            if delta > duration {
+                state.is_session_start = true;
+            }
+        }
+        if idx + 1 >= frame.len() {
+            state.is_session_end = true;
+        } else if let Some(next) = frame.get(idx + 1) {
+            let delta = next.timestamp() - current.timestamp();
+            if delta > duration {
+                state.is_session_end = true;
+            }
+        }
+        Some(state)
+    }
+
+    fn update_session_metadata(&mut self, state: Option<SessionState>) {
+        match state {
+            Some(state) => {
+                self.context.metadata.insert(
+                    "session_start".to_string(),
+                    state.is_session_start.to_string(),
+                );
+                self.context
+                    .metadata
+                    .insert("session_end".to_string(), state.is_session_end.to_string());
+            }
+            None => {
+                self.context.metadata.remove("session_start");
+                self.context.metadata.remove("session_end");
+            }
+        }
+    }
+
     fn collect_report(&mut self, report: &crate::strategy::positions::ExecutionReport) {
+        dbg!(report.closed_trades.len());
         for trade in &report.closed_trades {
             self.trades.push(StrategyTrade::from(trade));
         }
+    }
+
+    async fn process_immediate_stop_checks(&mut self) -> Result<(), StrategyExecutionError> {
+        loop {
+            let stop_signals = self
+                .strategy
+                .evaluate_stop_signals(&self.context)
+                .map_err(StrategyExecutionError::Strategy)?;
+            if stop_signals.is_empty() {
+                break;
+            }
+            let mut decision = StrategyDecision::empty();
+            decision.stop_signals = stop_signals;
+            let report = self
+                .position_manager
+                .process_decision(&mut self.context, &decision)
+                .await
+                .map_err(StrategyExecutionError::Position)?;
+            self.collect_report(&report);
+        }
+        Ok(())
     }
 }
 
@@ -362,12 +517,14 @@ impl From<&ClosedTrade> for StrategyTrade {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::condition::types::{SignalStrength, TrendDirection};
     use crate::data_model::quote::Quote;
     use crate::data_model::quote_frame::QuoteFrame;
     use crate::strategy::context::StrategyContext;
     use crate::strategy::types::{
-        PriceField, SignalStrength, StrategyDecision, StrategyId, StrategyMetadata,
-        StrategyParameterMap, TimeframeRequirement, TrendDirection,
+        IndicatorBindingSpec, PreparedCondition, PriceField, StrategyDecision, StrategyId,
+        StrategyMetadata, StrategyParameterMap, StrategyRuleSpec, StrategySignal,
+        StrategySignalType, TimeframeRequirement,
     };
     use async_trait::async_trait;
 
@@ -412,19 +569,19 @@ mod tests {
             &self.parameters
         }
 
-        fn indicator_bindings(&self) -> &[super::types::IndicatorBindingSpec] {
+        fn indicator_bindings(&self) -> &[IndicatorBindingSpec] {
             &[]
         }
 
-        fn conditions(&self) -> &[super::types::PreparedCondition] {
+        fn conditions(&self) -> &[PreparedCondition] {
             &[]
         }
 
-        fn entry_rules(&self) -> &[super::types::StrategyRuleSpec] {
+        fn entry_rules(&self) -> &[StrategyRuleSpec] {
             &[]
         }
 
-        fn exit_rules(&self) -> &[super::types::StrategyRuleSpec] {
+        fn exit_rules(&self) -> &[StrategyRuleSpec] {
             &[]
         }
 
@@ -442,6 +599,7 @@ mod tests {
                 .price_series_slice(&PriceField::Close)
                 .map(|slice| slice.len())
                 .unwrap_or(0);
+            dbg!(("evaluate", idx, series_len));
             let mut decision = StrategyDecision::empty();
             if idx == 0 {
                 let signal = StrategySignal {
@@ -450,7 +608,7 @@ mod tests {
                     direction: PositionDirection::Long,
                     timeframe: self.timeframe.clone(),
                     strength: SignalStrength::Strong,
-                    trend: TrendDirection::Up,
+                    trend: TrendDirection::Rising,
                     quantity: Some(1.0),
                     tags: Vec::new(),
                 };
@@ -462,7 +620,7 @@ mod tests {
                     direction: PositionDirection::Long,
                     timeframe: self.timeframe.clone(),
                     strength: SignalStrength::Strong,
-                    trend: TrendDirection::Down,
+                    trend: TrendDirection::Falling,
                     quantity: Some(1.0),
                     tags: Vec::new(),
                 };
@@ -504,6 +662,7 @@ mod tests {
         let strategy: Box<dyn Strategy> = Box::new(SimpleStrategy::new(timeframe.clone()));
         let mut executor = BacktestExecutor::new(strategy, frames).expect("executor creation");
         let report = executor.run_backtest().await.expect("backtest run");
+        dbg!(&report.trades);
         assert_eq!(report.trades.len(), 1);
         let trade = &report.trades[0];
         assert!((trade.pnl - 5.0).abs() < 1e-6);

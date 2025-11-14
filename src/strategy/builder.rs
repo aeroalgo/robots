@@ -336,7 +336,7 @@ impl Strategy for DynamicStrategy {
             .iter()
             .map(|condition| (condition.id.clone(), condition))
             .collect();
-        let mut stop_signals = self.evaluate_stop_handlers(context)?;
+        let mut stop_signals = self.evaluate_stop_signals(context)?;
         let mut decision = StrategyDecision::empty();
         for stop in &stop_signals {
             decision.exits.push(stop.signal.clone());
@@ -365,6 +365,13 @@ impl Strategy for DynamicStrategy {
         }
         decision.stop_signals = stop_signals;
         Ok(decision)
+    }
+
+    fn evaluate_stop_signals(
+        &self,
+        context: &StrategyContext,
+    ) -> Result<Vec<StopSignal>, StrategyError> {
+        self.evaluate_stop_handlers(context)
     }
 
     fn clone_box(&self) -> Box<dyn Strategy> {

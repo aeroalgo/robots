@@ -1,6 +1,5 @@
 use crate::condition::types::{
-    ConditionConfig, ConditionError, ConditionInputData, ConditionResult,
-    ConditionResultData,
+    ConditionConfig, ConditionError, ConditionInputData, ConditionResult, ConditionResultData,
 };
 use async_trait::async_trait;
 
