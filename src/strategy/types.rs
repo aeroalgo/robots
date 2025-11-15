@@ -7,8 +7,8 @@ use crate::condition::types::{
     TrendDirection,
 };
 use crate::data_model::types::{Symbol, TimeFrame};
-
-use super::stops::StopHandler;
+use crate::risk::stops::StopHandler;
+use serde::{Deserialize, Serialize};
 
 pub type StrategyId = String;
 pub type StrategyParameterMap = HashMap<String, StrategyParamValue>;
@@ -99,7 +99,7 @@ pub struct PreparedStopHandler {
     pub tags: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PriceField {
     Open,
     High,
@@ -108,7 +108,7 @@ pub enum PriceField {
     Volume,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DataSeriesSource {
     Indicator { alias: String },
     Price { field: PriceField },
@@ -134,7 +134,34 @@ pub struct IndicatorBindingSpec {
     pub tags: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UserFormulaMetadata {
+    pub id: String,
+    pub name: String,
+    pub expression: String,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+    pub inputs: Vec<String>,
+}
+
+impl UserFormulaMetadata {
+    pub fn as_indicator_binding(
+        &self,
+        alias: impl Into<String>,
+        timeframe: TimeFrame,
+    ) -> IndicatorBindingSpec {
+        IndicatorBindingSpec {
+            alias: alias.into(),
+            timeframe,
+            source: IndicatorSourceSpec::Formula {
+                expression: self.expression.clone(),
+            },
+            tags: self.tags.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ConditionInputSpec {
     Single {
         source: DataSeriesSource,
@@ -148,6 +175,11 @@ pub enum ConditionInputSpec {
         secondary: DataSeriesSource,
         percent: f32,
     },
+    Range {
+        source: DataSeriesSource,
+        lower: DataSeriesSource,
+        upper: DataSeriesSource,
+    },
     Indexed {
         source: DataSeriesSource,
         index_offset: usize,
@@ -155,17 +187,115 @@ pub enum ConditionInputSpec {
     Ohlc,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ConditionOperator {
+    GreaterThan,
+    LessThan,
+    CrossesAbove,
+    CrossesBelow,
+    Between,
+}
+
+impl ConditionOperator {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::GreaterThan => "greater_than",
+            Self::LessThan => "less_than",
+            Self::CrossesAbove => "crosses_above",
+            Self::CrossesBelow => "crosses_below",
+            Self::Between => "between",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ConditionOperandSpec {
+    Series(DataSeriesSource),
+    Scalar(f32),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ConditionDeclarativeSpec {
+    pub operator: ConditionOperator,
+    pub operands: Vec<ConditionOperandSpec>,
+    pub description: Option<String>,
+}
+
+impl ConditionDeclarativeSpec {
+    pub fn new(operator: ConditionOperator, operands: Vec<ConditionOperandSpec>) -> Self {
+        Self {
+            operator,
+            operands,
+            description: None,
+        }
+    }
+
+    pub fn from_input(operator: ConditionOperator, input: &ConditionInputSpec) -> Self {
+        let mut operands = Vec::new();
+        match input {
+            ConditionInputSpec::Single { source } => {
+                operands.push(ConditionOperandSpec::Series(source.clone()));
+            }
+            ConditionInputSpec::Dual { primary, secondary } => {
+                operands.push(ConditionOperandSpec::Series(primary.clone()));
+                operands.push(ConditionOperandSpec::Series(secondary.clone()));
+            }
+            ConditionInputSpec::DualWithPercent {
+                primary,
+                secondary,
+                percent,
+            } => {
+                operands.push(ConditionOperandSpec::Series(primary.clone()));
+                operands.push(ConditionOperandSpec::Series(secondary.clone()));
+                operands.push(ConditionOperandSpec::Scalar(*percent));
+            }
+            ConditionInputSpec::Range {
+                source,
+                lower,
+                upper,
+            } => {
+                operands.push(ConditionOperandSpec::Series(source.clone()));
+                operands.push(ConditionOperandSpec::Series(lower.clone()));
+                operands.push(ConditionOperandSpec::Series(upper.clone()));
+            }
+            ConditionInputSpec::Indexed { source, .. } => {
+                operands.push(ConditionOperandSpec::Series(source.clone()));
+            }
+            ConditionInputSpec::Ohlc => {}
+        }
+        Self::new(operator, operands)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConditionBindingSpec {
     pub id: String,
     pub name: String,
     pub timeframe: TimeFrame,
-    pub condition_name: String,
+    pub declarative: ConditionDeclarativeSpec,
     pub parameters: HashMap<String, f32>,
     pub input: ConditionInputSpec,
     pub weight: f32,
     pub tags: Vec<String>,
     pub user_formula: Option<String>,
+}
+
+impl ConditionBindingSpec {
+    pub fn factory_name(&self) -> &'static str {
+        match self.declarative.operator {
+            ConditionOperator::GreaterThan => match self.input {
+                ConditionInputSpec::DualWithPercent { .. } => "GREATERPERCENT",
+                _ => "ABOVE",
+            },
+            ConditionOperator::LessThan => match self.input {
+                ConditionInputSpec::DualWithPercent { .. } => "LOWERPERCENT",
+                _ => "BELOW",
+            },
+            ConditionOperator::CrossesAbove => "CROSSESABOVE",
+            ConditionOperator::CrossesBelow => "CROSSESBELOW",
+            ConditionOperator::Between => "BETWEEN",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -229,6 +359,7 @@ pub struct StrategyDefinition {
     pub metadata: StrategyMetadata,
     pub parameters: Vec<StrategyParameterSpec>,
     pub indicator_bindings: Vec<IndicatorBindingSpec>,
+    pub formulas: Vec<UserFormulaMetadata>,
     pub condition_bindings: Vec<ConditionBindingSpec>,
     pub entry_rules: Vec<StrategyRuleSpec>,
     pub exit_rules: Vec<StrategyRuleSpec>,
@@ -254,6 +385,10 @@ impl StrategyDefinition {
             set.insert(handler.timeframe.clone());
         }
         set
+    }
+
+    pub fn formula_by_id(&self, id: &str) -> Option<&UserFormulaMetadata> {
+        self.formulas.iter().find(|formula| formula.id == id)
     }
 }
 
@@ -299,20 +434,6 @@ pub struct StopSignal {
     pub exit_price: f64,
     pub kind: StopSignalKind,
     pub priority: i32,
-    pub metadata: HashMap<String, String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ActivePosition {
-    pub id: String,
-    pub symbol: Symbol,
-    pub timeframe: TimeFrame,
-    pub direction: PositionDirection,
-    pub entry_price: f64,
-    pub quantity: f64,
-    pub opened_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub last_price: Option<f64>,
-    pub unrealized_pnl: Option<f64>,
     pub metadata: HashMap<String, String>,
 }
 

@@ -5,10 +5,11 @@ use crate::condition::types::ConditionInputData;
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::{timestamp_from_millis, Symbol, TimeFrame};
 use crate::indicators::types::OHLCData;
+use crate::position::view::{ActivePosition, PositionBook};
 
 use super::types::{
-    ActivePosition, ConditionInputSpec, DataSeriesSource, PreparedCondition, PriceField,
-    StrategyError, StrategyParameterMap, StrategyUserSettings,
+    ConditionInputSpec, DataSeriesSource, PreparedCondition, PriceField, StrategyError,
+    StrategyParameterMap, StrategyUserSettings,
 };
 
 #[derive(Clone, Debug)]
@@ -269,6 +270,20 @@ impl StrategyContext {
                     *percent,
                 ))
             }
+            ConditionInputSpec::Range {
+                source,
+                lower,
+                upper,
+            } => {
+                let data_series = self.resolve_series(timeframe, source)?;
+                let lower_series = self.resolve_series(timeframe, lower)?;
+                let upper_series = self.resolve_series(timeframe, upper)?;
+                Ok(ConditionInputData::range(
+                    data_series,
+                    lower_series,
+                    upper_series,
+                ))
+            }
             ConditionInputSpec::Indexed {
                 source,
                 index_offset,
@@ -306,8 +321,12 @@ impl StrategyContext {
         &self.active_positions
     }
 
-    pub fn set_active_positions(&mut self, positions: HashMap<String, ActivePosition>) {
-        self.active_positions = positions;
+    pub fn set_active_positions(&mut self, book: PositionBook) {
+        self.active_positions = book
+            .entries()
+            .iter()
+            .map(|position| (position.id.clone(), position.clone()))
+            .collect();
     }
 
     pub fn upsert_active_position(&mut self, position: ActivePosition) {

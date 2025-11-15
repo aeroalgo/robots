@@ -67,6 +67,7 @@ pub enum ConditionInput {
     Single,
     Dual,
     DualWithPercent,
+    Range,
     Indexed,
     Ohlc,
 }
@@ -81,6 +82,11 @@ pub enum ConditionInputData<'a> {
         primary: &'a [f32],
         secondary: &'a [f32],
         percent: Option<f32>,
+    },
+    Range {
+        data: &'a [f32],
+        lower: &'a [f32],
+        upper: &'a [f32],
     },
     Indexed {
         data: &'a [f32],
@@ -141,6 +147,10 @@ impl<'a> ConditionInputData<'a> {
         }
     }
 
+    pub fn range(data: &'a [f32], lower: &'a [f32], upper: &'a [f32]) -> Self {
+        Self::Range { data, lower, upper }
+    }
+
     pub fn indexed(data: &'a [f32], index: usize) -> Self {
         Self::Indexed { data, index }
     }
@@ -153,6 +163,7 @@ impl<'a> ConditionInputData<'a> {
         match self {
             Self::Single { data } => data.len(),
             Self::Dual { primary, .. } => primary.len(),
+            Self::Range { data, .. } => data.len(),
             Self::Indexed { data, .. } => data.len(),
             Self::Ohlc { data } => data.len(),
         }
@@ -161,6 +172,7 @@ impl<'a> ConditionInputData<'a> {
     pub fn secondary_len(&self) -> Option<usize> {
         match self {
             Self::Dual { secondary, .. } => Some(secondary.len()),
+            Self::Range { lower, upper, .. } => Some(std::cmp::min(lower.len(), upper.len())),
             _ => None,
         }
     }

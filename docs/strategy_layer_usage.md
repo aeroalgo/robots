@@ -41,7 +41,18 @@ ConditionBindingSpec {
     id: "fast_cross_above".to_string(),
     name: "Fast SMA crosses above slow".to_string(),
     timeframe: TimeFrame::minutes(15),
-    condition_name: "CROSSESABOVE".to_string(),
+    declarative: ConditionDeclarativeSpec {
+        operator: ConditionOperator::CrossesAbove,
+        operands: vec![
+            ConditionOperandSpec::Series(DataSeriesSource::Indicator {
+                alias: "fast_sma".into(),
+            }),
+            ConditionOperandSpec::Series(DataSeriesSource::Indicator {
+                alias: "slow_sma".into(),
+            }),
+        ],
+        description: None,
+    },
     parameters: HashMap::new(),
     input: ConditionInputSpec::Dual {
         primary: DataSeriesSource::Indicator { alias: "fast_sma".into() },
@@ -52,6 +63,8 @@ ConditionBindingSpec {
     user_formula: None,
 }
 ```
+
+> Поддерживаемые операторы: `GreaterThan (>)`, `LessThan (<)`, `CrossesAbove`, `CrossesBelow`, `Between`. Операнды описываются через `ConditionOperandSpec` и всегда указывают на заранее рассчитанные ряды (`DataSeriesSource`) или скаляры.
 
 ### 2.3 StrategyRuleSpec
 ```rust

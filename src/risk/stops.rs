@@ -2,11 +2,9 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
+use crate::position::view::ActivePosition;
 use crate::strategy::context::TimeframeData;
-
-use super::types::{
-    ActivePosition, PositionDirection, PriceField, StopSignalKind, StrategyParamValue,
-};
+use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind, StrategyParamValue};
 
 pub struct StopEvaluationContext<'a> {
     pub position: &'a ActivePosition,

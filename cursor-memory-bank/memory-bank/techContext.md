@@ -48,13 +48,14 @@
 2. **Data Model Layer**: QuoteFrame, Vector, Meta
 3. **Indicator Layer**: Индикаторы, Registry, Execution Engine
 4. **Condition Layer**: Условия, логические операторы
-5. **Position & Order Layer**: Управление позициями и ордерами
-6. **Risk Management Layer**: Stop Loss, Take Profit, VaR
-7. **Metrics Layer**: 40+ метрик производительности (Sharpe, SQN, Drawdown, Z-Score и др.)
-8. **Optimization Layer**: Алгоритмы оптимизации
-9. **Validation Layer**: Walk-forward, статистическая валидация
-10. **Live Trading Layer**: Интеграция с брокерами
-11. **UI & API Layer**: REST API, Web UI
+5. **Strategy Layer**: Builder/Executor стратегий, пресеты, управление сигналами
+6. **Position & Order Layer**: Управление позициями и ордерами
+7. **Risk Management Layer**: Stop Loss, Take Profit, VaR
+8. **Metrics Layer**: 40+ метрик производительности (Sharpe, SQN, Drawdown, Z-Score и др.)
+9. **Optimization Layer**: Алгоритмы оптимизации
+10. **Validation Layer**: Walk-forward, статистическая валидация
+11. **Live Trading Layer**: Интеграция с брокерами
+12. **UI & API Layer**: REST API, Web UI
 
 ### Микросервисы
 - **Service Discovery**: Автоматическое обнаружение сервисов

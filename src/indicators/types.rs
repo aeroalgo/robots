@@ -340,6 +340,9 @@ pub enum IndicatorError {
 
     #[error("Optimization error: {0}")]
     OptimizationError(String),
+
+    #[error("Formula error: {0}")]
+    FormulaError(String),
 }
 
 /// Результат операции с индикатором

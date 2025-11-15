@@ -6,12 +6,13 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
+use super::view::{ActivePosition, PositionBook, PositionInsights};
 use crate::data_model::types::{Symbol, TimeFrame};
-
-use super::context::StrategyContext;
-use super::types::{
-    ActivePosition, PositionDirection, PriceField, StopSignal, StopSignalKind, StrategyDecision,
-    StrategyError, StrategyId, StrategySignal,
+use crate::metrics::PortfolioSnapshot;
+use crate::strategy::context::StrategyContext;
+use crate::strategy::types::{
+    PositionDirection, PriceField, StopSignal, StopSignalKind, StrategyDecision, StrategyError,
+    StrategyId, StrategySignal,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -102,14 +103,6 @@ pub struct OrderTicket {
     pub metadata: HashMap<String, String>,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct PortfolioState {
-    pub realized_pnl: f64,
-    pub unrealized_pnl: f64,
-    pub exposure: f64,
-    pub total_equity: f64,
-}
-
 #[derive(Clone, Debug)]
 pub enum PositionEvent {
     OrderFilled(OrderTicket),
@@ -178,7 +171,7 @@ pub struct PositionManager {
     listeners: Vec<Arc<dyn PositionEventListener>>,
     persistence: Option<Arc<dyn PositionPersistence>>,
     sequence: u64,
-    portfolio: PortfolioState,
+    portfolio: PortfolioSnapshot,
 }
 
 impl PositionManager {
@@ -192,7 +185,7 @@ impl PositionManager {
             listeners: Vec::new(),
             persistence: None,
             sequence: 0,
-            portfolio: PortfolioState::default(),
+            portfolio: PortfolioSnapshot::default(),
         }
     }
 
@@ -202,7 +195,7 @@ impl PositionManager {
         self.orders.clear();
         self.event_history.clear();
         self.sequence = 0;
-        self.portfolio = PortfolioState::default();
+        self.portfolio.reset();
     }
 
     pub fn set_persistence(&mut self, persistence: Option<Arc<dyn PositionPersistence>>) {
@@ -221,7 +214,7 @@ impl PositionManager {
         self.positions.values()
     }
 
-    pub fn portfolio_state(&self) -> &PortfolioState {
+    pub fn portfolio_snapshot(&self) -> &PortfolioSnapshot {
         &self.portfolio
     }
 
@@ -617,26 +610,25 @@ impl PositionManager {
         Ok(())
     }
 
-    fn snapshot_active_positions(&self) -> HashMap<String, ActivePosition> {
-        self.open_index
+    fn snapshot_active_positions(&self) -> PositionBook {
+        let entries = self
+            .open_index
             .values()
             .filter_map(|position_id| self.positions.get(position_id))
-            .map(|state| {
-                let active = ActivePosition {
-                    id: state.id.clone(),
-                    symbol: state.key.symbol.clone(),
-                    timeframe: state.key.timeframe.clone(),
-                    direction: state.key.direction.clone(),
-                    entry_price: state.average_price,
-                    quantity: state.quantity,
-                    opened_at: Some(state.opened_at),
-                    last_price: Some(state.current_price),
-                    unrealized_pnl: Some(state.unrealized_pnl),
-                    metadata: state.metadata.clone(),
-                };
-                (state.id.clone(), active)
+            .map(|state| ActivePosition {
+                id: state.id.clone(),
+                symbol: state.key.symbol.clone(),
+                timeframe: state.key.timeframe.clone(),
+                direction: state.key.direction.clone(),
+                entry_price: state.average_price,
+                quantity: state.quantity,
+                opened_at: Some(state.opened_at),
+                last_price: Some(state.current_price),
+                metadata: state.metadata.clone(),
+                insights: PositionInsights::default(),
             })
-            .collect()
+            .collect();
+        PositionBook::new(entries)
     }
 
     fn refresh_portfolio_metrics(&mut self) {
@@ -661,7 +653,7 @@ impl PositionManager {
         }
         self.portfolio.exposure = exposure;
         self.portfolio.unrealized_pnl = unrealized;
-        self.portfolio.total_equity = self.portfolio.realized_pnl + self.portfolio.unrealized_pnl;
+        self.portfolio.update_equity();
     }
 
     fn resolve_entry_snapshot(
@@ -831,6 +823,10 @@ mod tests {
         let symbol = Symbol::from_descriptor("TEST.TEST");
         let timeframe = TimeFrame::minutes(1);
         let mut context = build_context(&[100.0, 101.0], &symbol, &timeframe);
+        context
+            .timeframe_mut(&timeframe)
+            .expect("entry timeframe")
+            .set_index(0);
         let mut manager = PositionManager::new("strategy-1");
 
         let mut decision = StrategyDecision::empty();
@@ -853,8 +849,8 @@ mod tests {
         assert_eq!(exit_report.closed_positions.len(), 1);
         assert_eq!(manager.open_position_count(), 0);
         assert!(exit_context.active_positions().is_empty());
-        let pnl = manager.portfolio_state().realized_pnl;
-        assert!((pnl - 5.0).abs() < 1e-6);
+        let pnl = manager.portfolio_snapshot().realized_pnl;
+        assert!((pnl - 4.0).abs() < 1e-6, "expected pnl ≈ 4.0, got {}", pnl);
     }
 
     #[tokio::test]
@@ -862,6 +858,10 @@ mod tests {
         let symbol = Symbol::from_descriptor("TEST.TEST");
         let timeframe = TimeFrame::minutes(1);
         let mut context = build_context(&[100.0, 100.0], &symbol, &timeframe);
+        context
+            .timeframe_mut(&timeframe)
+            .expect("entry timeframe")
+            .set_index(0);
         let mut manager = PositionManager::new("strategy-2");
 
         let mut decision = StrategyDecision::empty();
@@ -893,8 +893,8 @@ mod tests {
             .expect("stop exit failed");
         assert_eq!(manager.open_position_count(), 0);
         assert!(exit_context.active_positions().is_empty());
-        let pnl = manager.portfolio_state().realized_pnl;
-        assert!((pnl + 5.0).abs() < 1e-6);
+        let pnl = manager.portfolio_snapshot().realized_pnl;
+        assert!((pnl + 5.0).abs() < 1e-6, "expected pnl ≈ -5.0, got {}", pnl);
         let closed_event = manager
             .event_history()
             .iter()

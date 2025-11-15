@@ -5,18 +5,19 @@ use async_trait::async_trait;
 
 use crate::condition::factory::ConditionFactory;
 use crate::condition::types::{ConditionError, SignalStrength, TrendDirection};
+use crate::indicators::formula::FormulaDefinition;
 
 use super::base::{Strategy, StrategyDescriptor};
 use super::context::StrategyContext;
-use super::stops::{StopEvaluationContext, StopHandlerError, StopHandlerFactory};
 use super::types::{
-    ConditionBindingSpec, ConditionEvaluation, ConditionInputSpec, DataSeriesSource,
-    IndicatorBindingSpec, IndicatorSourceSpec, PositionDirection, PreparedCondition,
-    PreparedStopHandler, PriceField, RuleLogic, StopSignal, StopSignalKind, StrategyDecision,
-    StrategyDefinition, StrategyError, StrategyId, StrategyMetadata, StrategyParamValue,
-    StrategyParameterMap, StrategyRuleSpec, StrategySignal, StrategySignalType, StrategyUserInput,
-    TimeframeRequirement,
+    ConditionBindingSpec, ConditionDeclarativeSpec, ConditionEvaluation, ConditionInputSpec,
+    ConditionOperator, DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec,
+    PositionDirection, PreparedCondition, PreparedStopHandler, PriceField, RuleLogic, StopSignal,
+    StopSignalKind, StrategyDecision, StrategyDefinition, StrategyError, StrategyId,
+    StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyRuleSpec, StrategySignal,
+    StrategySignalType, StrategyUserInput, TimeframeRequirement, UserFormulaMetadata,
 };
+use crate::risk::stops::{StopEvaluationContext, StopHandlerError, StopHandlerFactory};
 
 #[derive(Clone)]
 pub struct DynamicStrategy {
@@ -336,7 +337,7 @@ impl Strategy for DynamicStrategy {
             .iter()
             .map(|condition| (condition.id.clone(), condition))
             .collect();
-        let mut stop_signals = self.evaluate_stop_signals(context)?;
+        let mut stop_signals = self.evaluate_stop_handlers(context)?;
         let mut decision = StrategyDecision::empty();
         for stop in &stop_signals {
             decision.exits.push(stop.signal.clone());
@@ -365,13 +366,6 @@ impl Strategy for DynamicStrategy {
         }
         decision.stop_signals = stop_signals;
         Ok(decision)
-    }
-
-    fn evaluate_stop_signals(
-        &self,
-        context: &StrategyContext,
-    ) -> Result<Vec<StopSignal>, StrategyError> {
-        self.evaluate_stop_handlers(context)
     }
 
     fn clone_box(&self) -> Box<dyn Strategy> {
@@ -414,12 +408,11 @@ impl StrategyBuilder {
         let indicator_bindings = self.definition.indicator_bindings.clone();
         let mut prepared_conditions = Vec::new();
         for binding in &self.definition.condition_bindings {
-            let condition = ConditionFactory::create_condition(
-                &binding.condition_name,
-                binding.parameters.clone(),
-            )
-            .map_err(|err| map_condition_error(&binding.condition_name, err))?;
-            let metadata = ConditionFactory::get_condition_info(&binding.condition_name);
+            let factory_name = binding.factory_name();
+            let condition =
+                ConditionFactory::create_condition(factory_name, binding.parameters.clone())
+                    .map_err(|err| map_condition_error(factory_name, err))?;
+            let metadata = ConditionFactory::get_condition_info(factory_name);
             prepared_conditions.push(PreparedCondition {
                 id: binding.id.clone(),
                 condition: Arc::from(condition),
@@ -490,6 +483,7 @@ impl StrategyBuilder {
     pub fn from_user_input(input: StrategyUserInput) -> Result<Self, StrategyError> {
         let metadata = StrategyMetadata::with_id(input.name.clone(), input.name.clone());
         let mut indicator_bindings = Vec::new();
+        let mut formula_metadata = Vec::new();
         for indicator in &input.indicators {
             let timeframe =
                 crate::data_model::types::TimeFrame::from_identifier(&indicator.timeframe);
@@ -508,8 +502,30 @@ impl StrategyBuilder {
                     parameters: numeric_params.clone(),
                 }
             } else {
+                let expression = indicator.expression.trim();
+                if expression.is_empty() {
+                    return Err(StrategyError::DefinitionError(format!(
+                        "indicator {} requires expression",
+                        indicator.alias
+                    )));
+                }
+                let definition = FormulaDefinition::parse(expression).map_err(|err| {
+                    StrategyError::DefinitionError(format!(
+                        "formula {} parse error: {}",
+                        indicator.alias, err
+                    ))
+                })?;
+                let inputs = definition.data_dependencies().cloned().collect::<Vec<_>>();
+                formula_metadata.push(UserFormulaMetadata {
+                    id: indicator.alias.clone(),
+                    name: indicator.alias.clone(),
+                    expression: expression.to_string(),
+                    description: None,
+                    tags: Vec::new(),
+                    inputs,
+                });
                 IndicatorSourceSpec::Formula {
-                    expression: indicator.expression.clone(),
+                    expression: expression.to_string(),
                 }
             };
             indicator_bindings.push(IndicatorBindingSpec {
@@ -523,14 +539,15 @@ impl StrategyBuilder {
         for condition in &input.conditions {
             let timeframe =
                 crate::data_model::types::TimeFrame::from_identifier(&condition.timeframe);
-            let condition_name = extract_condition_name(condition)?;
+            let operator = extract_condition_operator(condition)?;
             let parameters = extract_numeric_parameters(&condition.parameters);
-            let input_spec = build_condition_input_spec(&condition.parameters)?;
+            let input_spec = build_condition_input_spec(&operator, &condition.parameters)?;
+            let declarative = ConditionDeclarativeSpec::from_input(operator, &input_spec);
             condition_bindings.push(ConditionBindingSpec {
                 id: condition.id.clone(),
                 name: condition.id.clone(),
                 timeframe,
-                condition_name,
+                declarative,
                 parameters,
                 input: input_spec,
                 weight: 1.0,
@@ -569,6 +586,7 @@ impl StrategyBuilder {
             metadata,
             parameters: Vec::new(),
             indicator_bindings,
+            formulas: formula_metadata,
             condition_bindings,
             entry_rules,
             exit_rules,
@@ -589,24 +607,81 @@ fn map_stop_error(name: &str, error: StopHandlerError) -> StrategyError {
     StrategyError::DefinitionError(format!("stop handler {} creation failed: {}", name, error))
 }
 
-fn extract_condition_name(step: &super::types::UserConditionStep) -> Result<String, StrategyError> {
-    if let Some(name) = step
+fn extract_condition_operator(
+    step: &super::types::UserConditionStep,
+) -> Result<ConditionOperator, StrategyError> {
+    if let Some(operator) = step
+        .parameters
+        .get("operator")
+        .and_then(|value| value.as_str())
+        .and_then(parse_condition_operator)
+    {
+        return Ok(operator);
+    }
+    if let Some(operator) = step
         .parameters
         .get("condition_name")
         .and_then(|value| value.as_str())
+        .and_then(parse_condition_operator)
     {
-        return Ok(name.to_string());
+        return Ok(operator);
     }
-    if let Some(name) = step.parameters.get("name").and_then(|value| value.as_str()) {
-        return Ok(name.to_string());
+    if let Some(operator) = step
+        .parameters
+        .get("name")
+        .and_then(|value| value.as_str())
+        .and_then(parse_condition_operator)
+    {
+        return Ok(operator);
     }
     if !step.expression.is_empty() {
-        return Ok(step.expression.to_string());
+        if let Some(operator) = parse_condition_operator(&step.expression) {
+            return Ok(operator);
+        }
     }
     Err(StrategyError::DefinitionError(format!(
-        "condition {} has no identifiable name",
+        "condition {} has no identifiable operator",
         step.id
     )))
+}
+
+fn parse_condition_operator(value: &str) -> Option<ConditionOperator> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let upper = trimmed.to_ascii_uppercase();
+    match upper.as_str() {
+        ">" | "GT" | "GREATER" | "GREATERTHAN" | "ABOVE" => {
+            return Some(ConditionOperator::GreaterThan)
+        }
+        "<" | "LT" | "LESS" | "LESSTHAN" | "BELOW" => return Some(ConditionOperator::LessThan),
+        "CROSSESABOVE" | "CROSSABOVE" | "CROSSUP" | "CROSS_UP" => {
+            return Some(ConditionOperator::CrossesAbove)
+        }
+        "CROSSESBELOW" | "CROSSBELOW" | "CROSSDOWN" | "CROSS_DOWN" => {
+            return Some(ConditionOperator::CrossesBelow)
+        }
+        "BETWEEN" => return Some(ConditionOperator::Between),
+        _ => {}
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.contains("cross") && lower.contains("above") {
+        return Some(ConditionOperator::CrossesAbove);
+    }
+    if lower.contains("cross") && lower.contains("below") {
+        return Some(ConditionOperator::CrossesBelow);
+    }
+    if lower.contains("between") {
+        return Some(ConditionOperator::Between);
+    }
+    if lower.contains('>') {
+        return Some(ConditionOperator::GreaterThan);
+    }
+    if lower.contains('<') {
+        return Some(ConditionOperator::LessThan);
+    }
+    None
 }
 
 fn extract_numeric_parameters(parameters: &StrategyParameterMap) -> HashMap<String, f32> {
@@ -620,6 +695,7 @@ fn extract_numeric_parameters(parameters: &StrategyParameterMap) -> HashMap<Stri
 }
 
 fn build_condition_input_spec(
+    operator: &ConditionOperator,
     parameters: &StrategyParameterMap,
 ) -> Result<ConditionInputSpec, StrategyError> {
     let primary = parameters
@@ -628,6 +704,31 @@ fn build_condition_input_spec(
         .ok_or_else(|| {
             StrategyError::DefinitionError("condition primary source not specified".to_string())
         })?;
+
+    if matches!(operator, ConditionOperator::Between) {
+        let lower = parameters
+            .get("lower")
+            .and_then(parse_series_source)
+            .ok_or_else(|| {
+                StrategyError::DefinitionError(
+                    "between condition requires lower bound series".to_string(),
+                )
+            })?;
+        let upper = parameters
+            .get("upper")
+            .and_then(parse_series_source)
+            .ok_or_else(|| {
+                StrategyError::DefinitionError(
+                    "between condition requires upper bound series".to_string(),
+                )
+            })?;
+        return Ok(ConditionInputSpec::Range {
+            source: primary,
+            lower,
+            upper,
+        });
+    }
+
     if let Some(secondary_value) = parameters.get("secondary").and_then(parse_series_source) {
         if let Some(percent_value) = parameters.get("percent").and_then(|value| value.as_f64()) {
             return Ok(ConditionInputSpec::DualWithPercent {
@@ -641,6 +742,7 @@ fn build_condition_input_spec(
             secondary: secondary_value,
         });
     }
+
     if let Some(index_offset) = parameters
         .get("index_offset")
         .and_then(|value| value.as_f64())
@@ -651,7 +753,16 @@ fn build_condition_input_spec(
             index_offset,
         });
     }
-    Ok(ConditionInputSpec::Single { source: primary })
+
+    match operator {
+        ConditionOperator::GreaterThan
+        | ConditionOperator::LessThan
+        | ConditionOperator::CrossesAbove
+        | ConditionOperator::CrossesBelow => Err(StrategyError::DefinitionError(
+            "condition requires secondary source".to_string(),
+        )),
+        ConditionOperator::Between => unreachable!("handled above"),
+    }
 }
 
 fn parse_series_source(value: &StrategyParamValue) -> Option<DataSeriesSource> {

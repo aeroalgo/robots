@@ -1,6 +1,7 @@
 use crate::indicators::{
     base::Indicator,
     implementations::*,
+    runtime::IndicatorRuntimeEngine,
     types::{
         IndicatorCategory, IndicatorError, IndicatorId, IndicatorType, OHLCData, ParameterSet,
     },
@@ -321,6 +322,11 @@ pub struct RegistryStats {
 pub struct IndicatorFactory;
 
 impl IndicatorFactory {
+    /// Создать экземпляр движка вычислений с кешированием
+    pub fn runtime_engine() -> IndicatorRuntimeEngine {
+        IndicatorRuntimeEngine::new()
+    }
+
     /// Создать индикатор по имени и параметрам
     pub fn create_indicator(
         name: &str,

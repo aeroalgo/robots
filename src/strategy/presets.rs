@@ -3,10 +3,11 @@ use std::collections::{BTreeMap, HashMap};
 use crate::data_model::types::TimeFrame;
 
 use super::types::{
-    ConditionBindingSpec, ConditionInputSpec, DataSeriesSource, IndicatorBindingSpec,
-    IndicatorSourceSpec, PositionDirection, PriceField, StopHandlerSpec, StrategyDefinition,
-    StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyRuleSpec,
-    StrategySignalType, TimeframeRequirement,
+    ConditionBindingSpec, ConditionDeclarativeSpec, ConditionInputSpec, ConditionOperator,
+    DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec, PositionDirection, PriceField,
+    StopHandlerSpec, StrategyDefinition, StrategyMetadata, StrategyParamValue,
+    StrategyParameterMap, StrategyRuleSpec, StrategySignalType, TimeframeRequirement,
+    UserFormulaMetadata,
 };
 
 pub fn default_strategy_definitions() -> Vec<StrategyDefinition> {
@@ -19,7 +20,7 @@ fn sma_crossover_definition() -> StrategyDefinition {
     let fast_alias = "fast_sma".to_string();
     let slow_alias = "slow_sma".to_string();
 
-    let indicator_bindings = vec![
+    let mut indicator_bindings = vec![
         IndicatorBindingSpec {
             alias: fast_alias.clone(),
             timeframe: timeframe.clone(),
@@ -40,21 +41,39 @@ fn sma_crossover_definition() -> StrategyDefinition {
         },
     ];
 
+    let spread_formula = UserFormulaMetadata {
+        id: "SMA_SPREAD".to_string(),
+        name: "SMA Spread".to_string(),
+        expression: format!("{} - {}", fast_alias, slow_alias),
+        description: Some("Разница между быстрым и медленным SMA".to_string()),
+        tags: vec!["formula".to_string(), "derived".to_string()],
+        inputs: vec![fast_alias.clone(), slow_alias.clone()],
+    };
+
+    indicator_bindings.push(spread_formula.as_indicator_binding("sma_spread", timeframe.clone()));
+
+    let formulas = vec![spread_formula];
+
+    let dual_input = ConditionInputSpec::Dual {
+        primary: DataSeriesSource::Indicator {
+            alias: fast_alias.clone(),
+        },
+        secondary: DataSeriesSource::Indicator {
+            alias: slow_alias.clone(),
+        },
+    };
+
     let condition_bindings = vec![
         ConditionBindingSpec {
             id: "fast_cross_above".to_string(),
             name: "Fast SMA crosses above slow".to_string(),
             timeframe: timeframe.clone(),
-            condition_name: "CROSSESABOVE".to_string(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::CrossesAbove,
+                &dual_input,
+            ),
             parameters: HashMap::new(),
-            input: ConditionInputSpec::Dual {
-                primary: DataSeriesSource::Indicator {
-                    alias: fast_alias.clone(),
-                },
-                secondary: DataSeriesSource::Indicator {
-                    alias: slow_alias.clone(),
-                },
-            },
+            input: dual_input.clone(),
             weight: 1.0,
             tags: vec!["entry".to_string()],
             user_formula: None,
@@ -63,16 +82,12 @@ fn sma_crossover_definition() -> StrategyDefinition {
             id: "fast_cross_below".to_string(),
             name: "Fast SMA crosses below slow".to_string(),
             timeframe: timeframe.clone(),
-            condition_name: "CROSSESBELOW".to_string(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::CrossesBelow,
+                &dual_input,
+            ),
             parameters: HashMap::new(),
-            input: ConditionInputSpec::Dual {
-                primary: DataSeriesSource::Indicator {
-                    alias: fast_alias.clone(),
-                },
-                secondary: DataSeriesSource::Indicator {
-                    alias: slow_alias.clone(),
-                },
-            },
+            input: dual_input,
             weight: 1.0,
             tags: vec!["exit".to_string()],
             user_formula: None,
@@ -155,6 +170,7 @@ fn sma_crossover_definition() -> StrategyDefinition {
         },
         parameters: Vec::new(),
         indicator_bindings,
+        formulas,
         condition_bindings,
         entry_rules,
         exit_rules,

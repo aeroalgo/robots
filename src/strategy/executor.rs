@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -6,16 +6,17 @@ use thiserror::Error;
 
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::{Symbol, TimeFrame};
-use crate::indicators::IndicatorFactory;
+use crate::indicators::formula::{FormulaDefinition, FormulaEvaluationContext};
+use crate::indicators::runtime::IndicatorRuntimeEngine;
 
 use super::base::Strategy;
 use super::builder::StrategyBuilder;
 use super::context::{StrategyContext, TimeframeData};
-use super::positions::{ClosedTrade, PositionError, PositionManager};
 use super::types::{
-    IndicatorSourceSpec, PositionDirection, StrategyDecision, StrategyDefinition, StrategyError,
-    StrategyParameterMap,
+    IndicatorBindingSpec, IndicatorSourceSpec, PositionDirection, StrategyDecision,
+    StrategyDefinition, StrategyError, StrategyParameterMap,
 };
+use crate::position::{ClosedTrade, PositionBook, PositionError, PositionManager};
 
 #[derive(Clone, Debug)]
 pub struct StrategyTrade {
@@ -173,7 +174,7 @@ impl BacktestExecutor {
             self.warmup_bars = self.compute_warmup_bars();
         }
         self.position_manager.reset();
-        self.context.set_active_positions(HashMap::new());
+        self.context.set_active_positions(PositionBook::default());
         self.feed.reset();
         self.trades.clear();
         self.equity_curve.clear();
@@ -188,7 +189,7 @@ impl BacktestExecutor {
         }
         self.populate_indicators().await?;
         self.equity_curve
-            .push(self.position_manager.portfolio_state().total_equity);
+            .push(self.position_manager.portfolio_snapshot().total_equity);
         let mut processed_bars = 0usize;
         while self.feed.step(&mut self.context) {
             processed_bars += 1;
@@ -196,7 +197,7 @@ impl BacktestExecutor {
             self.update_session_metadata(session_state);
             if processed_bars < self.warmup_bars {
                 self.equity_curve
-                    .push(self.position_manager.portfolio_state().total_equity);
+                    .push(self.position_manager.portfolio_snapshot().total_equity);
                 continue;
             }
             if let Some(pending) = self.deferred_decision.take() {
@@ -227,7 +228,7 @@ impl BacktestExecutor {
                     self.deferred_decision = Some(decision);
                 }
                 self.equity_curve
-                    .push(self.position_manager.portfolio_state().total_equity);
+                    .push(self.position_manager.portfolio_snapshot().total_equity);
                 continue;
             }
             if !decision.is_empty() {
@@ -237,10 +238,10 @@ impl BacktestExecutor {
                     .await
                     .map_err(StrategyExecutionError::Position)?;
                 self.collect_report(&report);
-            self.process_immediate_stop_checks().await?;
+                self.process_immediate_stop_checks().await?;
             }
             self.equity_curve
-                .push(self.position_manager.portfolio_state().total_equity);
+                .push(self.position_manager.portfolio_snapshot().total_equity);
         }
         if let Some(pending) = self.deferred_decision.take() {
             if !pending.is_empty() {
@@ -259,7 +260,7 @@ impl BacktestExecutor {
         }
         let metrics = BacktestMetrics::from_data(
             &self.trades,
-            self.position_manager.portfolio_state().realized_pnl,
+            self.position_manager.portfolio_snapshot().realized_pnl,
         );
         Ok(BacktestReport {
             trades: self.trades.clone(),
@@ -269,47 +270,81 @@ impl BacktestExecutor {
     }
 
     async fn populate_indicators(&mut self) -> Result<(), StrategyExecutionError> {
+        let mut grouped: HashMap<TimeFrame, Vec<IndicatorBindingSpec>> = HashMap::new();
         for binding in self.strategy.indicator_bindings() {
-            let frame = self.feed.frames.get(&binding.timeframe).ok_or_else(|| {
-                StrategyExecutionError::Feed(format!(
-                    "timeframe {:?} not available in feed",
-                    binding.timeframe
-                ))
-            })?;
+            grouped
+                .entry(binding.timeframe.clone())
+                .or_default()
+                .push(binding.clone());
+        }
+        let mut engine = IndicatorRuntimeEngine::new();
+        for (timeframe, bindings) in grouped {
+            let frame = {
+                let frame_ref = self.feed.frames.get(&timeframe).ok_or_else(|| {
+                    StrategyExecutionError::Feed(format!(
+                        "timeframe {:?} not available in feed",
+                        timeframe
+                    ))
+                })?;
+                Arc::clone(frame_ref)
+            };
+            self.ensure_timeframe_data(&timeframe, &frame);
             let ohlc = frame.to_indicator_ohlc();
-            let values = match &binding.source {
-                IndicatorSourceSpec::Registry { name, parameters } => {
-                    let indicator = IndicatorFactory::create_indicator(name, parameters.clone())
-                        .map_err(|err| {
+            let plan = IndicatorComputationPlan::build(&bindings)?;
+            let mut computed: HashMap<String, Arc<Vec<f32>>> = HashMap::new();
+            for binding in plan.ordered() {
+                match &binding.source {
+                    IndicatorSourceSpec::Registry { name, parameters } => {
+                        let values = engine
+                            .compute_registry(&timeframe, name, parameters, &ohlc)
+                            .await
+                            .map_err(|err| {
+                                StrategyExecutionError::Feed(format!(
+                                    "indicator {} calculation failed: {}",
+                                    name, err
+                                ))
+                            })?;
+                        self.store_indicator_series(&timeframe, &binding.alias, values.clone())?;
+                        computed.insert(binding.alias.clone(), values);
+                    }
+                    IndicatorSourceSpec::Formula { .. } => {
+                        let definition = plan.formula(&binding.alias).ok_or_else(|| {
                             StrategyExecutionError::Feed(format!(
-                                "indicator {} creation failed: {}",
-                                name, err
+                                "missing formula definition for alias {}",
+                                binding.alias
                             ))
                         })?;
-                    indicator.calculate_ohlc(&ohlc).await.map_err(|err| {
-                        StrategyExecutionError::Feed(format!(
-                            "indicator {} calculation failed: {}",
-                            name, err
-                        ))
-                    })?
-                }
-                IndicatorSourceSpec::Formula { expression } => {
-                    return Err(StrategyExecutionError::Feed(format!(
-                        "formula indicators are not supported: {}",
-                        expression
-                    )));
-                }
-            };
-            match self.context.timeframe_mut(&binding.timeframe) {
-                Ok(data) => data.insert_indicator(binding.alias.clone(), values),
-                Err(_) => {
-                    let mut data = TimeframeData::with_quote_frame(frame.as_ref(), 0);
-                    data.insert_indicator(binding.alias.clone(), values);
-                    self.context
-                        .insert_timeframe(binding.timeframe.clone(), data);
+                        let context = FormulaEvaluationContext::new(&ohlc, &computed);
+                        let values = engine
+                            .compute_formula(&timeframe, definition, &context)
+                            .map_err(|err| StrategyExecutionError::Feed(err.to_string()))?;
+                        self.store_indicator_series(&timeframe, &binding.alias, values.clone())?;
+                        computed.insert(binding.alias.clone(), values);
+                    }
                 }
             }
         }
+        Ok(())
+    }
+
+    fn ensure_timeframe_data(&mut self, timeframe: &TimeFrame, frame: &Arc<QuoteFrame>) {
+        if self.context.timeframe(timeframe).is_err() {
+            let data = TimeframeData::with_quote_frame(frame.as_ref(), 0);
+            self.context.insert_timeframe(timeframe.clone(), data);
+        }
+    }
+
+    fn store_indicator_series(
+        &mut self,
+        timeframe: &TimeFrame,
+        alias: &str,
+        values: Arc<Vec<f32>>,
+    ) -> Result<(), StrategyExecutionError> {
+        let data = self
+            .context
+            .timeframe_mut(timeframe)
+            .map_err(StrategyExecutionError::Strategy)?;
+        data.insert_indicator_arc(alias.to_string(), values);
         Ok(())
     }
 
@@ -361,7 +396,7 @@ impl BacktestExecutor {
         }
     }
 
-    fn collect_report(&mut self, report: &crate::strategy::positions::ExecutionReport) {
+    fn collect_report(&mut self, report: &crate::position::ExecutionReport) {
         dbg!(report.closed_trades.len());
         for trade in &report.closed_trades {
             self.trades.push(StrategyTrade::from(trade));
@@ -494,6 +529,92 @@ impl HistoricalFeed {
             }
         }
         true
+    }
+}
+
+struct IndicatorComputationPlan<'a> {
+    ordered: Vec<&'a IndicatorBindingSpec>,
+    formulas: HashMap<String, FormulaDefinition>,
+}
+
+impl<'a> IndicatorComputationPlan<'a> {
+    fn build(bindings: &'a [IndicatorBindingSpec]) -> Result<Self, StrategyExecutionError> {
+        let mut binding_map: HashMap<String, &'a IndicatorBindingSpec> = HashMap::new();
+        for binding in bindings {
+            if binding_map.insert(binding.alias.clone(), binding).is_some() {
+                return Err(StrategyExecutionError::Feed(format!(
+                    "duplicate indicator alias {}",
+                    binding.alias
+                )));
+            }
+        }
+        let mut formulas = HashMap::new();
+        for binding in bindings {
+            if let IndicatorSourceSpec::Formula { expression } = &binding.source {
+                let definition = FormulaDefinition::parse(expression)
+                    .map_err(|err| StrategyExecutionError::Feed(err.to_string()))?;
+                formulas.insert(binding.alias.clone(), definition);
+            }
+        }
+        let mut indegree: HashMap<String, usize> =
+            binding_map.keys().map(|alias| (alias.clone(), 0)).collect();
+        let mut edges: HashMap<String, Vec<String>> = HashMap::new();
+        for binding in bindings {
+            if let Some(definition) = formulas.get(&binding.alias) {
+                for dependency in definition.data_dependencies() {
+                    if !binding_map.contains_key(dependency) {
+                        return Err(StrategyExecutionError::Feed(format!(
+                            "missing dependency {} for alias {}",
+                            dependency, binding.alias
+                        )));
+                    }
+                    edges
+                        .entry(dependency.clone())
+                        .or_default()
+                        .push(binding.alias.clone());
+                    if let Some(value) = indegree.get_mut(&binding.alias) {
+                        *value += 1;
+                    }
+                }
+            }
+        }
+        let mut queue = VecDeque::new();
+        for (alias, degree) in indegree.iter() {
+            if *degree == 0 {
+                queue.push_back(alias.clone());
+            }
+        }
+        let mut ordered = Vec::new();
+        while let Some(alias) = queue.pop_front() {
+            let binding = *binding_map
+                .get(&alias)
+                .expect("binding must exist for alias");
+            ordered.push(binding);
+            if let Some(children) = edges.get(&alias) {
+                for child in children {
+                    if let Some(entry) = indegree.get_mut(child) {
+                        *entry -= 1;
+                        if *entry == 0 {
+                            queue.push_back(child.clone());
+                        }
+                    }
+                }
+            }
+        }
+        if ordered.len() != bindings.len() {
+            return Err(StrategyExecutionError::Feed(
+                "circular indicator dependency".to_string(),
+            ));
+        }
+        Ok(Self { ordered, formulas })
+    }
+
+    fn ordered(&self) -> &[&'a IndicatorBindingSpec] {
+        &self.ordered
+    }
+
+    fn formula(&self, alias: &str) -> Option<&FormulaDefinition> {
+        self.formulas.get(alias)
     }
 }
 

@@ -49,14 +49,19 @@ async fn sma_crossover_entry_generates_signal() {
         .find(|def| def.metadata.id == "SMA_CROSSOVER_LONG")
         .expect("definition not found");
 
+    let timeframe = definition
+        .timeframe_requirements
+        .first()
+        .map(|req| req.timeframe.clone())
+        .unwrap_or_else(|| TimeFrame::minutes(60));
+
     let strategy = StrategyBuilder::new(definition)
         .build()
         .expect("strategy build failed");
 
-    let timeframe = TimeFrame::minutes(15);
     let fast = vec![1.0, 1.2, 1.6, 2.0];
     let slow = vec![1.0, 1.1, 1.2, 1.3];
-    let mut context = context_with_series(timeframe.clone(), fast, slow, 3);
+    let mut context = context_with_series(timeframe.clone(), fast, slow, 1);
     context
         .metadata
         .insert("test_case".to_string(), "entry".to_string());
@@ -85,14 +90,18 @@ async fn sma_crossover_exit_generates_signal() {
         .find(|def| def.metadata.id == "SMA_CROSSOVER_LONG")
         .expect("definition not found");
 
+    let timeframe = definition
+        .timeframe_requirements
+        .first()
+        .map(|req| req.timeframe.clone())
+        .unwrap_or_else(|| TimeFrame::minutes(60));
+
     let strategy = StrategyBuilder::new(definition)
         .build()
         .expect("strategy build failed");
-
-    let timeframe = TimeFrame::minutes(15);
     let fast = vec![2.0, 1.8, 1.4, 1.0];
     let slow = vec![1.5, 1.6, 1.55, 1.5];
-    let context = context_with_series(timeframe.clone(), fast, slow, 3);
+    let context = context_with_series(timeframe.clone(), fast, slow, 2);
 
     let decision = Strategy::evaluate(&strategy, &context)
         .await
