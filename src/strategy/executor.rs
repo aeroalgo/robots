@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use thiserror::Error;
 
 use crate::data_model::quote_frame::QuoteFrame;
@@ -16,59 +16,8 @@ use super::types::{
     IndicatorBindingSpec, IndicatorSourceSpec, PositionDirection, StrategyDecision,
     StrategyDefinition, StrategyError, StrategyParameterMap,
 };
-use crate::position::{ClosedTrade, PositionBook, PositionError, PositionManager};
-
-#[derive(Clone, Debug)]
-pub struct StrategyTrade {
-    pub position_id: String,
-    pub symbol: Symbol,
-    pub timeframe: TimeFrame,
-    pub direction: PositionDirection,
-    pub quantity: f64,
-    pub entry_price: f64,
-    pub exit_price: f64,
-    pub entry_time: Option<DateTime<Utc>>,
-    pub exit_time: Option<DateTime<Utc>>,
-    pub pnl: f64,
-}
-
-#[derive(Clone, Debug)]
-pub struct BacktestMetrics {
-    pub total_pnl: f64,
-    pub total_trades: usize,
-    pub win_rate: f64,
-    pub average_trade: f64,
-}
-
-impl BacktestMetrics {
-    fn from_data(trades: &[StrategyTrade], realized_pnl: f64) -> Self {
-        let total_trades = trades.len();
-        let wins = trades.iter().filter(|trade| trade.pnl > 0.0).count();
-        let win_rate = if total_trades == 0 {
-            0.0
-        } else {
-            wins as f64 / total_trades as f64
-        };
-        let average_trade = if total_trades == 0 {
-            0.0
-        } else {
-            realized_pnl / total_trades as f64
-        };
-        Self {
-            total_pnl: realized_pnl,
-            total_trades,
-            win_rate,
-            average_trade,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct BacktestReport {
-    pub trades: Vec<StrategyTrade>,
-    pub metrics: BacktestMetrics,
-    pub equity_curve: Vec<f64>,
-}
+use crate::metrics::{BacktestAnalytics, BacktestReport};
+use crate::position::{ExecutionReport, PositionBook, PositionError, PositionManager};
 
 #[derive(Debug, Error)]
 pub enum StrategyExecutionError {
@@ -85,8 +34,7 @@ pub struct BacktestExecutor {
     position_manager: PositionManager,
     feed: HistoricalFeed,
     context: StrategyContext,
-    trades: Vec<StrategyTrade>,
-    equity_curve: Vec<f64>,
+    analytics: BacktestAnalytics,
     warmup_bars: usize,
     deferred_decision: Option<StrategyDecision>,
 }
@@ -115,8 +63,7 @@ impl BacktestExecutor {
             position_manager,
             feed,
             context,
-            trades: Vec::new(),
-            equity_curve: Vec::new(),
+            analytics: BacktestAnalytics::new(),
             warmup_bars: 0,
             deferred_decision: None,
         })
@@ -176,8 +123,7 @@ impl BacktestExecutor {
         self.position_manager.reset();
         self.context.set_active_positions(PositionBook::default());
         self.feed.reset();
-        self.trades.clear();
-        self.equity_curve.clear();
+        self.analytics.reset();
         self.deferred_decision = None;
         for timeframe in self.feed.frames.keys() {
             if let Ok(data) = self.context.timeframe_mut(timeframe) {
@@ -188,16 +134,16 @@ impl BacktestExecutor {
             }
         }
         self.populate_indicators().await?;
-        self.equity_curve
-            .push(self.position_manager.portfolio_snapshot().total_equity);
+        self.analytics
+            .push_equity_point(self.position_manager.portfolio_snapshot().total_equity);
         let mut processed_bars = 0usize;
         while self.feed.step(&mut self.context) {
             processed_bars += 1;
             let session_state = self.session_state();
             self.update_session_metadata(session_state);
             if processed_bars < self.warmup_bars {
-                self.equity_curve
-                    .push(self.position_manager.portfolio_snapshot().total_equity);
+                self.analytics
+                    .push_equity_point(self.position_manager.portfolio_snapshot().total_equity);
                 continue;
             }
             if let Some(pending) = self.deferred_decision.take() {
@@ -227,8 +173,8 @@ impl BacktestExecutor {
                 if !decision.is_empty() {
                     self.deferred_decision = Some(decision);
                 }
-                self.equity_curve
-                    .push(self.position_manager.portfolio_snapshot().total_equity);
+                self.analytics
+                    .push_equity_point(self.position_manager.portfolio_snapshot().total_equity);
                 continue;
             }
             if !decision.is_empty() {
@@ -240,8 +186,8 @@ impl BacktestExecutor {
                 self.collect_report(&report);
                 self.process_immediate_stop_checks().await?;
             }
-            self.equity_curve
-                .push(self.position_manager.portfolio_snapshot().total_equity);
+            self.analytics
+                .push_equity_point(self.position_manager.portfolio_snapshot().total_equity);
         }
         if let Some(pending) = self.deferred_decision.take() {
             if !pending.is_empty() {
@@ -258,15 +204,9 @@ impl BacktestExecutor {
                 self.process_immediate_stop_checks().await?;
             }
         }
-        let metrics = BacktestMetrics::from_data(
-            &self.trades,
-            self.position_manager.portfolio_snapshot().realized_pnl,
-        );
-        Ok(BacktestReport {
-            trades: self.trades.clone(),
-            metrics,
-            equity_curve: self.equity_curve.clone(),
-        })
+        Ok(self
+            .analytics
+            .build_report(self.position_manager.portfolio_snapshot().realized_pnl))
     }
 
     async fn populate_indicators(&mut self) -> Result<(), StrategyExecutionError> {
@@ -396,11 +336,8 @@ impl BacktestExecutor {
         }
     }
 
-    fn collect_report(&mut self, report: &crate::position::ExecutionReport) {
-        dbg!(report.closed_trades.len());
-        for trade in &report.closed_trades {
-            self.trades.push(StrategyTrade::from(trade));
-        }
+    fn collect_report(&mut self, report: &ExecutionReport) {
+        self.analytics.absorb_execution_report(report);
     }
 
     async fn process_immediate_stop_checks(&mut self) -> Result<(), StrategyExecutionError> {
@@ -615,23 +552,6 @@ impl<'a> IndicatorComputationPlan<'a> {
 
     fn formula(&self, alias: &str) -> Option<&FormulaDefinition> {
         self.formulas.get(alias)
-    }
-}
-
-impl From<&ClosedTrade> for StrategyTrade {
-    fn from(trade: &ClosedTrade) -> Self {
-        StrategyTrade {
-            position_id: trade.position_id.clone(),
-            symbol: trade.symbol.clone(),
-            timeframe: trade.timeframe.clone(),
-            direction: trade.direction.clone(),
-            quantity: trade.quantity,
-            entry_price: trade.entry_price,
-            exit_price: trade.exit_price,
-            entry_time: trade.entry_time.clone(),
-            exit_time: trade.exit_time.clone(),
-            pnl: trade.pnl,
-        }
     }
 }
 

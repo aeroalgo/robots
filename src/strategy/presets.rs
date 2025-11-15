@@ -103,6 +103,8 @@ fn sma_crossover_definition() -> StrategyDefinition {
         direction: PositionDirection::Long,
         quantity: None,
         tags: vec!["core".to_string()],
+        position_group: Some("enter_long".to_string()),
+        target_entry_ids: Vec::new(),
     }];
 
     let exit_rules = vec![StrategyRuleSpec {
@@ -114,6 +116,8 @@ fn sma_crossover_definition() -> StrategyDefinition {
         direction: PositionDirection::Long,
         quantity: None,
         tags: vec!["core".to_string()],
+        position_group: None,
+        target_entry_ids: vec!["enter_long".to_string()],
     }];
 
     let mut stop_loss_params = StrategyParameterMap::new();
@@ -131,6 +135,7 @@ fn sma_crossover_definition() -> StrategyDefinition {
             direction: PositionDirection::Long,
             priority: 10,
             tags: vec!["stop".to_string(), "risk".to_string()],
+            target_entry_ids: vec!["enter_long".to_string()],
         },
         StopHandlerSpec {
             id: "take_profit_pct".to_string(),
@@ -142,6 +147,7 @@ fn sma_crossover_definition() -> StrategyDefinition {
             direction: PositionDirection::Long,
             priority: 20,
             tags: vec!["stop".to_string(), "target".to_string()],
+            target_entry_ids: vec!["enter_long".to_string()],
         },
     ];
 
