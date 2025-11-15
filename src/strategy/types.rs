@@ -436,6 +436,7 @@ pub struct StrategySignal {
     pub strength: SignalStrength,
     pub trend: TrendDirection,
     pub quantity: Option<f64>,
+    pub entry_rule_id: Option<String>,
     pub tags: Vec<String>,
     pub position_group: Option<String>,
     pub target_entry_ids: Vec<String>,

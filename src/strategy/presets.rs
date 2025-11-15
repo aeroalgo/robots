@@ -19,6 +19,7 @@ fn sma_crossover_definition() -> StrategyDefinition {
 
     let fast_alias = "fast_sma".to_string();
     let slow_alias = "slow_sma".to_string();
+    let trend_alias = "trend_sma".to_string();
 
     let mut indicator_bindings = vec![
         IndicatorBindingSpec {
@@ -38,6 +39,15 @@ fn sma_crossover_definition() -> StrategyDefinition {
                 parameters: HashMap::from([("period".to_string(), 30.0)]),
             },
             tags: vec!["trend".to_string(), "filter".to_string()],
+        },
+        IndicatorBindingSpec {
+            alias: trend_alias.clone(),
+            timeframe: timeframe.clone(),
+            source: IndicatorSourceSpec::Registry {
+                name: "SMA".to_string(),
+                parameters: HashMap::from([("period".to_string(), 40.0)]),
+            },
+            tags: vec!["trend".to_string(), "confirmation".to_string()],
         },
     ];
 
@@ -60,6 +70,14 @@ fn sma_crossover_definition() -> StrategyDefinition {
         },
         secondary: DataSeriesSource::Indicator {
             alias: slow_alias.clone(),
+        },
+    };
+    let trend_dual_input = ConditionInputSpec::Dual {
+        primary: DataSeriesSource::Indicator {
+            alias: fast_alias.clone(),
+        },
+        secondary: DataSeriesSource::Indicator {
+            alias: trend_alias.clone(),
         },
     };
 
@@ -92,38 +110,98 @@ fn sma_crossover_definition() -> StrategyDefinition {
             tags: vec!["exit".to_string()],
             user_formula: None,
         },
+        ConditionBindingSpec {
+            id: "fast_cross_above_trend".to_string(),
+            name: "Fast SMA crosses above trend".to_string(),
+            timeframe: timeframe.clone(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::CrossesAbove,
+                &trend_dual_input,
+            ),
+            parameters: HashMap::new(),
+            input: trend_dual_input.clone(),
+            weight: 1.0,
+            tags: vec!["entry".to_string(), "trend".to_string()],
+            user_formula: None,
+        },
+        ConditionBindingSpec {
+            id: "fast_cross_below_trend".to_string(),
+            name: "Fast SMA crosses below trend".to_string(),
+            timeframe: timeframe.clone(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::CrossesBelow,
+                &trend_dual_input,
+            ),
+            parameters: HashMap::new(),
+            input: trend_dual_input,
+            weight: 1.0,
+            tags: vec!["exit".to_string(), "trend".to_string()],
+            user_formula: None,
+        },
     ];
 
-    let entry_rules = vec![StrategyRuleSpec {
-        id: "enter_long".to_string(),
-        name: "Enter long".to_string(),
-        logic: super::types::RuleLogic::All,
-        conditions: vec!["fast_cross_above".to_string()],
-        signal: StrategySignalType::Entry,
-        direction: PositionDirection::Long,
-        quantity: None,
-        tags: vec!["core".to_string()],
-        position_group: Some("enter_long".to_string()),
-        target_entry_ids: Vec::new(),
-    }];
+    let entry_rules = vec![
+        StrategyRuleSpec {
+            id: "enter_long".to_string(),
+            name: "Enter long".to_string(),
+            logic: super::types::RuleLogic::All,
+            conditions: vec!["fast_cross_above".to_string()],
+            signal: StrategySignalType::Entry,
+            direction: PositionDirection::Long,
+            quantity: None,
+            tags: vec!["core".to_string()],
+            position_group: Some("enter_long".to_string()),
+            target_entry_ids: Vec::new(),
+        },
+        StrategyRuleSpec {
+            id: "enter_long_trend".to_string(),
+            name: "Enter long trend".to_string(),
+            logic: super::types::RuleLogic::All,
+            conditions: vec!["fast_cross_above_trend".to_string()],
+            signal: StrategySignalType::Entry,
+            direction: PositionDirection::Long,
+            quantity: None,
+            tags: vec!["trend".to_string()],
+            position_group: Some("enter_long_trend".to_string()),
+            target_entry_ids: Vec::new(),
+        },
+    ];
 
-    let exit_rules = vec![StrategyRuleSpec {
-        id: "exit_long".to_string(),
-        name: "Exit long".to_string(),
-        logic: super::types::RuleLogic::All,
-        conditions: vec!["fast_cross_below".to_string()],
-        signal: StrategySignalType::Exit,
-        direction: PositionDirection::Long,
-        quantity: None,
-        tags: vec!["core".to_string()],
-        position_group: None,
-        target_entry_ids: vec!["enter_long".to_string()],
-    }];
+    let exit_rules = vec![
+        StrategyRuleSpec {
+            id: "exit_long".to_string(),
+            name: "Exit long".to_string(),
+            logic: super::types::RuleLogic::All,
+            conditions: vec!["fast_cross_below".to_string()],
+            signal: StrategySignalType::Exit,
+            direction: PositionDirection::Long,
+            quantity: None,
+            tags: vec!["core".to_string()],
+            position_group: None,
+            target_entry_ids: vec!["enter_long".to_string()],
+        },
+        StrategyRuleSpec {
+            id: "exit_long_trend".to_string(),
+            name: "Exit long trend".to_string(),
+            logic: super::types::RuleLogic::All,
+            conditions: vec!["fast_cross_below_trend".to_string()],
+            signal: StrategySignalType::Exit,
+            direction: PositionDirection::Long,
+            quantity: None,
+            tags: vec!["trend".to_string()],
+            position_group: None,
+            target_entry_ids: vec!["enter_long_trend".to_string()],
+        },
+    ];
 
     let mut stop_loss_params = StrategyParameterMap::new();
     stop_loss_params.insert("percentage".to_string(), StrategyParamValue::Number(0.5));
     let mut take_profit_params = StrategyParameterMap::new();
     take_profit_params.insert("percentage".to_string(), StrategyParamValue::Number(0.8));
+    let mut trend_stop_loss_params = StrategyParameterMap::new();
+    trend_stop_loss_params.insert("percentage".to_string(), StrategyParamValue::Number(0.7));
+    let mut trend_take_profit_params = StrategyParameterMap::new();
+    trend_take_profit_params.insert("percentage".to_string(), StrategyParamValue::Number(1.2));
     let stop_handlers = vec![
         StopHandlerSpec {
             id: "stop_loss_pct".to_string(),
@@ -149,6 +227,30 @@ fn sma_crossover_definition() -> StrategyDefinition {
             tags: vec!["stop".to_string(), "target".to_string()],
             target_entry_ids: vec!["enter_long".to_string()],
         },
+        StopHandlerSpec {
+            id: "stop_loss_pct_trend".to_string(),
+            name: "Stop Loss Pct Trend".to_string(),
+            handler_name: "StopLossPct".to_string(),
+            timeframe: timeframe.clone(),
+            price_field: PriceField::Close,
+            parameters: trend_stop_loss_params,
+            direction: PositionDirection::Long,
+            priority: 15,
+            tags: vec!["stop".to_string(), "trend".to_string()],
+            target_entry_ids: vec!["enter_long_trend".to_string()],
+        },
+        StopHandlerSpec {
+            id: "take_profit_pct_trend".to_string(),
+            name: "Take Profit Pct Trend".to_string(),
+            handler_name: "TakeProfitPct".to_string(),
+            timeframe: timeframe.clone(),
+            price_field: PriceField::Close,
+            parameters: trend_take_profit_params,
+            direction: PositionDirection::Long,
+            priority: 25,
+            tags: vec!["stop".to_string(), "trend".to_string()],
+            target_entry_ids: vec!["enter_long_trend".to_string()],
+        },
     ];
 
     let timeframe_requirements = vec![
@@ -158,6 +260,10 @@ fn sma_crossover_definition() -> StrategyDefinition {
         },
         TimeframeRequirement {
             alias: slow_alias.clone(),
+            timeframe: timeframe.clone(),
+        },
+        TimeframeRequirement {
+            alias: trend_alias.clone(),
             timeframe: timeframe.clone(),
         },
     ];

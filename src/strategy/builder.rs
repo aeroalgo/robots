@@ -120,6 +120,7 @@ impl DynamicStrategy {
         rule: &StrategyRuleSpec,
         evaluations: &HashMap<String, ConditionEvaluation>,
         condition_lookup: &HashMap<String, &PreparedCondition>,
+        context: &StrategyContext,
     ) -> Result<Option<StrategySignal>, StrategyError> {
         if rule.conditions.is_empty() {
             return Err(StrategyError::DefinitionError(format!(
@@ -190,6 +191,7 @@ impl DynamicStrategy {
             strength,
             trend,
             quantity: rule.quantity,
+            entry_rule_id: None,
             tags: rule.tags.clone(),
             position_group: None,
             target_entry_ids: Vec::new(),
@@ -197,11 +199,17 @@ impl DynamicStrategy {
         match signal.signal_type {
             StrategySignalType::Entry => {
                 signal.position_group = Some(rule.position_group_key());
+                signal.entry_rule_id = Some(rule.id.clone());
             }
             StrategySignalType::Exit => {
                 signal.target_entry_ids = rule.target_entry_ids.clone();
             }
             StrategySignalType::Custom(_) => {}
+        }
+        if matches!(signal.signal_type, StrategySignalType::Entry)
+            && self.entry_rule_already_open(context, &signal)
+        {
+            return Ok(None);
         }
         Ok(Some(signal))
     }
@@ -258,9 +266,21 @@ impl DynamicStrategy {
                     continue;
                 }
                 if !handler.target_entry_ids.is_empty() {
-                    match position.position_group.as_ref() {
-                        Some(group) if handler.target_entry_ids.iter().any(|id| id == group) => {}
-                        _ => continue,
+                    let mut matches_target = false;
+                    if let Some(group) = position.position_group.as_ref() {
+                        if handler.target_entry_ids.iter().any(|id| id == group) {
+                            matches_target = true;
+                        }
+                    }
+                    if !matches_target {
+                        if let Some(entry_id) = position.entry_rule_id.as_ref() {
+                            if handler.target_entry_ids.iter().any(|id| id == entry_id) {
+                                matches_target = true;
+                            }
+                        }
+                    }
+                    if !matches_target {
+                        continue;
                     }
                 }
                 let eval_ctx = StopEvaluationContext {
@@ -279,14 +299,19 @@ impl DynamicStrategy {
                         strength: SignalStrength::VeryStrong,
                         trend: TrendDirection::Sideways,
                         quantity: Some(position.quantity),
+                        entry_rule_id: position.entry_rule_id.clone(),
                         tags: handler.tags.clone(),
                         position_group: None,
-                        target_entry_ids: position
-                            .position_group
-                            .as_ref()
-                            .map(|group| vec![group.clone()])
-                            .unwrap_or_default(),
+                        target_entry_ids: Vec::new(),
                     };
+                    if let Some(group) = position.position_group.as_ref() {
+                        signal.target_entry_ids.push(group.clone());
+                    }
+                    if let Some(entry_id) = position.entry_rule_id.as_ref() {
+                        if !signal.target_entry_ids.iter().any(|id| id == entry_id) {
+                            signal.target_entry_ids.push(entry_id.clone());
+                        }
+                    }
                     if !signal.tags.iter().any(|tag| tag == "stop") {
                         signal.tags.push("stop".to_string());
                     }
@@ -320,6 +345,22 @@ impl DynamicStrategy {
             PositionDirection::Short => matches!(position_direction, PositionDirection::Short),
             PositionDirection::Flat => false,
         }
+    }
+
+    fn entry_rule_already_open(&self, context: &StrategyContext, signal: &StrategySignal) -> bool {
+        let entry_rule_id = signal
+            .entry_rule_id
+            .as_deref()
+            .unwrap_or_else(|| signal.rule_id.as_str());
+        context.active_positions().values().any(|position| {
+            position.timeframe == signal.timeframe
+                && position.direction == signal.direction
+                && position
+                    .entry_rule_id
+                    .as_deref()
+                    .map(|id| id == entry_rule_id)
+                    .unwrap_or(false)
+        })
     }
 }
 
@@ -374,7 +415,9 @@ impl Strategy for DynamicStrategy {
             );
         }
         for rule in &self.entry_rules {
-            if let Some(signal) = self.evaluate_rule(rule, &evaluations, &condition_lookup)? {
+            if let Some(signal) =
+                self.evaluate_rule(rule, &evaluations, &condition_lookup, context)?
+            {
                 match signal.signal_type {
                     StrategySignalType::Entry => decision.entries.push(signal),
                     StrategySignalType::Exit => decision.exits.push(signal),
@@ -383,7 +426,9 @@ impl Strategy for DynamicStrategy {
             }
         }
         for rule in &self.exit_rules {
-            if let Some(signal) = self.evaluate_rule(rule, &evaluations, &condition_lookup)? {
+            if let Some(signal) =
+                self.evaluate_rule(rule, &evaluations, &condition_lookup, context)?
+            {
                 match signal.signal_type {
                     StrategySignalType::Entry => decision.entries.push(signal),
                     StrategySignalType::Exit => decision.exits.push(signal),

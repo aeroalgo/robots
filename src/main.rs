@@ -30,7 +30,7 @@ async fn run() -> Result<()> {
 
     let symbol = Symbol::from_descriptor("AFLT.MM");
     let timeframe = TimeFrame::from_identifier("60");
-    let start = Utc::now() - chrono::Duration::days(91);
+    let start = Utc::now() - chrono::Duration::days(92);
     let end = Utc::now() + chrono::Duration::hours(3);
 
     let candles = connector
@@ -102,15 +102,19 @@ async fn run() -> Result<()> {
                 .exit_time
                 .map(|ts| ts.to_rfc3339())
                 .unwrap_or_else(|| "n/a".to_string());
+            let entry_rule = trade.entry_rule_id.as_deref().unwrap_or("n/a");
+            let exit_rule = trade.exit_rule_id.as_deref().unwrap_or("n/a");
             println!(
-                "- {:?} qty {:.2} вход {:.2} ({}) выход {:.2} ({}) pnl {:.2}",
+                "- {:?} qty {:.2} вход {:.2} ({}) выход {:.2} ({}) pnl {:.2} [entry_rule: {} | exit_rule: {}]",
                 trade.direction,
                 trade.quantity,
                 trade.entry_price,
                 entry_time,
                 trade.exit_price,
                 exit_time,
-                trade.pnl
+                trade.pnl,
+                entry_rule,
+                exit_rule
             );
         }
     }

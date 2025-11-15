@@ -21,6 +21,7 @@ pub struct PositionKey {
     pub timeframe: TimeFrame,
     pub direction: PositionDirection,
     pub position_group: Option<String>,
+    pub entry_rule_id: Option<String>,
 }
 
 impl PositionKey {
@@ -29,12 +30,14 @@ impl PositionKey {
         timeframe: TimeFrame,
         direction: PositionDirection,
         position_group: Option<String>,
+        entry_rule_id: Option<String>,
     ) -> Self {
         Self {
             symbol,
             timeframe,
             direction,
             position_group,
+            entry_rule_id,
         }
     }
 
@@ -50,23 +53,39 @@ impl PositionKey {
 
 impl fmt::Display for PositionKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(group) = &self.position_group {
-            write!(
+        match (&self.position_group, &self.entry_rule_id) {
+            (Some(group), Some(entry)) => write!(
                 f,
-                "{}@{}:{:?}[{}]",
+                "{}@{}:{:?}[group={} entry={}]",
+                self.symbol.descriptor(),
+                self.timeframe.identifier(),
+                self.direction,
+                group,
+                entry
+            ),
+            (Some(group), None) => write!(
+                f,
+                "{}@{}:{:?}[group={}]",
                 self.symbol.descriptor(),
                 self.timeframe.identifier(),
                 self.direction,
                 group
-            )
-        } else {
-            write!(
+            ),
+            (None, Some(entry)) => write!(
+                f,
+                "{}@{}:{:?}[entry={}]",
+                self.symbol.descriptor(),
+                self.timeframe.identifier(),
+                self.direction,
+                entry
+            ),
+            (None, None) => write!(
                 f,
                 "{}@{}:{:?}",
                 self.symbol.descriptor(),
                 self.timeframe.identifier(),
                 self.direction
-            )
+            ),
         }
     }
 }
@@ -150,6 +169,8 @@ pub struct ClosedTrade {
     pub entry_time: Option<DateTime<Utc>>,
     pub exit_time: Option<DateTime<Utc>>,
     pub pnl: f64,
+    pub entry_rule_id: Option<String>,
+    pub exit_rule_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -318,6 +339,11 @@ impl PositionManager {
             .position_group
             .clone()
             .or_else(|| Some(signal.rule_id.clone()));
+        let entry_rule_value = signal
+            .entry_rule_id
+            .clone()
+            .unwrap_or_else(|| signal.rule_id.clone());
+        let entry_rule_id = Some(entry_rule_value.clone());
         if let Some(opposite_direction) = opposite_direction(&direction) {
             let opposite_positions: Vec<String> = self
                 .open_index
@@ -340,6 +366,7 @@ impl PositionManager {
                     close_qty,
                     info.timestamp,
                     Some("reversal".to_string()),
+                    Some(signal.rule_id.clone()),
                     report,
                 )
                 .await?;
@@ -350,14 +377,13 @@ impl PositionManager {
             info.timeframe.clone(),
             direction.clone(),
             position_group,
+            entry_rule_id,
         );
-        if let Some(existing_id) = self.open_index.get(&key).cloned() {
-            self.scale_position(existing_id, quantity, info.price, signal, report)
-                .await?
-        } else {
-            self.open_new_position(key, quantity, info.price, info.timestamp, signal, report)
-                .await?
+        if self.open_index.contains_key(&key) {
+            return Ok(());
         }
+        self.open_new_position(key, quantity, info.price, info.timestamp, signal, report)
+            .await?;
         Ok(())
     }
 
@@ -396,9 +422,21 @@ impl PositionManager {
                 continue;
             }
             if let Some(groups) = &target_groups {
-                match key.position_group.as_ref() {
-                    Some(group) if groups.contains(group) => {}
-                    _ => continue,
+                let mut matches_target = false;
+                if let Some(group) = key.position_group.as_ref() {
+                    if groups.contains(group) {
+                        matches_target = true;
+                    }
+                }
+                if !matches_target {
+                    if let Some(entry_id) = key.entry_rule_id.as_ref() {
+                        if groups.contains(entry_id) {
+                            matches_target = true;
+                        }
+                    }
+                }
+                if !matches_target {
+                    continue;
                 }
             }
             targets.push(position_id.clone());
@@ -423,12 +461,15 @@ impl PositionManager {
             if quantity.abs() <= f64::EPSILON {
                 continue;
             }
+            let reason_label = reason.clone().unwrap_or_else(|| "exit".to_string());
+            let reason_with_rule = format!("{} via {}", reason_label, signal.rule_id);
             self.close_position(
                 position_id,
                 info.price,
                 quantity,
                 info.timestamp,
-                reason.clone(),
+                Some(reason_with_rule),
+                Some(signal.rule_id.clone()),
                 report,
             )
             .await?;
@@ -449,7 +490,11 @@ impl PositionManager {
         let position_id = self.next_id("pos");
         let event_time = timestamp.unwrap_or_else(Utc::now);
         let mut metadata = HashMap::new();
-        metadata.insert("entry_rule".to_string(), signal.rule_id.clone());
+        let entry_rule_value = signal
+            .entry_rule_id
+            .clone()
+            .unwrap_or_else(|| signal.rule_id.clone());
+        metadata.insert("entry_rule".to_string(), entry_rule_value.clone());
         let state = PositionState {
             id: position_id.clone(),
             key: key.clone(),
@@ -498,6 +543,10 @@ impl PositionManager {
         let new_quantity = state.quantity + quantity;
         if new_quantity <= f64::EPSILON {
             drop(state);
+            let exit_rule = signal
+                .entry_rule_id
+                .clone()
+                .or_else(|| Some(signal.rule_id.clone()));
             return self
                 .close_position(
                     position_id,
@@ -505,6 +554,7 @@ impl PositionManager {
                     quantity.abs(),
                     None,
                     Some("scale_to_flat".to_string()),
+                    exit_rule,
                     report,
                 )
                 .await;
@@ -541,6 +591,7 @@ impl PositionManager {
         quantity: f64,
         timestamp: Option<DateTime<Utc>>,
         reason: Option<String>,
+        exit_rule_id: Option<String>,
         report: &mut ExecutionReport,
     ) -> Result<(), PositionError> {
         if quantity.abs() <= f64::EPSILON {
@@ -576,6 +627,11 @@ impl PositionManager {
                 .metadata
                 .insert("close_reason".to_string(), reason_value);
         }
+        if let Some(rule_id) = exit_rule_id.as_ref() {
+            state
+                .metadata
+                .insert("close_rule".to_string(), rule_id.clone());
+        }
         let snapshot = state.clone();
         if snapshot.status == PositionStatus::Closed {
             self.open_index.remove(&snapshot.key);
@@ -593,6 +649,8 @@ impl PositionManager {
             entry_time: Some(snapshot.opened_at),
             exit_time: Some(event_time),
             pnl,
+            entry_rule_id: snapshot.key.entry_rule_id.clone(),
+            exit_rule_id: exit_rule_id.clone(),
         };
         let order = self.build_order(&position_id, &snapshot.key, exit_quantity, price);
         self.orders.insert(order.id.clone(), order.clone());
@@ -693,6 +751,7 @@ impl PositionManager {
                 metadata: state.metadata.clone(),
                 insights: PositionInsights::default(),
                 position_group: state.key.position_group.clone(),
+                entry_rule_id: state.key.entry_rule_id.clone(),
             })
             .collect();
         PositionBook::new(entries)
@@ -868,7 +927,10 @@ mod tests {
             strength: SignalStrength::Strong,
             trend: TrendDirection::Rising,
             quantity: Some(1.0),
+            entry_rule_id: Some("enter-long".to_string()),
             tags: Vec::new(),
+            position_group: Some("enter-long".to_string()),
+            target_entry_ids: Vec::new(),
         }
     }
 
@@ -881,7 +943,10 @@ mod tests {
             strength: SignalStrength::Strong,
             trend: TrendDirection::Falling,
             quantity: Some(1.0),
+            entry_rule_id: None,
             tags: Vec::new(),
+            position_group: None,
+            target_entry_ids: vec!["enter-long".to_string()],
         }
     }
 

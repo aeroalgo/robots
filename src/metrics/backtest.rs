@@ -15,6 +15,8 @@ pub struct StrategyTrade {
     pub entry_time: Option<DateTime<Utc>>,
     pub exit_time: Option<DateTime<Utc>>,
     pub pnl: f64,
+    pub entry_rule_id: Option<String>,
+    pub exit_rule_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -122,6 +124,8 @@ impl From<&ClosedTrade> for StrategyTrade {
             entry_time: trade.entry_time.clone(),
             exit_time: trade.exit_time.clone(),
             pnl: trade.pnl,
+            entry_rule_id: trade.entry_rule_id.clone(),
+            exit_rule_id: trade.exit_rule_id.clone(),
         }
     }
 }
