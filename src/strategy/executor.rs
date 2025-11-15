@@ -652,6 +652,8 @@ mod tests {
                     trend: TrendDirection::Rising,
                     quantity: Some(1.0),
                     tags: Vec::new(),
+                    position_group: Some("enter".to_string()),
+                    target_entry_ids: Vec::new(),
                 };
                 decision.entries.push(signal);
             } else if series_len > 0 && idx + 1 == series_len {
@@ -664,6 +666,8 @@ mod tests {
                     trend: TrendDirection::Falling,
                     quantity: Some(1.0),
                     tags: Vec::new(),
+                    position_group: None,
+                    target_entry_ids: vec!["enter".to_string()],
                 };
                 decision.exits.push(signal);
             }

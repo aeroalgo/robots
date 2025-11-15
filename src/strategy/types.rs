@@ -85,6 +85,7 @@ pub struct StopHandlerSpec {
     pub direction: PositionDirection,
     pub priority: i32,
     pub tags: Vec<String>,
+    pub target_entry_ids: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -97,6 +98,7 @@ pub struct PreparedStopHandler {
     pub direction: PositionDirection,
     pub priority: i32,
     pub tags: Vec<String>,
+    pub target_entry_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -317,6 +319,16 @@ pub struct StrategyRuleSpec {
     pub direction: PositionDirection,
     pub quantity: Option<f64>,
     pub tags: Vec<String>,
+    pub position_group: Option<String>,
+    pub target_entry_ids: Vec<String>,
+}
+
+impl StrategyRuleSpec {
+    pub fn position_group_key(&self) -> String {
+        self.position_group
+            .clone()
+            .unwrap_or_else(|| self.id.clone())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -425,6 +437,8 @@ pub struct StrategySignal {
     pub trend: TrendDirection,
     pub quantity: Option<f64>,
     pub tags: Vec<String>,
+    pub position_group: Option<String>,
+    pub target_entry_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug)]

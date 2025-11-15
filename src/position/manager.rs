@@ -20,27 +20,54 @@ pub struct PositionKey {
     pub symbol: Symbol,
     pub timeframe: TimeFrame,
     pub direction: PositionDirection,
+    pub position_group: Option<String>,
 }
 
 impl PositionKey {
-    pub fn new(symbol: Symbol, timeframe: TimeFrame, direction: PositionDirection) -> Self {
+    pub fn new(
+        symbol: Symbol,
+        timeframe: TimeFrame,
+        direction: PositionDirection,
+        position_group: Option<String>,
+    ) -> Self {
         Self {
             symbol,
             timeframe,
             direction,
+            position_group,
         }
+    }
+
+    pub fn matches(
+        &self,
+        symbol: &Symbol,
+        timeframe: &TimeFrame,
+        direction: &PositionDirection,
+    ) -> bool {
+        &self.symbol == symbol && &self.timeframe == timeframe && &self.direction == direction
     }
 }
 
 impl fmt::Display for PositionKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}@{}:{:?}",
-            self.symbol.descriptor(),
-            self.timeframe.identifier(),
-            self.direction
-        )
+        if let Some(group) = &self.position_group {
+            write!(
+                f,
+                "{}@{}:{:?}[{}]",
+                self.symbol.descriptor(),
+                self.timeframe.identifier(),
+                self.direction,
+                group
+            )
+        } else {
+            write!(
+                f,
+                "{}@{}:{:?}",
+                self.symbol.descriptor(),
+                self.timeframe.identifier(),
+                self.direction
+            )
+        }
     }
 }
 
@@ -287,17 +314,30 @@ impl PositionManager {
             Some(snapshot) => snapshot,
             None => return Ok(()),
         };
+        let position_group = signal
+            .position_group
+            .clone()
+            .or_else(|| Some(signal.rule_id.clone()));
         if let Some(opposite_direction) = opposite_direction(&direction) {
-            let opposite_key = PositionKey::new(
-                info.symbol.clone(),
-                info.timeframe.clone(),
-                opposite_direction.clone(),
-            );
-            if let Some(opposite_id) = self.open_index.get(&opposite_key).cloned() {
+            let opposite_positions: Vec<String> = self
+                .open_index
+                .iter()
+                .filter(|(key, _)| key.matches(&info.symbol, &info.timeframe, &opposite_direction))
+                .map(|(_, id)| id.clone())
+                .collect();
+            for opposite_id in opposite_positions {
+                let close_qty = self
+                    .positions
+                    .get(&opposite_id)
+                    .map(|state| state.quantity)
+                    .unwrap_or(0.0);
+                if close_qty.abs() <= f64::EPSILON {
+                    continue;
+                }
                 self.close_position(
                     opposite_id,
                     info.price,
-                    quantity,
+                    close_qty,
                     info.timestamp,
                     Some("reversal".to_string()),
                     report,
@@ -309,6 +349,7 @@ impl PositionManager {
             info.symbol.clone(),
             info.timeframe.clone(),
             direction.clone(),
+            position_group,
         );
         if let Some(existing_id) = self.open_index.get(&key).cloned() {
             self.scale_position(existing_id, quantity, info.price, signal, report)
@@ -338,36 +379,61 @@ impl PositionManager {
             }
         };
         let info = Self::resolve_market_snapshot(context, &signal.timeframe, price_hint)?;
-        let key = PositionKey::new(
-            info.symbol.clone(),
-            info.timeframe.clone(),
-            direction.clone(),
-        );
-        let position_id = match self.open_index.get(&key).cloned() {
-            Some(id) => id,
-            None => {
-                dbg!("no_position_for_exit", &key);
-                return Ok(());
-            }
+        let target_groups = if signal.target_entry_ids.is_empty() {
+            None
+        } else {
+            Some(
+                signal
+                    .target_entry_ids
+                    .iter()
+                    .cloned()
+                    .collect::<std::collections::HashSet<_>>(),
+            )
         };
-        let quantity = signal.quantity.unwrap_or_else(|| {
-            self.positions
-                .get(&position_id)
-                .map(|state| state.quantity)
-                .unwrap_or(0.0)
-        });
-        if quantity.abs() <= f64::EPSILON {
+        let mut targets = Vec::new();
+        for (key, position_id) in &self.open_index {
+            if !key.matches(&info.symbol, &info.timeframe, &direction) {
+                continue;
+            }
+            if let Some(groups) = &target_groups {
+                match key.position_group.as_ref() {
+                    Some(group) if groups.contains(group) => {}
+                    _ => continue,
+                }
+            }
+            targets.push(position_id.clone());
+        }
+        if targets.is_empty() {
+            dbg!(
+                "no_position_for_exit",
+                &info.symbol,
+                &info.timeframe,
+                &direction,
+                &target_groups
+            );
             return Ok(());
         }
-        self.close_position(
-            position_id,
-            info.price,
-            quantity,
-            info.timestamp,
-            reason,
-            report,
-        )
-        .await
+        for position_id in targets {
+            let quantity = signal.quantity.unwrap_or_else(|| {
+                self.positions
+                    .get(&position_id)
+                    .map(|state| state.quantity)
+                    .unwrap_or(0.0)
+            });
+            if quantity.abs() <= f64::EPSILON {
+                continue;
+            }
+            self.close_position(
+                position_id,
+                info.price,
+                quantity,
+                info.timestamp,
+                reason.clone(),
+                report,
+            )
+            .await?;
+        }
+        Ok(())
     }
 
     async fn open_new_position(
@@ -626,6 +692,7 @@ impl PositionManager {
                 last_price: Some(state.current_price),
                 metadata: state.metadata.clone(),
                 insights: PositionInsights::default(),
+                position_group: state.key.position_group.clone(),
             })
             .collect();
         PositionBook::new(entries)

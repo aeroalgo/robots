@@ -25,6 +25,7 @@ pub struct ActivePosition {
     pub last_price: Option<f64>,
     pub metadata: HashMap<String, String>,
     pub insights: PositionInsights,
+    pub position_group: Option<String>,
 }
 
 impl ActivePosition {
@@ -35,6 +36,7 @@ impl ActivePosition {
         direction: PositionDirection,
         entry_price: f64,
         quantity: f64,
+        position_group: Option<String>,
     ) -> Self {
         Self {
             id: id.into(),
@@ -47,6 +49,7 @@ impl ActivePosition {
             last_price: None,
             metadata: HashMap::new(),
             insights: PositionInsights::default(),
+            position_group,
         }
     }
 }

@@ -182,7 +182,7 @@ impl DynamicStrategy {
                     .map(|req| req.timeframe.clone())
                     .unwrap_or_else(|| crate::data_model::types::TimeFrame::Minutes(1))
             });
-        let signal = StrategySignal {
+        let mut signal = StrategySignal {
             rule_id: rule.id.clone(),
             signal_type: rule.signal.clone(),
             direction: rule.direction.clone(),
@@ -191,7 +191,18 @@ impl DynamicStrategy {
             trend,
             quantity: rule.quantity,
             tags: rule.tags.clone(),
+            position_group: None,
+            target_entry_ids: Vec::new(),
         };
+        match signal.signal_type {
+            StrategySignalType::Entry => {
+                signal.position_group = Some(rule.position_group_key());
+            }
+            StrategySignalType::Exit => {
+                signal.target_entry_ids = rule.target_entry_ids.clone();
+            }
+            StrategySignalType::Custom(_) => {}
+        }
         Ok(Some(signal))
     }
 
@@ -223,13 +234,10 @@ impl DynamicStrategy {
         context: &StrategyContext,
     ) -> Result<Vec<StopSignal>, StrategyError> {
         let mut signals = Vec::new();
-        let Some(position) = context.active_position() else {
+        if context.active_positions().is_empty() {
             return Ok(signals);
-        };
+        }
         for handler in &self.stop_handlers {
-            if !self.stop_direction_matches(&handler.direction, &position.direction) {
-                continue;
-            }
             let timeframe_data = context.timeframe(&handler.timeframe)?;
             let series = timeframe_data
                 .price_series_slice(&handler.price_field)
@@ -240,45 +248,64 @@ impl DynamicStrategy {
             if series.is_empty() {
                 continue;
             }
-            let index = timeframe_data.index().min(series.len() - 1);
+            let index = timeframe_data.index().min(series.len().saturating_sub(1));
             let current_price = series[index] as f64;
-            let eval_ctx = StopEvaluationContext {
-                position,
-                timeframe_data,
-                price_field: handler.price_field.clone(),
-                index,
-                current_price,
-            };
-            if let Some(mut outcome) = handler.handler.evaluate(&eval_ctx) {
-                let mut signal = StrategySignal {
-                    rule_id: handler.id.clone(),
-                    signal_type: StrategySignalType::Exit,
-                    direction: position.direction.clone(),
-                    timeframe: handler.timeframe.clone(),
-                    strength: SignalStrength::VeryStrong,
-                    trend: TrendDirection::Sideways,
-                    quantity: Some(position.quantity),
-                    tags: handler.tags.clone(),
-                };
-                if !signal.tags.iter().any(|tag| tag == "stop") {
-                    signal.tags.push("stop".to_string());
+            for position in context.active_positions().values() {
+                if position.timeframe != handler.timeframe {
+                    continue;
                 }
-                let mut metadata = outcome.metadata;
-                metadata.insert("handler_name".to_string(), handler.name.clone());
-                signals.push(StopSignal {
-                    handler_id: handler.id.clone(),
-                    signal,
-                    exit_price: outcome.exit_price,
-                    kind: outcome.kind,
-                    priority: handler.priority,
-                    metadata,
-                });
+                if !self.stop_direction_matches(&handler.direction, &position.direction) {
+                    continue;
+                }
+                if !handler.target_entry_ids.is_empty() {
+                    match position.position_group.as_ref() {
+                        Some(group) if handler.target_entry_ids.iter().any(|id| id == group) => {}
+                        _ => continue,
+                    }
+                }
+                let eval_ctx = StopEvaluationContext {
+                    position,
+                    timeframe_data,
+                    price_field: handler.price_field.clone(),
+                    index,
+                    current_price,
+                };
+                if let Some(outcome) = handler.handler.evaluate(&eval_ctx) {
+                    let mut signal = StrategySignal {
+                        rule_id: handler.id.clone(),
+                        signal_type: StrategySignalType::Exit,
+                        direction: position.direction.clone(),
+                        timeframe: handler.timeframe.clone(),
+                        strength: SignalStrength::VeryStrong,
+                        trend: TrendDirection::Sideways,
+                        quantity: Some(position.quantity),
+                        tags: handler.tags.clone(),
+                        position_group: None,
+                        target_entry_ids: position
+                            .position_group
+                            .as_ref()
+                            .map(|group| vec![group.clone()])
+                            .unwrap_or_default(),
+                    };
+                    if !signal.tags.iter().any(|tag| tag == "stop") {
+                        signal.tags.push("stop".to_string());
+                    }
+                    let mut metadata = outcome.metadata;
+                    metadata.insert("handler_name".to_string(), handler.name.clone());
+                    signals.push(StopSignal {
+                        handler_id: handler.id.clone(),
+                        signal,
+                        exit_price: outcome.exit_price,
+                        kind: outcome.kind,
+                        priority: handler.priority,
+                        metadata,
+                    });
+                }
             }
         }
         signals.sort_by(|a, b| a.priority.cmp(&b.priority));
         Ok(signals)
     }
-
     fn stop_direction_matches(
         &self,
         handler_direction: &PositionDirection,
@@ -459,6 +486,7 @@ impl StrategyBuilder {
                 direction: handler.direction.clone(),
                 priority: handler.priority,
                 tags: handler.tags.clone(),
+                target_entry_ids: handler.target_entry_ids.clone(),
             });
         }
 
@@ -567,6 +595,8 @@ impl StrategyBuilder {
                 direction: action.direction.clone(),
                 quantity: action.quantity,
                 tags: action.tags.clone(),
+                position_group: None,
+                target_entry_ids: Vec::new(),
             };
             match action.signal {
                 StrategySignalType::Entry => entry_rules.push(rule),
