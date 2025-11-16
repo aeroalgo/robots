@@ -395,7 +395,6 @@ impl PositionManager {
         reason: Option<String>,
         report: &mut ExecutionReport,
     ) -> Result<(), PositionError> {
-        dbg!(("handle_exit_signal", &signal.rule_id));
         let direction = match signal.direction.clone() {
             PositionDirection::Long => PositionDirection::Long,
             PositionDirection::Short => PositionDirection::Short,
@@ -442,13 +441,6 @@ impl PositionManager {
             targets.push(position_id.clone());
         }
         if targets.is_empty() {
-            dbg!(
-                "no_position_for_exit",
-                &info.symbol,
-                &info.timeframe,
-                &direction,
-                &target_groups
-            );
             return Ok(());
         }
         for position_id in targets {
@@ -486,7 +478,6 @@ impl PositionManager {
         signal: &StrategySignal,
         report: &mut ExecutionReport,
     ) -> Result<(), PositionError> {
-        dbg!(("open_new_position", &key, price));
         let position_id = self.next_id("pos");
         let event_time = timestamp.unwrap_or_else(Utc::now);
         let mut metadata = HashMap::new();
@@ -846,14 +837,6 @@ impl PositionManager {
             ));
         }
         let index = data.index().min(series.len().saturating_sub(1));
-        dbg!((
-            "resolve_snapshot_price",
-            timeframe,
-            index,
-            series.get(0),
-            series.get(1),
-            series.get(2)
-        ));
         let price = price_hint.unwrap_or(f64::from(series[index]));
         let timestamp = data.timestamp_at(index);
         Ok(MarketSnapshot {

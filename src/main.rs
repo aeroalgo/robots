@@ -62,6 +62,15 @@ async fn run() -> Result<()> {
     let frame = QuoteFrame::try_from_ohlcv(candles.clone(), symbol.clone(), timeframe.clone())
         .context("Не удалось построить QuoteFrame из данных ClickHouse")?;
 
+    // Расчет индикаторов на базовом таймфрейме 60 минут для проверки
+    let close_values: Vec<f32> = frame.closes().iter().collect();
+
+    // Trend SMA (period = 40)
+    let trend_sma =
+        IndicatorFactory::create_indicator("SMA", HashMap::from([("period".to_string(), 40.0)]))?;
+    let trend_sma_values = trend_sma.calculate_simple(&close_values).await?;
+
+
     let mut frames = HashMap::new();
     frames.insert(timeframe.clone(), frame);
 
@@ -81,6 +90,8 @@ async fn run() -> Result<()> {
         "Таймфрейм: {} минут",
         timeframe.total_minutes().unwrap_or_default()
     );
+
+    let ema_timeframe = TimeFrame::minutes(240);
     println!(
         "Всего сделок: {} | PnL: {:.2} | Win rate: {:.2}% | Средняя сделка: {:.2}",
         report.metrics.total_trades,

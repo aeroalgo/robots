@@ -90,19 +90,48 @@ impl BacktestExecutor {
     }
 
     fn compute_warmup_bars(&self) -> usize {
-        let max_period = self
-            .strategy
-            .indicator_bindings()
-            .iter()
-            .filter_map(|binding| match &binding.source {
-                IndicatorSourceSpec::Registry { parameters, .. } => parameters
-                    .get("period")
-                    .map(|value| value.max(1.0).round() as usize),
-                _ => None,
-            })
-            .max()
-            .unwrap_or(0);
-        max_period.saturating_mul(2)
+        // Находим самый длинный период и его таймфрейм
+        let mut max_warmup_bars = 0usize;
+        
+        for binding in self.strategy.indicator_bindings() {
+            if let IndicatorSourceSpec::Registry { parameters, .. } = &binding.source {
+                if let Some(period) = parameters.get("period") {
+                    let period_usize = period.max(1.0).round() as usize;
+                    // Warmup = период * 2 на данном таймфрейме
+                    let warmup_on_tf = period_usize * 2;
+                    
+                    // Пересчитываем warmup в бары базового таймфрейма
+                    let warmup_base = Self::convert_warmup_to_base_timeframe(
+                        &binding.timeframe,
+                        &self.feed.primary_timeframe,
+                        warmup_on_tf,
+                    );
+                    
+                    max_warmup_bars = max_warmup_bars.max(warmup_base);
+                }
+            }
+        }
+        
+        max_warmup_bars
+    }
+
+    fn convert_warmup_to_base_timeframe(
+        indicator_tf: &TimeFrame,
+        base_tf: &TimeFrame,
+        warmup_bars: usize,
+    ) -> usize {
+        let indicator_minutes = Self::timeframe_to_minutes(indicator_tf).unwrap_or(1);
+        let base_minutes = Self::timeframe_to_minutes(base_tf).unwrap_or(1);
+        
+        if indicator_minutes >= base_minutes {
+            // Старший таймфрейм: умножаем на соотношение
+            let ratio = indicator_minutes / base_minutes;
+            warmup_bars * ratio as usize
+        } else {
+            // Младший таймфрейм: делим на соотношение
+            let ratio = base_minutes / indicator_minutes;
+            (warmup_bars + ratio as usize - 1) / ratio as usize // Округление вверх
+        }
     }
 
     pub fn from_definition(
@@ -725,7 +754,6 @@ mod tests {
                 .price_series_slice(&PriceField::Close)
                 .map(|slice| slice.len())
                 .unwrap_or(0);
-            dbg!(("evaluate", idx, series_len));
             let mut decision = StrategyDecision::empty();
             if idx == 0 {
                 let signal = StrategySignal {
@@ -794,7 +822,6 @@ mod tests {
         let strategy: Box<dyn Strategy> = Box::new(SimpleStrategy::new(timeframe.clone()));
         let mut executor = BacktestExecutor::new(strategy, frames).expect("executor creation");
         let report = executor.run_backtest().await.expect("backtest run");
-        dbg!(&report.trades);
         assert_eq!(report.trades.len(), 1);
         let trade = &report.trades[0];
         assert!((trade.pnl - 5.0).abs() < 1e-6);

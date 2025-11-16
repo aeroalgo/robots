@@ -982,9 +982,16 @@ impl Indicator for EMA {
         let mut ema_values = Vec::with_capacity(len);
 
         for (idx, &price) in data.iter().enumerate() {
-            if idx < period {
-                ema_values.push(price);
+            if idx < period - 1 {
+                // Первые period-1 значений должны быть нулями (недостаточно данных)
+                ema_values.push(0.0);
+            } else if idx == period - 1 {
+                // Первое валидное значение EMA - это SMA первых period значений
+                let sum: f32 = data[0..=idx].iter().sum();
+                let sma = sum / period as f32;
+                ema_values.push(sma);
             } else {
+                // Остальные значения рассчитываются по формуле EMA
                 let prev = ema_values[idx - 1];
                 ema_values.push(prev + multiplier * (price - prev));
             }

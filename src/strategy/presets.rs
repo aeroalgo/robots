@@ -64,6 +64,9 @@ fn sma_crossover_definition() -> StrategyDefinition {
 
     indicator_bindings.push(spread_formula.as_indicator_binding("sma_spread", timeframe.clone()));
 
+    // Период EMA остается 50, но на таймфрейме 240 минут
+    // Warmup = 50 * 2 = 100 баров на таймфрейме 240 минут
+    // Это эквивалентно 100 * 4 = 400 барам на исходном таймфрейме 60 минут
     indicator_bindings.push(IndicatorBindingSpec {
         alias: ema_alias.clone(),
         timeframe: higher_timeframe.clone(),
