@@ -6,6 +6,8 @@ use thiserror::Error;
 use crate::data_access::database::clickhouse::OhlcvData;
 use crate::indicators::OHLCData;
 
+use super::bar_builders::{BarBuilder, BarBuilderFactory, BarBuilderError};
+use super::bar_types::BarType;
 use super::quote::Quote;
 use super::types::{
     timestamp_from_millis, timestamp_to_millis, Symbol, TimeFrame, TimestampMillis,
@@ -25,6 +27,8 @@ pub enum QuoteFrameError {
     },
     #[error("quote frame is empty")]
     Empty,
+    #[error("bar builder error: {0}")]
+    BarBuilderError(String),
 }
 
 pub struct QuoteFrame {
@@ -359,6 +363,67 @@ impl<'a> IntoIterator for &'a QuoteFrame {
 
     fn into_iter(self) -> Self::IntoIter {
         self.quotes.iter()
+    }
+}
+
+impl QuoteFrame {
+    pub fn build_bar_type(
+        &self,
+        bar_type: &BarType,
+        target_timeframe: TimeFrame,
+    ) -> Result<QuoteFrame, QuoteFrameError> {
+        let mut builder = BarBuilderFactory::create_builder(
+            bar_type,
+            self.symbol.clone(),
+            target_timeframe,
+        ).map_err(|e| QuoteFrameError::BarBuilderError(e.to_string()))?;
+        builder.build_from_quotes(self).map_err(|e| QuoteFrameError::BarBuilderError(e.to_string()))
+    }
+
+    pub fn build_range_bars(
+        &self,
+        target_timeframe: TimeFrame,
+        range_size: u32,
+    ) -> Result<QuoteFrame, QuoteFrameError> {
+        let bar_type = BarType::Range { range_size };
+        self.build_bar_type(&bar_type, target_timeframe)
+    }
+
+    pub fn build_volume_bars(
+        &self,
+        target_timeframe: TimeFrame,
+        volume_size: u64,
+    ) -> Result<QuoteFrame, QuoteFrameError> {
+        let bar_type = BarType::Volume { volume_size };
+        self.build_bar_type(&bar_type, target_timeframe)
+    }
+
+    pub fn build_volatility_bars(
+        &self,
+        target_timeframe: TimeFrame,
+        volatility_threshold: u32,
+    ) -> Result<QuoteFrame, QuoteFrameError> {
+        let bar_type = BarType::Volatility {
+            volatility_threshold,
+        };
+        self.build_bar_type(&bar_type, target_timeframe)
+    }
+
+    pub fn build_renko_bars(
+        &self,
+        target_timeframe: TimeFrame,
+        brick_size: u32,
+    ) -> Result<QuoteFrame, QuoteFrameError> {
+        let bar_type = BarType::Renko { brick_size };
+        self.build_bar_type(&bar_type, target_timeframe)
+    }
+
+    pub fn build_heikin_ashi_bars(
+        &self,
+        target_timeframe: TimeFrame,
+    ) -> Result<QuoteFrame, QuoteFrameError> {
+        let bar_type = BarType::HeikinAshi;
+        self.build_bar_type(&bar_type, target_timeframe)
     }
 }
 

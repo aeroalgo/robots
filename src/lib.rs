@@ -6,6 +6,7 @@
 pub mod condition;
 pub mod data_access;
 pub mod data_model;
+pub mod discovery;
 pub mod indicators;
 pub mod metrics;
 pub mod position;
