@@ -84,29 +84,20 @@ fn sma_crossover_definition() -> StrategyDefinition {
     let formulas = vec![spread_formula];
 
     let dual_input = ConditionInputSpec::Dual {
-        primary: DataSeriesSource::Indicator {
-            alias: fast_alias.clone(),
-        },
-        secondary: DataSeriesSource::Indicator {
-            alias: slow_alias.clone(),
-        },
+        primary: DataSeriesSource::indicator(fast_alias.clone()),
+        secondary: DataSeriesSource::indicator(slow_alias.clone()),
     };
     let trend_dual_input = ConditionInputSpec::Dual {
-        primary: DataSeriesSource::Indicator {
-            alias: fast_alias.clone(),
-        },
-        secondary: DataSeriesSource::Indicator {
-            alias: trend_alias.clone(),
-        },
+        primary: DataSeriesSource::indicator(fast_alias.clone()),
+        secondary: DataSeriesSource::indicator(trend_alias.clone()),
     };
 
     let close_above_ema_input = ConditionInputSpec::Dual {
-        primary: DataSeriesSource::Price {
-            field: PriceField::Close,
-        },
-        secondary: DataSeriesSource::Indicator {
-            alias: ema_alias.clone(),
-        },
+        primary: DataSeriesSource::price_with_timeframe(PriceField::Close, timeframe.clone()),
+        secondary: DataSeriesSource::indicator_with_timeframe(
+            ema_alias.clone(),
+            higher_timeframe.clone(),
+        ),
     };
 
     let condition_bindings = vec![
@@ -168,8 +159,8 @@ fn sma_crossover_definition() -> StrategyDefinition {
         },
         ConditionBindingSpec {
             id: "close_above_ema_240".to_string(),
-            name: "Close above EMA 240".to_string(),
-            timeframe: higher_timeframe.clone(),
+            name: "Close base TF above EMA compressed TF".to_string(),
+            timeframe: timeframe.clone(),
             declarative: ConditionDeclarativeSpec::from_input(
                 ConditionOperator::GreaterThan,
                 &close_above_ema_input,

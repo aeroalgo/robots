@@ -213,30 +213,31 @@ impl StrategyContext {
 
     fn resolve_series<'a>(
         &'a self,
-        timeframe: &'a TimeFrame,
+        default_timeframe: &'a TimeFrame,
         source: &'a DataSeriesSource,
     ) -> Result<&'a [f32], StrategyError> {
-        let data = self.timeframe(timeframe)?;
+        let source_timeframe = source.timeframe().unwrap_or(default_timeframe);
+        let data = self.timeframe(source_timeframe)?;
         match source {
-            DataSeriesSource::Indicator { alias } => {
+            DataSeriesSource::Indicator { alias, .. } => {
                 data.indicator_series_slice(alias)
                     .ok_or_else(|| StrategyError::MissingIndicator {
                         alias: alias.clone(),
-                        timeframe: timeframe.clone(),
+                        timeframe: source_timeframe.clone(),
                     })
             }
-            DataSeriesSource::Price { field } => {
+            DataSeriesSource::Price { field, .. } => {
                 data.price_series_slice(field)
                     .ok_or_else(|| StrategyError::MissingPriceSeries {
                         field: field.clone(),
-                        timeframe: timeframe.clone(),
+                        timeframe: source_timeframe.clone(),
                     })
             }
-            DataSeriesSource::Custom { key } => {
+            DataSeriesSource::Custom { key, .. } => {
                 data.custom_series_slice(key)
                     .ok_or_else(|| StrategyError::MissingCustomData {
                         key: key.clone(),
-                        timeframe: timeframe.clone(),
+                        timeframe: source_timeframe.clone(),
                     })
             }
         }

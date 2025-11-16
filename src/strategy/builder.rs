@@ -851,9 +851,7 @@ fn parse_series_source(value: &StrategyParamValue) -> Option<DataSeriesSource> {
 fn parse_series_source_text(value: &str) -> Option<DataSeriesSource> {
     let lower = value.to_ascii_lowercase();
     if let Some(rest) = lower.strip_prefix("indicator:") {
-        return Some(DataSeriesSource::Indicator {
-            alias: rest.to_string(),
-        });
+        return Some(DataSeriesSource::indicator(rest));
     }
     if let Some(rest) = lower.strip_prefix("price:") {
         let field = match rest {
@@ -864,14 +862,10 @@ fn parse_series_source_text(value: &str) -> Option<DataSeriesSource> {
             "volume" => PriceField::Volume,
             _ => PriceField::Close,
         };
-        return Some(DataSeriesSource::Price { field });
+        return Some(DataSeriesSource::price(field));
     }
     if let Some(rest) = lower.strip_prefix("custom:") {
-        return Some(DataSeriesSource::Custom {
-            key: rest.to_string(),
-        });
+        return Some(DataSeriesSource::custom(rest));
     }
-    Some(DataSeriesSource::Indicator {
-        alias: value.to_string(),
-    })
+    Some(DataSeriesSource::indicator(value))
 }

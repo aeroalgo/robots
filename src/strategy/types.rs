@@ -112,9 +112,73 @@ pub enum PriceField {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DataSeriesSource {
-    Indicator { alias: String },
-    Price { field: PriceField },
-    Custom { key: String },
+    Indicator {
+        alias: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        timeframe: Option<TimeFrame>,
+    },
+    Price {
+        field: PriceField,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        timeframe: Option<TimeFrame>,
+    },
+    Custom {
+        key: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        timeframe: Option<TimeFrame>,
+    },
+}
+
+impl DataSeriesSource {
+    pub fn indicator(alias: impl Into<String>) -> Self {
+        Self::Indicator {
+            alias: alias.into(),
+            timeframe: None,
+        }
+    }
+
+    pub fn indicator_with_timeframe(alias: impl Into<String>, timeframe: TimeFrame) -> Self {
+        Self::Indicator {
+            alias: alias.into(),
+            timeframe: Some(timeframe),
+        }
+    }
+
+    pub fn price(field: PriceField) -> Self {
+        Self::Price {
+            field,
+            timeframe: None,
+        }
+    }
+
+    pub fn price_with_timeframe(field: PriceField, timeframe: TimeFrame) -> Self {
+        Self::Price {
+            field,
+            timeframe: Some(timeframe),
+        }
+    }
+
+    pub fn custom(key: impl Into<String>) -> Self {
+        Self::Custom {
+            key: key.into(),
+            timeframe: None,
+        }
+    }
+
+    pub fn custom_with_timeframe(key: impl Into<String>, timeframe: TimeFrame) -> Self {
+        Self::Custom {
+            key: key.into(),
+            timeframe: Some(timeframe),
+        }
+    }
+
+    pub fn timeframe(&self) -> Option<&TimeFrame> {
+        match self {
+            Self::Indicator { timeframe, .. } => timeframe.as_ref(),
+            Self::Price { timeframe, .. } => timeframe.as_ref(),
+            Self::Custom { timeframe, .. } => timeframe.as_ref(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

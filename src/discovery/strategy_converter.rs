@@ -352,12 +352,8 @@ impl StrategyConverter {
                     .unwrap_or_else(|| crate::strategy::types::PriceField::Close);
 
                 Ok(ConditionInputSpec::Dual {
-                    primary: DataSeriesSource::Indicator {
-                        alias: indicator_alias,
-                    },
-                    secondary: DataSeriesSource::Price {
-                        field: price_field,
-                    },
+                    primary: DataSeriesSource::indicator(indicator_alias),
+                    secondary: DataSeriesSource::price(price_field),
                 })
             }
             "indicator_indicator" => {
@@ -374,12 +370,8 @@ impl StrategyConverter {
                 }
 
                 Ok(ConditionInputSpec::Dual {
-                    primary: DataSeriesSource::Indicator {
-                        alias: aliases[0].clone(),
-                    },
-                    secondary: DataSeriesSource::Indicator {
-                        alias: aliases[1].clone(),
-                    },
+                    primary: DataSeriesSource::indicator(aliases[0].clone()),
+                    secondary: DataSeriesSource::indicator(aliases[1].clone()),
                 })
             }
             "indicator_constant" => {
@@ -391,12 +383,8 @@ impl StrategyConverter {
                 let constant_value = condition.constant_value.unwrap_or(0.0) as f32;
 
                 Ok(ConditionInputSpec::Dual {
-                    primary: DataSeriesSource::Indicator {
-                        alias: indicator_alias,
-                    },
-                    secondary: DataSeriesSource::Custom {
-                        key: format!("constant_{}", constant_value),
-                    },
+                    primary: DataSeriesSource::indicator(indicator_alias),
+                    secondary: DataSeriesSource::custom(format!("constant_{}", constant_value)),
                 })
             }
             _ => Err(StrategyConversionError::UnsupportedConditionType {
