@@ -108,14 +108,35 @@ impl StopHandler for StopLossPctHandler {
 
     fn evaluate(&self, ctx: &StopEvaluationContext<'_>) -> Option<StopOutcome> {
         let level = self.level(ctx.position)?;
+        
+        let low_price = ctx.timeframe_data
+            .price_series_slice(&PriceField::Low)
+            .and_then(|series| series.get(ctx.index))
+            .copied()
+            .map(|p| p as f64)
+            .unwrap_or(ctx.current_price);
+        
+        let high_price = ctx.timeframe_data
+            .price_series_slice(&PriceField::High)
+            .and_then(|series| series.get(ctx.index))
+            .copied()
+            .map(|p| p as f64)
+            .unwrap_or(ctx.current_price);
+        
         let triggered = match ctx.position.direction {
-            PositionDirection::Long => ctx.current_price <= level,
-            PositionDirection::Short => ctx.current_price >= level,
+            PositionDirection::Long => low_price <= level,
+            PositionDirection::Short => high_price >= level,
             _ => false,
         };
         if triggered {
             let mut metadata = HashMap::new();
             metadata.insert("level".to_string(), level.to_string());
+            let triggered_price = match ctx.position.direction {
+                PositionDirection::Long => low_price,
+                PositionDirection::Short => high_price,
+                _ => ctx.current_price,
+            };
+            metadata.insert("triggered_price".to_string(), triggered_price.to_string());
             return Some(StopOutcome {
                 exit_price: level,
                 kind: StopSignalKind::StopLoss,
@@ -148,14 +169,35 @@ impl StopHandler for TakeProfitPctHandler {
 
     fn evaluate(&self, ctx: &StopEvaluationContext<'_>) -> Option<StopOutcome> {
         let level = self.level(ctx.position)?;
+        
+        let high_price = ctx.timeframe_data
+            .price_series_slice(&PriceField::High)
+            .and_then(|series| series.get(ctx.index))
+            .copied()
+            .map(|p| p as f64)
+            .unwrap_or(ctx.current_price);
+        
+        let low_price = ctx.timeframe_data
+            .price_series_slice(&PriceField::Low)
+            .and_then(|series| series.get(ctx.index))
+            .copied()
+            .map(|p| p as f64)
+            .unwrap_or(ctx.current_price);
+        
         let triggered = match ctx.position.direction {
-            PositionDirection::Long => ctx.current_price >= level,
-            PositionDirection::Short => ctx.current_price <= level,
+            PositionDirection::Long => high_price >= level,
+            PositionDirection::Short => low_price <= level,
             _ => false,
         };
         if triggered {
             let mut metadata = HashMap::new();
             metadata.insert("level".to_string(), level.to_string());
+            let triggered_price = match ctx.position.direction {
+                PositionDirection::Long => high_price,
+                PositionDirection::Short => low_price,
+                _ => ctx.current_price,
+            };
+            metadata.insert("triggered_price".to_string(), triggered_price.to_string());
             return Some(StopOutcome {
                 exit_price: level,
                 kind: StopSignalKind::TakeProfit,

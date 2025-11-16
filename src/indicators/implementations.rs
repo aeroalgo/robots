@@ -965,8 +965,8 @@ impl Indicator for EMA {
     }
 
     async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
-        let mut period = self.parameters.get_value("period").unwrap() as usize;
-        if period == 0 {
+        let period = self.parameters.get_value("period").unwrap();
+        if period <= 0.0 {
             return Err(IndicatorError::InvalidParameter(
                 "EMA period must be greater than 0".to_string(),
             ));
@@ -976,25 +976,20 @@ impl Indicator for EMA {
         if len == 0 {
             return Ok(Vec::new());
         }
-        period = period.min(len);
 
-        let multiplier = 2.0 / (period as f32 + 1.0);
+        // Формула соответствует EMA_MT из EMA.cs (используется в GenEMA)
+        // EMA_MT: array[0] = src[0], array[i] = array[i - 1] + num * (src[i] - array[i - 1])
+        let multiplier = 2.0 / (1.0 + period);
         let mut ema_values = Vec::with_capacity(len);
 
-        for (idx, &price) in data.iter().enumerate() {
-            if idx < period - 1 {
-                // Первые period-1 значений должны быть нулями (недостаточно данных)
-                ema_values.push(0.0);
-            } else if idx == period - 1 {
-                // Первое валидное значение EMA - это SMA первых period значений
-                let sum: f32 = data[0..=idx].iter().sum();
-                let sma = sum / period as f32;
-                ema_values.push(sma);
-            } else {
-                // Остальные значения рассчитываются по формуле EMA
-                let prev = ema_values[idx - 1];
-                ema_values.push(prev + multiplier * (price - prev));
-            }
+        // Первое значение = первое значение данных
+        ema_values.push(data[0]);
+
+        // Остальные значения рассчитываются по формуле EMA
+        for i in 1..len {
+            let prev_ema = ema_values[i - 1];
+            let price = data[i];
+            ema_values.push(prev_ema + multiplier * (price - prev_ema));
         }
 
         Ok(ema_values)

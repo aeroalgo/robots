@@ -4,7 +4,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use thiserror::Error;
 
-use crate::candles::aggregator::TimeFrameAggregator;
+use crate::candles::aggregator::{AggregatedQuoteFrame, TimeFrameAggregator};
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::{Symbol, TimeFrame};
 use crate::indicators::formula::{FormulaDefinition, FormulaEvaluationContext};
@@ -73,9 +73,30 @@ impl BacktestExecutor {
         
         let required_timeframes: Vec<TimeFrame> = required_timeframes.into_iter().collect();
 
-        frames = Self::generate_missing_timeframes(frames, &required_timeframes)?;
-
-        let feed = HistoricalFeed::new(frames);
+        let mut feed = HistoricalFeed::new_empty();
+        frames = Self::generate_missing_timeframes(frames, &required_timeframes, &mut feed)?;
+        
+        for (tf, frame) in frames {
+            feed.frames.insert(tf.clone(), Arc::new(frame));
+            if feed.primary_timeframe.is_none() {
+                feed.primary_timeframe = Some(tf);
+            } else {
+                let current_len = feed.frames.get(&feed.primary_timeframe.clone().unwrap())
+                    .map(|f| f.len())
+                    .unwrap_or(0);
+                let new_len = feed.frames.get(&tf).map(|f| f.len()).unwrap_or(0);
+                if new_len > current_len {
+                    feed.primary_timeframe = Some(tf);
+                }
+            }
+        }
+        
+        if feed.primary_timeframe.is_none() {
+            return Err(StrategyExecutionError::Feed(
+                "No timeframes available after generation".to_string(),
+            ));
+        }
+        
         let context = feed.initialize_context();
         let position_manager = PositionManager::new(strategy.id().clone());
         Ok(Self {
@@ -101,13 +122,14 @@ impl BacktestExecutor {
                     let warmup_on_tf = period_usize * 2;
                     
                     // Пересчитываем warmup в бары базового таймфрейма
-                    let warmup_base = Self::convert_warmup_to_base_timeframe(
-                        &binding.timeframe,
-                        &self.feed.primary_timeframe,
-                        warmup_on_tf,
-                    );
-                    
-                    max_warmup_bars = max_warmup_bars.max(warmup_base);
+                    if let Some(primary_tf) = self.feed.primary_timeframe.as_ref() {
+                        let warmup_base = Self::convert_warmup_to_base_timeframe(
+                            &binding.timeframe,
+                            primary_tf,
+                            warmup_on_tf,
+                        );
+                        max_warmup_bars = max_warmup_bars.max(warmup_base);
+                    }
                 }
             }
         }
@@ -152,6 +174,7 @@ impl BacktestExecutor {
     fn generate_missing_timeframes(
         mut frames: HashMap<TimeFrame, QuoteFrame>,
         required: &[TimeFrame],
+        feed: &mut HistoricalFeed,
     ) -> Result<HashMap<TimeFrame, QuoteFrame>, StrategyExecutionError> {
         let mut generated = HashMap::new();
 
@@ -168,6 +191,7 @@ impl BacktestExecutor {
                     ))
                 })?;
 
+            let source_tf = source_frame.timeframe().clone();
             let aggregated = TimeFrameAggregator::aggregate(&source_frame, required_tf.clone())
                 .map_err(|e| {
                     StrategyExecutionError::Feed(format!(
@@ -176,7 +200,32 @@ impl BacktestExecutor {
                     ))
                 })?;
 
-            generated.insert(required_tf.clone(), aggregated.frame);
+            let aggregated_frame = aggregated.frame;
+            let aggregated_metadata = aggregated.metadata;
+            let aggregated_source_indices = aggregated.source_indices;
+            
+            let mut frame_copy = QuoteFrame::new(
+                aggregated_frame.symbol().clone(),
+                aggregated_frame.timeframe().clone(),
+            );
+            for quote in aggregated_frame.iter() {
+                frame_copy.push(quote.clone()).map_err(|e| {
+                    StrategyExecutionError::Feed(format!("Failed to copy quote: {}", e))
+                })?;
+            }
+            
+            let aggregated_arc = Arc::new(AggregatedQuoteFrame {
+                frame: frame_copy,
+                metadata: aggregated_metadata.clone(),
+                source_indices: aggregated_source_indices.clone(),
+            });
+            
+            feed.aggregated_frames.insert(
+                required_tf.clone(),
+                (aggregated_arc, source_tf),
+            );
+
+            generated.insert(required_tf.clone(), aggregated_frame);
         }
 
         frames.extend(generated);
@@ -260,6 +309,9 @@ impl BacktestExecutor {
                     .push_equity_point(self.position_manager.portfolio_snapshot().total_equity);
                 continue;
             }
+            
+            self.feed.expand_aggregated_timeframes(&mut self.context, self.strategy.indicator_bindings())?;
+            
             if let Some(pending) = self.deferred_decision.take() {
                 if !pending.is_empty() {
                     self.context
@@ -323,6 +375,7 @@ impl BacktestExecutor {
             .build_report(self.position_manager.portfolio_snapshot().realized_pnl))
     }
 
+
     async fn populate_indicators(&mut self) -> Result<(), StrategyExecutionError> {
         let mut grouped: HashMap<TimeFrame, Vec<IndicatorBindingSpec>> = HashMap::new();
         for binding in self.strategy.indicator_bindings() {
@@ -346,6 +399,8 @@ impl BacktestExecutor {
             let ohlc = frame.to_indicator_ohlc();
             let plan = IndicatorComputationPlan::build(&bindings)?;
             let mut computed: HashMap<String, Arc<Vec<f32>>> = HashMap::new();
+            let mut aggregated_indicators = HashMap::new();
+            
             for binding in plan.ordered() {
                 match &binding.source {
                     IndicatorSourceSpec::Registry { name, parameters } => {
@@ -359,7 +414,11 @@ impl BacktestExecutor {
                                 ))
                             })?;
                         self.store_indicator_series(&timeframe, &binding.alias, values.clone())?;
-                        computed.insert(binding.alias.clone(), values);
+                        computed.insert(binding.alias.clone(), values.clone());
+                        
+                        if self.feed.aggregated_frames.contains_key(&timeframe) {
+                            aggregated_indicators.insert(binding.alias.clone(), values);
+                        }
                     }
                     IndicatorSourceSpec::Formula { .. } => {
                         let definition = plan.formula(&binding.alias).ok_or_else(|| {
@@ -373,9 +432,17 @@ impl BacktestExecutor {
                             .compute_formula(&timeframe, definition, &context)
                             .map_err(|err| StrategyExecutionError::Feed(err.to_string()))?;
                         self.store_indicator_series(&timeframe, &binding.alias, values.clone())?;
-                        computed.insert(binding.alias.clone(), values);
+                        computed.insert(binding.alias.clone(), values.clone());
+                        
+                        if self.feed.aggregated_frames.contains_key(&timeframe) {
+                            aggregated_indicators.insert(binding.alias.clone(), values);
+                        }
                     }
                 }
+            }
+            
+            if !aggregated_indicators.is_empty() {
+                self.feed.save_aggregated_indicators(&timeframe, aggregated_indicators);
             }
         }
         Ok(())
@@ -403,7 +470,7 @@ impl BacktestExecutor {
     }
 
     fn session_state(&self) -> Option<SessionState> {
-        let primary = &self.feed.primary_timeframe;
+        let primary = self.feed.primary_timeframe.as_ref()?;
         let frame = self.feed.frames.get(primary)?;
         let timeframe_data = self.context.timeframe(primary).ok()?;
         let idx = timeframe_data.index();
@@ -478,8 +545,10 @@ impl BacktestExecutor {
 
 struct HistoricalFeed {
     frames: HashMap<TimeFrame, Arc<QuoteFrame>>,
+    aggregated_frames: HashMap<TimeFrame, (Arc<AggregatedQuoteFrame>, TimeFrame)>,
+    aggregated_indicators: HashMap<TimeFrame, HashMap<String, Arc<Vec<f32>>>>,
     indices: HashMap<TimeFrame, usize>,
-    primary_timeframe: TimeFrame,
+    primary_timeframe: Option<TimeFrame>,
 }
 
 impl HistoricalFeed {
@@ -495,13 +564,31 @@ impl HistoricalFeed {
             }
             arc_frames.insert(timeframe, Arc::new(frame));
         }
-        let primary_timeframe =
-            primary_timeframe.expect("HistoricalFeed requires at least one timeframe");
         Self {
             frames: arc_frames,
+            aggregated_frames: HashMap::new(),
+            aggregated_indicators: HashMap::new(),
             indices: HashMap::new(),
             primary_timeframe,
         }
+    }
+
+    fn new_empty() -> Self {
+        Self {
+            frames: HashMap::new(),
+            aggregated_frames: HashMap::new(),
+            aggregated_indicators: HashMap::new(),
+            indices: HashMap::new(),
+            primary_timeframe: None,
+        }
+    }
+    
+    fn save_aggregated_indicators(&mut self, timeframe: &TimeFrame, indicators: HashMap<String, Arc<Vec<f32>>>) {
+        self.aggregated_indicators.insert(timeframe.clone(), indicators);
+    }
+    
+    fn get_aggregated_indicators(&self, timeframe: &TimeFrame) -> Option<&HashMap<String, Arc<Vec<f32>>>> {
+        self.aggregated_indicators.get(timeframe)
     }
 
     fn initialize_context(&self) -> StrategyContext {
@@ -517,8 +604,228 @@ impl HistoricalFeed {
         self.indices.clear();
     }
 
+    fn is_aggregated_bar_closed(
+        aggregated: &AggregatedQuoteFrame,
+        aggregated_bar_index: usize,
+        current_primary_index: usize,
+    ) -> bool {
+        if let Some(source_indices) = aggregated.source_indices.get(&aggregated_bar_index) {
+            if source_indices.is_empty() {
+                return false;
+            }
+            if let Some(&last_source_index) = source_indices.last() {
+                return last_source_index < current_primary_index;
+            }
+        }
+        false
+    }
+
+    fn expand_aggregated_timeframes(
+        &self,
+        context: &mut StrategyContext,
+        indicator_bindings: &[IndicatorBindingSpec],
+    ) -> Result<(), StrategyExecutionError> {
+        for (aggregated_tf, (aggregated, source_tf)) in &self.aggregated_frames {
+            let source_frame = self.frames.get(source_tf)
+                .ok_or_else(|| {
+                    StrategyExecutionError::Feed(format!(
+                        "Source timeframe {:?} not found in frames",
+                        source_tf
+                    ))
+                })?;
+            
+            let expanded = aggregated
+                .expand(source_frame.as_ref())
+                .map_err(|e| {
+                    StrategyExecutionError::Feed(format!(
+                        "Failed to expand timeframe {:?}: {}",
+                        aggregated_tf, e
+                    ))
+                })?;
+
+            let primary_timeframe = self.primary_timeframe.as_ref().unwrap_or(source_tf);
+            let primary_index = context.timeframe(primary_timeframe)
+                .map(|d| d.index())
+                .unwrap_or(0);
+            
+            let ratio = aggregated.metadata.aggregation_ratio as usize;
+            
+            let aggregated_bar_index = primary_index / ratio;
+            let max_aggregated_index = aggregated.frame.len().saturating_sub(1);
+            let safe_aggregated_index = aggregated_bar_index.min(max_aggregated_index);
+            
+            let aggregated_bar_is_closed = Self::is_aggregated_bar_closed(
+                aggregated,
+                safe_aggregated_index,
+                primary_index,
+            );
+            
+            let closed_aggregated_index = if aggregated_bar_is_closed && safe_aggregated_index > 0 {
+                safe_aggregated_index
+            } else if safe_aggregated_index > 0 {
+                safe_aggregated_index - 1
+            } else {
+                0
+            };
+            
+            let expanded_index = (closed_aggregated_index * ratio).min(expanded.len().saturating_sub(1));
+            
+            let mut data = TimeframeData::with_quote_frame(&expanded, expanded_index);
+            
+            if let Some(saved_indicators) = self.get_aggregated_indicators(aggregated_tf) {
+                for binding in indicator_bindings {
+                    if binding.timeframe == *aggregated_tf {
+                        if let Some(original_values) = saved_indicators.get(&binding.alias) {
+                            if !original_values.is_empty() {
+                                let expanded_values = Self::expand_indicator_values_by_source_indices(
+                                    original_values.as_ref(),
+                                    aggregated,
+                                    &expanded,
+                                );
+                                if expanded_values.len() == expanded.len() {
+                                    data.insert_indicator_arc(binding.alias.clone(), Arc::new(expanded_values));
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if let Some(existing_data) = context.timeframe(aggregated_tf).ok() {
+                for binding in indicator_bindings {
+                    if binding.timeframe == *aggregated_tf {
+                        if let Some(original_values) = existing_data.indicator_series_slice(&binding.alias) {
+                            if !original_values.is_empty() {
+                                let expanded_values = Self::expand_indicator_values_by_source_indices(
+                                    original_values,
+                                    aggregated,
+                                    &expanded,
+                                );
+                                if expanded_values.len() == expanded.len() {
+                                    data.insert_indicator_arc(binding.alias.clone(), Arc::new(expanded_values));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if let Ok(existing_data) = context.timeframe_mut(aggregated_tf) {
+                *existing_data = data;
+                existing_data.set_index(expanded_index);
+            } else {
+                context.insert_timeframe(aggregated_tf.clone(), data);
+            }
+        }
+        Ok(())
+    }
+    
+    fn expand_indicator_values(
+        original_values: &[f32],
+        ratio: usize,
+        target_len: usize,
+    ) -> Vec<f32> {
+        if original_values.is_empty() {
+            return vec![0.0; target_len];
+        }
+        
+        let mut expanded = Vec::with_capacity(target_len);
+        
+        for i in 0..target_len {
+            let original_idx = i / ratio;
+            if original_idx < original_values.len() {
+                expanded.push(original_values[original_idx]);
+            } else if !original_values.is_empty() {
+                expanded.push(original_values[original_values.len() - 1]);
+            } else {
+                expanded.push(0.0);
+            }
+        }
+        
+        expanded
+    }
+    
+    fn expand_indicator_values_by_source_indices(
+        original_values: &[f32],
+        aggregated_frame: &AggregatedQuoteFrame,
+        expanded_frame: &QuoteFrame,
+    ) -> Vec<f32> {
+        if original_values.is_empty() {
+            return vec![];
+        }
+        
+        let expanded_len = expanded_frame.len();
+        let mut expanded = vec![0.0; expanded_len];
+        
+        // Создаем маппинг: временная метка агрегированного бара -> индекс в развернутом фрейме
+        let mut timestamp_to_expanded_idx: HashMap<i64, Vec<usize>> = HashMap::new();
+        for (idx, quote) in expanded_frame.iter().enumerate() {
+            let ts = quote.timestamp_millis();
+            timestamp_to_expanded_idx.entry(ts).or_insert_with(Vec::new).push(idx);
+        }
+        
+        for agg_idx in 0..aggregated_frame.frame.len() {
+            if let Some(source_indices) = aggregated_frame.source_indices.get(&agg_idx) {
+                if source_indices.is_empty() {
+                    continue;
+                }
+                
+                let indicator_value = if agg_idx < original_values.len() {
+                    original_values[agg_idx]
+                } else if !original_values.is_empty() {
+                    original_values[original_values.len() - 1]
+                } else {
+                    0.0
+                };
+                
+                // Получаем временную метку агрегированного бара (выровненную до границы таймфрейма)
+                let aggregated_quote = aggregated_frame.frame.get(agg_idx);
+                if let Some(agg_quote) = aggregated_quote {
+                    let agg_timestamp = agg_quote.timestamp_millis();
+                    
+                    // Находим все развернутые бары, которые начинаются с этой временной метки
+                    // и последующие бары в количестве source_indices.len()
+                    if let Some(expanded_indices) = timestamp_to_expanded_idx.get(&agg_timestamp) {
+                        // Берем первый индекс с совпадающей временной меткой
+                        if let Some(&first_expanded_idx) = expanded_indices.first() {
+                            // Ставим значение индикатора на все развернутые бары,
+                            // начиная с первого, который имеет совпадающую временную метку
+                            let count = source_indices.len();
+                            for i in 0..count {
+                                let idx = first_expanded_idx + i;
+                                if idx < expanded_len {
+                                    expanded[idx] = indicator_value;
+                                }
+                            }
+                        }
+                    } else {
+                        // Если не нашли точного совпадения, используем source_indices
+                        // для определения позиций (fallback)
+                        for &source_idx in source_indices {
+                            if source_idx < expanded_len {
+                                expanded[source_idx] = indicator_value;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Заполняем пропуски предыдущим значением (forward fill)
+        for i in 1..expanded.len() {
+            if expanded[i] == 0.0 && expanded[i - 1] != 0.0 {
+                expanded[i] = expanded[i - 1];
+            }
+        }
+        
+        expanded
+    }
+
+
     fn step(&mut self, context: &mut StrategyContext) -> bool {
-        let primary_frame = match self.frames.get(&self.primary_timeframe) {
+        let primary_timeframe = match &self.primary_timeframe {
+            Some(tf) => tf,
+            None => return false,
+        };
+        let primary_frame = match self.frames.get(primary_timeframe) {
             Some(frame) => frame,
             None => return false,
         };
@@ -529,7 +836,7 @@ impl HistoricalFeed {
         let current_primary_index = {
             let entry = self
                 .indices
-                .entry(self.primary_timeframe.clone())
+                .entry(primary_timeframe.clone())
                 .or_insert(0);
             if *entry >= primary_len {
                 return false;
@@ -541,7 +848,7 @@ impl HistoricalFeed {
             if len == 0 {
                 continue;
             }
-            let idx = if timeframe == &self.primary_timeframe {
+            let idx = if timeframe == primary_timeframe {
                 current_primary_index.min(len - 1)
             } else {
                 let entry = self.indices.entry(timeframe.clone()).or_insert(0);
@@ -565,12 +872,12 @@ impl HistoricalFeed {
         {
             let entry = self
                 .indices
-                .entry(self.primary_timeframe.clone())
+                .entry(primary_timeframe.clone())
                 .or_insert(0);
             *entry = current_primary_index.saturating_add(1);
         }
         for (timeframe, frame) in &self.frames {
-            if timeframe == &self.primary_timeframe {
+            if timeframe == primary_timeframe {
                 continue;
             }
             let len = frame.len();

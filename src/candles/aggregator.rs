@@ -229,6 +229,150 @@ impl TimeFrameAggregator {
             }
         }
     }
+
+    pub fn expand(
+        aggregated_frame: &AggregatedQuoteFrame,
+        source_frame: &QuoteFrame,
+    ) -> Result<QuoteFrame, TimeFrameAggregationError> {
+        let source_tf = aggregated_frame.metadata.source_timeframe.clone();
+        let symbol = aggregated_frame.frame.symbol().clone();
+        let ratio = aggregated_frame.metadata.aggregation_ratio as usize;
+
+        let mut expanded_quotes = Vec::new();
+
+        for (agg_idx, aggregated_quote) in aggregated_frame.frame.iter().enumerate() {
+            if let Some(source_indices) = aggregated_frame.source_indices.get(&agg_idx) {
+                if source_indices.is_empty() {
+                    continue;
+                }
+
+                let source_quotes: Vec<&Quote> = source_indices
+                    .iter()
+                    .filter_map(|idx| source_frame.get(*idx))
+                    .collect();
+
+                if source_quotes.is_empty() {
+                    continue;
+                }
+
+                let first_source = source_quotes[0];
+
+                let open_price = first_source.open();
+                let close_price = aggregated_quote.close();
+
+                let mut high_price = aggregated_quote.high();
+                let mut low_price = aggregated_quote.low();
+
+                let total_volume = aggregated_quote.volume();
+                let volume_per_bar = if source_quotes.len() > 0 {
+                    total_volume / source_quotes.len() as f32
+                } else {
+                    0.0
+                };
+
+                // Используем выровненную временную метку агрегированного бара как начало
+                // Это гарантирует, что развернутые бары начинаются с правильной границы таймфрейма
+                let aggregated_timestamp = aggregated_quote.timestamp();
+                let source_tf_minutes = Self::timeframe_to_minutes(&source_tf)
+                    .ok_or(TimeFrameAggregationError::UnsupportedTimeFrame(
+                        format!("{:?}", source_tf)
+                    ))?;
+                
+                for (i, _source_quote) in source_quotes.iter().enumerate() {
+                    let is_first = i == 0;
+                    let is_last = i == source_quotes.len() - 1;
+
+                    let quote_open = if is_first {
+                        open_price
+                    } else {
+                        close_price
+                    };
+
+                    let quote_close = close_price;
+
+                    let quote_high = high_price;
+                    let quote_low = low_price;
+
+                    let quote_volume = if source_quotes.len() == 1 {
+                        total_volume
+                    } else if is_last {
+                        total_volume - (volume_per_bar * (source_quotes.len() - 1) as f32)
+                    } else {
+                        volume_per_bar
+                    };
+
+                    // Вычисляем временную метку для развернутого бара
+                    // Начинаем с выровненной временной метки агрегированного бара
+                    // и добавляем интервалы исходного таймфрейма
+                    let expanded_timestamp = aggregated_timestamp + chrono::Duration::minutes(i as i64 * source_tf_minutes as i64);
+
+                    let expanded_quote = Quote::from_parts(
+                        symbol.clone(),
+                        source_tf.clone(),
+                        expanded_timestamp,
+                        quote_open,
+                        quote_high,
+                        quote_low,
+                        quote_close,
+                        quote_volume,
+                    );
+
+                    expanded_quotes.push(expanded_quote);
+                }
+            } else {
+                let source_tf_minutes = Self::timeframe_to_minutes(&source_tf)
+                    .ok_or_else(|| {
+                        TimeFrameAggregationError::UnsupportedTimeFrame(format!("{:?}", source_tf))
+                    })?;
+
+                let aggregated_timestamp = aggregated_quote.timestamp();
+                let mut current_timestamp = aggregated_timestamp;
+
+                for i in 0..ratio {
+                    let quote_open = if i == 0 {
+                        aggregated_quote.open()
+                    } else {
+                        aggregated_quote.close()
+                    };
+
+                    let quote_close = if i == ratio - 1 {
+                        aggregated_quote.close()
+                    } else {
+                        aggregated_quote.open()
+                    };
+
+                    let quote_high = aggregated_quote.high();
+                    let quote_low = aggregated_quote.low();
+                    let quote_volume = aggregated_quote.volume() / ratio as f32;
+
+                    let expanded_quote = Quote::from_parts(
+                        symbol.clone(),
+                        source_tf.clone(),
+                        current_timestamp,
+                        quote_open,
+                        quote_high,
+                        quote_low,
+                        quote_close,
+                        quote_volume,
+                    );
+
+                    expanded_quotes.push(expanded_quote);
+
+                    if i < ratio - 1 {
+                        current_timestamp = current_timestamp
+                            + Duration::minutes(source_tf_minutes as i64);
+                    }
+                }
+            }
+        }
+
+        let mut expanded_frame = QuoteFrame::new(symbol, source_tf);
+        for quote in expanded_quotes {
+            expanded_frame.push(quote)?;
+        }
+
+        Ok(expanded_frame)
+    }
 }
 
 impl AggregatedQuoteFrame {
@@ -247,6 +391,10 @@ impl AggregatedQuoteFrame {
                 .filter_map(|idx| source_frame.get(*idx))
                 .collect()
         })
+    }
+
+    pub fn expand(&self, source_frame: &QuoteFrame) -> Result<QuoteFrame, TimeFrameAggregationError> {
+        TimeFrameAggregator::expand(self, source_frame)
     }
 
     pub fn frame(&self) -> &QuoteFrame {
