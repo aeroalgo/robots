@@ -288,6 +288,7 @@
   - **Зависимости**: QuoteFrame структура, Market Data ingestion
   - **Основа**: OsEngine CandlesBuilder, OsEngine Bars
   - **Прогресс**:
+    - [x] Создан отдельный слой `src/candles/` для работы со свечами/барами
     - [x] Создан enum `BarType` с поддержкой различных типов баров (Time, Range, Volume, Volatility, Renko, HeikinAshi, Custom)
     - [x] Создана структура `BarTypeConfig` для конфигурации типов баров
     - [x] Реализация построителей баров для каждого типа
@@ -301,6 +302,11 @@
       - [x] Создана фабрика `BarBuilderFactory` для создания построителей по типу баров
       - [x] Добавлены методы в `QuoteFrame`: `build_bar_type()`, `build_range_bars()`, `build_volume_bars()`, `build_volatility_bars()`, `build_renko_bars()`, `build_heikin_ashi_bars()`
       - [x] Обработка ошибок через `BarBuilderError` и интеграция с `QuoteFrameError`
+    - [x] Рефакторинг: вынесена вся логика работы со свечами/барами в отдельный слой `candles/`
+      - [x] `candles/bar_types.rs` - типы баров
+      - [x] `candles/builders.rs` - построители баров
+      - [x] `candles/aggregator.rs` - агрегация таймфреймов
+      - [x] Обновлены все импорты в проекте
 
 - [x] **Задача**: Агрегация и сжатие таймфреймов
   - **Описание**: Построение производных таймфреймов (5→10/15/20, 60→120/180/240 и т.д.) с сохранением метаданных и связей
@@ -310,7 +316,7 @@
   - **Зависимости**: Реализация альтернативных типов баров
   - **Основа**: OsEngine TimeFrameBuilder, Aggregator
   - **Прогресс**:
-    - [x] Создан модуль `timeframe_aggregator.rs` для агрегации таймфреймов
+    - [x] Создан модуль `candles/aggregator.rs` для агрегации таймфреймов
     - [x] Реализована структура `TimeFrameAggregator` с методом `aggregate()` для агрегации свечей
     - [x] Реализована структура `AggregatedQuoteFrame` с сохранением метаданных и связей
     - [x] Реализована структура `TimeFrameMetadata` для хранения информации об агрегации

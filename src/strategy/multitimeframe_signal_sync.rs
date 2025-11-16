@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use chrono::{DateTime, Duration, Utc};
 
-use crate::data_model::bar_types::BarType;
+use crate::candles::bar_types::BarType;
 use crate::data_model::types::{Symbol, TimeFrame};
 use crate::strategy::types::{ConditionEvaluation, StrategySignal, StrategySignalType};
 

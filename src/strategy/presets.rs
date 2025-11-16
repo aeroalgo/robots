@@ -16,10 +16,12 @@ pub fn default_strategy_definitions() -> Vec<StrategyDefinition> {
 
 fn sma_crossover_definition() -> StrategyDefinition {
     let timeframe = TimeFrame::minutes(60);
+    let higher_timeframe = TimeFrame::minutes(240);
 
     let fast_alias = "fast_sma".to_string();
     let slow_alias = "slow_sma".to_string();
     let trend_alias = "trend_sma".to_string();
+    let ema_alias = "ema_240".to_string();
 
     let mut indicator_bindings = vec![
         IndicatorBindingSpec {
@@ -62,6 +64,20 @@ fn sma_crossover_definition() -> StrategyDefinition {
 
     indicator_bindings.push(spread_formula.as_indicator_binding("sma_spread", timeframe.clone()));
 
+    indicator_bindings.push(IndicatorBindingSpec {
+        alias: ema_alias.clone(),
+        timeframe: higher_timeframe.clone(),
+        source: IndicatorSourceSpec::Registry {
+            name: "EMA".to_string(),
+            parameters: HashMap::from([("period".to_string(), 50.0)]),
+        },
+        tags: vec![
+            "trend".to_string(),
+            "higher_tf".to_string(),
+            "confirmation".to_string(),
+        ],
+    });
+
     let formulas = vec![spread_formula];
 
     let dual_input = ConditionInputSpec::Dual {
@@ -78,6 +94,15 @@ fn sma_crossover_definition() -> StrategyDefinition {
         },
         secondary: DataSeriesSource::Indicator {
             alias: trend_alias.clone(),
+        },
+    };
+
+    let close_above_ema_input = ConditionInputSpec::Dual {
+        primary: DataSeriesSource::Price {
+            field: PriceField::Close,
+        },
+        secondary: DataSeriesSource::Indicator {
+            alias: ema_alias.clone(),
         },
     };
 
@@ -138,6 +163,24 @@ fn sma_crossover_definition() -> StrategyDefinition {
             tags: vec!["exit".to_string(), "trend".to_string()],
             user_formula: None,
         },
+        ConditionBindingSpec {
+            id: "close_above_ema_240".to_string(),
+            name: "Close above EMA 240".to_string(),
+            timeframe: higher_timeframe.clone(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::GreaterThan,
+                &close_above_ema_input,
+            ),
+            parameters: HashMap::new(),
+            input: close_above_ema_input,
+            weight: 1.0,
+            tags: vec![
+                "entry".to_string(),
+                "higher_tf".to_string(),
+                "trend".to_string(),
+            ],
+            user_formula: None,
+        },
     ];
 
     let entry_rules = vec![
@@ -145,7 +188,10 @@ fn sma_crossover_definition() -> StrategyDefinition {
             id: "enter_long".to_string(),
             name: "Enter long".to_string(),
             logic: super::types::RuleLogic::All,
-            conditions: vec!["fast_cross_above".to_string()],
+            conditions: vec![
+                "fast_cross_above".to_string(),
+                "close_above_ema_240".to_string(),
+            ],
             signal: StrategySignalType::Entry,
             direction: PositionDirection::Long,
             quantity: None,
@@ -157,7 +203,10 @@ fn sma_crossover_definition() -> StrategyDefinition {
             id: "enter_long_trend".to_string(),
             name: "Enter long trend".to_string(),
             logic: super::types::RuleLogic::All,
-            conditions: vec!["fast_cross_above_trend".to_string()],
+            conditions: vec![
+                "fast_cross_above_trend".to_string(),
+                "close_above_ema_240".to_string(),
+            ],
             signal: StrategySignalType::Entry,
             direction: PositionDirection::Long,
             quantity: None,
@@ -265,6 +314,10 @@ fn sma_crossover_definition() -> StrategyDefinition {
         TimeframeRequirement {
             alias: trend_alias.clone(),
             timeframe: timeframe.clone(),
+        },
+        TimeframeRequirement {
+            alias: ema_alias.clone(),
+            timeframe: higher_timeframe.clone(),
         },
     ];
 

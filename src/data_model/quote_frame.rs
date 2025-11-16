@@ -6,8 +6,8 @@ use thiserror::Error;
 use crate::data_access::database::clickhouse::OhlcvData;
 use crate::indicators::OHLCData;
 
-use super::bar_builders::{BarBuilder, BarBuilderFactory, BarBuilderError};
-use super::bar_types::BarType;
+use crate::candles::builders::{BarBuilder, BarBuilderFactory, BarBuilderError};
+use crate::candles::bar_types::BarType;
 use super::quote::Quote;
 use super::types::{
     timestamp_from_millis, timestamp_to_millis, Symbol, TimeFrame, TimestampMillis,
@@ -376,8 +376,11 @@ impl QuoteFrame {
             bar_type,
             self.symbol.clone(),
             target_timeframe,
-        ).map_err(|e| QuoteFrameError::BarBuilderError(e.to_string()))?;
-        builder.build_from_quotes(self).map_err(|e| QuoteFrameError::BarBuilderError(e.to_string()))
+        )
+        .map_err(|e| QuoteFrameError::BarBuilderError(e.to_string()))?;
+        builder
+            .build_from_quotes(self)
+            .map_err(|e| QuoteFrameError::BarBuilderError(e.to_string()))
     }
 
     pub fn build_range_bars(

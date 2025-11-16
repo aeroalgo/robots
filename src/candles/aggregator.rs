@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::data_model::quote::Quote;
 use crate::data_model::quote_frame::{QuoteFrame, QuoteFrameError};
-use crate::data_model::types::{Symbol, TimeFrame};
+use crate::data_model::types::{Price, Symbol, TimeFrame, Volume};
 
 #[derive(Debug, Clone)]
 pub struct TimeFrameMetadata {
@@ -272,5 +272,3 @@ pub enum TimeFrameAggregationError {
     QuoteFrameError(#[from] QuoteFrameError),
 }
 
-type Price = crate::data_model::types::Price;
-type Volume = crate::data_model::types::Volume;

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
 
-use crate::data_model::bar_types::BarType;
+use crate::candles::bar_types::BarType;
 use crate::data_model::quote::Quote;
 use crate::data_model::quote_frame::{QuoteFrame, QuoteFrameError};
 use crate::data_model::types::{Price, Symbol, TimeFrame, Volume};

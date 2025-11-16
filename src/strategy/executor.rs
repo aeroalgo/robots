@@ -4,6 +4,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use thiserror::Error;
 
+use crate::candles::aggregator::TimeFrameAggregator;
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::{Symbol, TimeFrame};
 use crate::indicators::formula::{FormulaDefinition, FormulaEvaluationContext};
@@ -48,13 +49,32 @@ struct SessionState {
 impl BacktestExecutor {
     pub fn new(
         strategy: Box<dyn Strategy>,
-        frames: HashMap<TimeFrame, QuoteFrame>,
+        mut frames: HashMap<TimeFrame, QuoteFrame>,
     ) -> Result<Self, StrategyExecutionError> {
         if frames.is_empty() {
             return Err(StrategyExecutionError::Feed(
                 "frames collection is empty".to_string(),
             ));
         }
+
+        let mut required_timeframes: std::collections::HashSet<TimeFrame> = std::collections::HashSet::new();
+        
+        for binding in strategy.indicator_bindings() {
+            required_timeframes.insert(binding.timeframe.clone());
+        }
+        
+        for condition in strategy.conditions() {
+            required_timeframes.insert(condition.timeframe.clone());
+        }
+        
+        for requirement in strategy.timeframe_requirements() {
+            required_timeframes.insert(requirement.timeframe.clone());
+        }
+        
+        let required_timeframes: Vec<TimeFrame> = required_timeframes.into_iter().collect();
+
+        frames = Self::generate_missing_timeframes(frames, &required_timeframes)?;
+
         let feed = HistoricalFeed::new(frames);
         let context = feed.initialize_context();
         let position_manager = PositionManager::new(strategy.id().clone());
@@ -98,6 +118,71 @@ impl BacktestExecutor {
         let mut executor = Self::new(Box::new(strategy), frames)?;
         executor.warmup_bars = executor.compute_warmup_bars();
         Ok(executor)
+    }
+
+    fn generate_missing_timeframes(
+        mut frames: HashMap<TimeFrame, QuoteFrame>,
+        required: &[TimeFrame],
+    ) -> Result<HashMap<TimeFrame, QuoteFrame>, StrategyExecutionError> {
+        let mut generated = HashMap::new();
+
+        for required_tf in required {
+            if frames.contains_key(required_tf) {
+                continue;
+            }
+
+            let source_frame = Self::find_best_source_frame(&frames, required_tf)
+                .ok_or_else(|| {
+                    StrategyExecutionError::Feed(format!(
+                        "Cannot generate timeframe {:?}: no suitable source timeframe found",
+                        required_tf
+                    ))
+                })?;
+
+            let aggregated = TimeFrameAggregator::aggregate(&source_frame, required_tf.clone())
+                .map_err(|e| {
+                    StrategyExecutionError::Feed(format!(
+                        "Failed to aggregate timeframe {:?}: {}",
+                        required_tf, e
+                    ))
+                })?;
+
+            generated.insert(required_tf.clone(), aggregated.frame);
+        }
+
+        frames.extend(generated);
+        Ok(frames)
+    }
+
+    fn find_best_source_frame<'a>(
+        frames: &'a HashMap<TimeFrame, QuoteFrame>,
+        target: &TimeFrame,
+    ) -> Option<&'a QuoteFrame> {
+        let target_minutes = Self::timeframe_to_minutes(target)?;
+
+        frames
+            .iter()
+            .filter_map(|(tf, frame)| {
+                let source_minutes = Self::timeframe_to_minutes(tf)?;
+                if source_minutes < target_minutes && target_minutes % source_minutes == 0 {
+                    Some((source_minutes, frame))
+                } else {
+                    None
+                }
+            })
+            .max_by_key(|(minutes, _)| *minutes)
+            .map(|(_, frame)| frame)
+    }
+
+    fn timeframe_to_minutes(tf: &TimeFrame) -> Option<u32> {
+        match tf {
+            TimeFrame::Minutes(m) => Some(*m),
+            TimeFrame::Hours(h) => Some(h * 60),
+            TimeFrame::Days(d) => Some(d * 24 * 60),
+            TimeFrame::Weeks(w) => Some(w * 7 * 24 * 60),
+            TimeFrame::Months(m) => Some(m * 30 * 24 * 60),
+            TimeFrame::Custom(_) => None,
+        }
     }
 
     pub fn context(&self) -> &StrategyContext {
