@@ -1,13 +1,13 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
 use chrono::Utc;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::data_model::types::TimeFrame;
 use crate::discovery::config::StrategyDiscoveryConfig;
 use crate::discovery::engine::StrategyCandidate;
 use crate::discovery::types::{ConditionInfo, IndicatorInfo, NestedIndicator, StopHandlerInfo};
 use crate::strategy::types::{
-    ConditionBindingSpec, ConditionDeclarativeSpec, ConditionInputSpec, ConditionOperator,
-    ConditionOperandSpec, DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec,
+    ConditionBindingSpec, ConditionDeclarativeSpec, ConditionInputSpec, ConditionOperandSpec,
+    ConditionOperator, DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec,
     PositionDirection, RuleLogic, StopHandlerSpec, StrategyCategory, StrategyDefinition,
     StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyParameterSpec,
     StrategyRuleSpec, StrategySignalType, TimeframeRequirement,
@@ -24,12 +24,15 @@ impl StrategyConverter {
         let parameters = Self::extract_parameters(candidate);
         let defaults = Self::extract_defaults(candidate);
 
-        let indicator_bindings = Self::create_indicator_bindings(candidate, base_timeframe.clone())?;
-        let condition_bindings = Self::create_condition_bindings(candidate, base_timeframe.clone())?;
+        let indicator_bindings =
+            Self::create_indicator_bindings(candidate, base_timeframe.clone())?;
+        let condition_bindings =
+            Self::create_condition_bindings(candidate, base_timeframe.clone())?;
         let stop_handlers = Self::create_stop_handlers(candidate, base_timeframe.clone())?;
 
-        let exit_condition_bindings = Self::create_condition_bindings_for_exit(candidate, base_timeframe.clone())?;
-        
+        let exit_condition_bindings =
+            Self::create_condition_bindings_for_exit(candidate, base_timeframe.clone())?;
+
         let entry_rules = Self::create_entry_rules(candidate, &condition_bindings)?;
         let exit_rules = Self::create_exit_rules(candidate, &exit_condition_bindings)?;
 
@@ -62,10 +65,7 @@ impl StrategyConverter {
             .map(|nested| nested.indicator.name.clone())
             .collect();
         let all_names = [indicator_names, nested_names].concat();
-        let name = format!(
-            "Auto Strategy: {}",
-            all_names.join(" + ")
-        );
+        let name = format!("Auto Strategy: {}", all_names.join(" + "));
 
         let condition_names: Vec<String> = candidate
             .conditions
@@ -100,8 +100,14 @@ impl StrategyConverter {
                     let param_name = Self::make_parameter_name(&indicator.alias, &param.name);
                     params.push(StrategyParameterSpec {
                         name: param_name,
-                        description: Some(format!("{} parameter for {}", param.name, indicator.name)),
-                        default_value: Self::param_value_to_strategy_param_from_enum(&param.param_type, 0.0),
+                        description: Some(format!(
+                            "{} parameter for {}",
+                            param.name, indicator.name
+                        )),
+                        default_value: Self::param_value_to_strategy_param_from_enum(
+                            &param.param_type,
+                            0.0,
+                        ),
                         min: None,
                         max: None,
                         step: None,
@@ -115,14 +121,18 @@ impl StrategyConverter {
         for nested in &candidate.nested_indicators {
             for param in &nested.indicator.parameters {
                 if param.optimizable {
-                    let param_name = Self::make_parameter_name(&nested.indicator.alias, &param.name);
+                    let param_name =
+                        Self::make_parameter_name(&nested.indicator.alias, &param.name);
                     params.push(StrategyParameterSpec {
                         name: param_name,
                         description: Some(format!(
                             "{} parameter for nested {}",
                             param.name, nested.indicator.name
                         )),
-                        default_value: Self::param_value_to_strategy_param_from_enum(&param.param_type, 0.0),
+                        default_value: Self::param_value_to_strategy_param_from_enum(
+                            &param.param_type,
+                            0.0,
+                        ),
                         min: None,
                         max: None,
                         step: None,
@@ -139,7 +149,10 @@ impl StrategyConverter {
                     let param_name = Self::make_parameter_name(&condition.id, &param.name);
                     params.push(StrategyParameterSpec {
                         name: param_name,
-                        description: Some(format!("{} parameter for entry condition {}", param.name, condition.name)),
+                        description: Some(format!(
+                            "{} parameter for entry condition {}",
+                            param.name, condition.name
+                        )),
                         default_value: StrategyParamValue::Number(0.0),
                         min: None,
                         max: None,
@@ -154,10 +167,14 @@ impl StrategyConverter {
         for condition in &candidate.exit_conditions {
             for param in &condition.optimization_params {
                 if param.optimizable {
-                    let param_name = Self::make_parameter_name(&format!("exit_{}", condition.id), &param.name);
+                    let param_name =
+                        Self::make_parameter_name(&format!("exit_{}", condition.id), &param.name);
                     params.push(StrategyParameterSpec {
                         name: param_name,
-                        description: Some(format!("{} parameter for exit condition {}", param.name, condition.name)),
+                        description: Some(format!(
+                            "{} parameter for exit condition {}",
+                            param.name, condition.name
+                        )),
                         default_value: StrategyParamValue::Number(0.0),
                         min: None,
                         max: None,
@@ -175,7 +192,10 @@ impl StrategyConverter {
                     let param_name = Self::make_parameter_name(&stop_handler.id, &param.name);
                     params.push(StrategyParameterSpec {
                         name: param_name,
-                        description: Some(format!("{} parameter for stop handler {}", param.name, stop_handler.name)),
+                        description: Some(format!(
+                            "{} parameter for stop handler {}",
+                            param.name, stop_handler.name
+                        )),
                         default_value: StrategyParamValue::Number(0.0),
                         min: None,
                         max: None,
@@ -208,7 +228,8 @@ impl StrategyConverter {
         for nested in &candidate.nested_indicators {
             for param in &nested.indicator.parameters {
                 if param.optimizable {
-                    let param_name = Self::make_parameter_name(&nested.indicator.alias, &param.name);
+                    let param_name =
+                        Self::make_parameter_name(&nested.indicator.alias, &param.name);
                     defaults.insert(
                         param_name,
                         Self::param_value_to_strategy_param_from_enum(&param.param_type, 0.0),
@@ -229,7 +250,8 @@ impl StrategyConverter {
         for condition in &candidate.exit_conditions {
             for param in &condition.optimization_params {
                 if param.optimizable {
-                    let param_name = Self::make_parameter_name(&format!("exit_{}", condition.id), &param.name);
+                    let param_name =
+                        Self::make_parameter_name(&format!("exit_{}", condition.id), &param.name);
                     defaults.insert(param_name, StrategyParamValue::Number(0.0));
                 }
             }
@@ -314,9 +336,7 @@ impl StrategyConverter {
             let mut parameters = HashMap::new();
             for param in &condition.optimization_params {
                 if param.optimizable {
-                    let value = condition
-                        .constant_value
-                        .unwrap_or(0.0) as f32;
+                    let value = condition.constant_value.unwrap_or(0.0) as f32;
                     parameters.insert(param.name.clone(), value);
                 }
             }
@@ -343,11 +363,13 @@ impl StrategyConverter {
     ) -> Result<ConditionInputSpec, StrategyConversionError> {
         match condition.condition_type.as_str() {
             "indicator_price" => {
-                let indicator_alias = Self::extract_indicator_alias_from_condition_id(&condition.id)
-                    .ok_or_else(|| StrategyConversionError::InvalidConditionFormat {
-                        condition_id: condition.id.clone(),
-                        reason: "Cannot extract indicator alias".to_string(),
-                    })?;
+                let indicator_alias =
+                    Self::extract_indicator_alias_from_condition_id(&condition.id).ok_or_else(
+                        || StrategyConversionError::InvalidConditionFormat {
+                            condition_id: condition.id.clone(),
+                            reason: "Cannot extract indicator alias".to_string(),
+                        },
+                    )?;
                 let price_field = Self::extract_price_field_from_condition_id(&condition.id)
                     .unwrap_or_else(|| crate::strategy::types::PriceField::Close);
 
@@ -365,7 +387,8 @@ impl StrategyConverter {
                 if aliases.len() < 2 {
                     return Err(StrategyConversionError::InvalidConditionFormat {
                         condition_id: condition.id.clone(),
-                        reason: "Need at least 2 indicators for indicator_indicator condition".to_string(),
+                        reason: "Need at least 2 indicators for indicator_indicator condition"
+                            .to_string(),
                     });
                 }
 
@@ -375,11 +398,13 @@ impl StrategyConverter {
                 })
             }
             "indicator_constant" => {
-                let indicator_alias = Self::extract_indicator_alias_from_condition_id(&condition.id)
-                    .ok_or_else(|| StrategyConversionError::InvalidConditionFormat {
-                        condition_id: condition.id.clone(),
-                        reason: "Cannot extract indicator alias".to_string(),
-                    })?;
+                let indicator_alias =
+                    Self::extract_indicator_alias_from_condition_id(&condition.id).ok_or_else(
+                        || StrategyConversionError::InvalidConditionFormat {
+                            condition_id: condition.id.clone(),
+                            reason: "Cannot extract indicator alias".to_string(),
+                        },
+                    )?;
                 let constant_value = condition.constant_value.unwrap_or(0.0) as f32;
 
                 Ok(ConditionInputSpec::Dual {
@@ -465,9 +490,7 @@ impl StrategyConverter {
             let mut parameters = HashMap::new();
             for param in &condition.optimization_params {
                 if param.optimizable {
-                    let value = condition
-                        .constant_value
-                        .unwrap_or(0.0) as f32;
+                    let value = condition.constant_value.unwrap_or(0.0) as f32;
                     parameters.insert(param.name.clone(), value);
                 }
             }
@@ -496,7 +519,10 @@ impl StrategyConverter {
 
         // Создаем exit rule из exit conditions, если они есть
         if !exit_condition_bindings.is_empty() {
-            let condition_ids: Vec<String> = exit_condition_bindings.iter().map(|c| c.id.clone()).collect();
+            let condition_ids: Vec<String> = exit_condition_bindings
+                .iter()
+                .map(|c| c.id.clone())
+                .collect();
             exit_rules.push(StrategyRuleSpec {
                 id: "exit_rule_1".to_string(),
                 name: "Exit Rule".to_string(),
@@ -543,10 +569,18 @@ impl StrategyConverter {
         default: f64,
     ) -> StrategyParamValue {
         match param_type {
-            crate::indicators::types::ParameterType::Period => StrategyParamValue::Integer(default as i64),
-            crate::indicators::types::ParameterType::Multiplier => StrategyParamValue::Number(default),
-            crate::indicators::types::ParameterType::Threshold => StrategyParamValue::Number(default),
-            crate::indicators::types::ParameterType::Coefficient => StrategyParamValue::Number(default),
+            crate::indicators::types::ParameterType::Period => {
+                StrategyParamValue::Integer(default as i64)
+            }
+            crate::indicators::types::ParameterType::Multiplier => {
+                StrategyParamValue::Number(default)
+            }
+            crate::indicators::types::ParameterType::Threshold => {
+                StrategyParamValue::Number(default)
+            }
+            crate::indicators::types::ParameterType::Coefficient => {
+                StrategyParamValue::Number(default)
+            }
             crate::indicators::types::ParameterType::Custom => StrategyParamValue::Number(default),
         }
     }
@@ -609,4 +643,3 @@ pub enum StrategyConversionError {
     #[error("Unsupported condition type: {condition_type}")]
     UnsupportedConditionType { condition_type: String },
 }
-
