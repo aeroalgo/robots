@@ -58,10 +58,10 @@ pub async fn parquet_example() -> Result<()> {
     };
 
     // Создание коннектора
-    let mut connector = ParquetConnector::new(config);
+    let mut candle_parquet = CandleParquetConnector::new(config);
 
     // Подключение
-    connector.connect().await?;
+    candle_parquet.base_connector.connect().await?;
     println!("✅ Подключен к Parquet хранилищу");
 
     // Создание тестовых данных
@@ -88,19 +88,27 @@ pub async fn parquet_example() -> Result<()> {
 
     // Сохранение данных
     let file_path = ParquetUtils::create_candles_path("BTCUSDT", "2024-01-01");
-
-    // Конвертируем Vec<Candle> в RecordBatch (упрощенная версия)
-    let batches = vec![]; // В реальности нужна конвертация
-
-    connector.write_parquet(&file_path, batches).await?;
+    candle_parquet
+        .save_candles("BTCUSDT", "2024-01-01", test_candles.clone())
+        .await?;
     println!("💾 Данные сохранены в {}", file_path);
 
-    // Чтение данных
-    let read_batches = connector.read_parquet(&file_path).await?;
-    println!("📖 Прочитано {} батчей из файла", read_batches.len());
+    // Чтение данных в прикладном виде
+    let loaded = candle_parquet.load_candles("BTCUSDT", "2024-01-01").await?;
+    println!("📖 Загружено {} свечей", loaded.len());
+
+    // Чтение данных в виде RecordBatch
+    let read_batches = candle_parquet
+        .base_connector
+        .read_parquet(&file_path)
+        .await?;
+    println!("📦 Прочитано {} батчей из файла", read_batches.len());
 
     // Получение метаданных
-    let metadata = connector.get_metadata(&file_path).await?;
+    let metadata = candle_parquet
+        .base_connector
+        .get_metadata(&file_path)
+        .await?;
     println!("📊 Метаданные файла:");
     println!("   - Путь: {}", metadata.file_path);
     println!("   - Размер: {} байт", metadata.file_size);
@@ -108,11 +116,17 @@ pub async fn parquet_example() -> Result<()> {
     println!("   - Колонок: {}", metadata.num_columns);
 
     // Список файлов
-    let files = connector.list_files("candles").await?;
-    println!("📁 Найдено {} файлов в директории candles", files.len());
+    let files = candle_parquet
+        .base_connector
+        .list_files("candles/BTCUSDT")
+        .await?;
+    println!(
+        "📁 Найдено {} файлов в директории candles/BTCUSDT",
+        files.len()
+    );
 
     // Отключение
-    connector.disconnect().await?;
+    candle_parquet.base_connector.disconnect().await?;
     println!("🔌 Отключен от Parquet хранилища");
 
     Ok(())

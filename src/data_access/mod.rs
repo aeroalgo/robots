@@ -26,7 +26,7 @@
 //!
 //! ## Архитектура хранения данных
 //!
-//! ```text
+//! ```
 //! Redis (L1 Cache) -> Arrow Flight (L2 Transfer) -> Parquet (L3 Storage) -> ClickHouse (L4 Analytics)
 //! ```
 //!
@@ -82,4 +82,10 @@ pub enum DataAccessError {
 
     #[error("Generic error: {0}")]
     Generic(#[from] anyhow::Error),
+}
+
+impl From<arrow::error::ArrowError> for DataAccessError {
+    fn from(value: arrow::error::ArrowError) -> Self {
+        DataAccessError::Arrow(value.to_string())
+    }
 }
