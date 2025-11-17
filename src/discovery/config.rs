@@ -86,7 +86,7 @@ impl Default for StrategyDiscoveryConfig {
             base_timeframe: TimeFrame::Minutes(60),
             global_param_ranges,
             allow_indicator_on_indicator: false,
-            max_indicator_depth: 2,
+            max_indicator_depth: 1,
             oscillator_thresholds: vec![], // По умолчанию не генерируем условия с константой
         }
     }

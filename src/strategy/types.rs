@@ -88,6 +88,20 @@ pub struct StopHandlerSpec {
     pub target_entry_ids: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct TakeHandlerSpec {
+    pub id: String,
+    pub name: String,
+    pub handler_name: String,
+    pub timeframe: TimeFrame,
+    pub price_field: PriceField,
+    pub parameters: StrategyParameterMap,
+    pub direction: PositionDirection,
+    pub priority: i32,
+    pub tags: Vec<String>,
+    pub target_entry_ids: Vec<String>,
+}
+
 #[derive(Clone)]
 pub struct PreparedStopHandler {
     pub id: String,
@@ -440,12 +454,43 @@ pub struct StrategyDefinition {
     pub entry_rules: Vec<StrategyRuleSpec>,
     pub exit_rules: Vec<StrategyRuleSpec>,
     pub stop_handlers: Vec<StopHandlerSpec>,
+    pub take_handlers: Vec<TakeHandlerSpec>,
     pub timeframe_requirements: Vec<TimeframeRequirement>,
     pub defaults: StrategyParameterMap,
     pub optimizer_hints: BTreeMap<String, StrategyParamValue>,
 }
 
 impl StrategyDefinition {
+    pub fn new(
+        metadata: StrategyMetadata,
+        parameters: Vec<StrategyParameterSpec>,
+        indicator_bindings: Vec<IndicatorBindingSpec>,
+        formulas: Vec<UserFormulaMetadata>,
+        condition_bindings: Vec<ConditionBindingSpec>,
+        entry_rules: Vec<StrategyRuleSpec>,
+        exit_rules: Vec<StrategyRuleSpec>,
+        stop_handlers: Vec<StopHandlerSpec>,
+        take_handlers: Vec<TakeHandlerSpec>,
+        defaults: StrategyParameterMap,
+        optimizer_hints: BTreeMap<String, StrategyParamValue>,
+    ) -> Self {
+        let timeframe_requirements = Self::timeframe_requirements_from_indicators(&indicator_bindings);
+        Self {
+            metadata,
+            parameters,
+            indicator_bindings,
+            formulas,
+            condition_bindings,
+            entry_rules,
+            exit_rules,
+            stop_handlers,
+            take_handlers,
+            timeframe_requirements,
+            defaults,
+            optimizer_hints,
+        }
+    }
+
     pub fn all_timeframes(&self) -> HashSet<TimeFrame> {
         let mut set = HashSet::new();
         for req in &self.timeframe_requirements {
@@ -465,6 +510,16 @@ impl StrategyDefinition {
 
     pub fn formula_by_id(&self, id: &str) -> Option<&UserFormulaMetadata> {
         self.formulas.iter().find(|formula| formula.id == id)
+    }
+
+    fn timeframe_requirements_from_indicators(indicators: &[IndicatorBindingSpec]) -> Vec<TimeframeRequirement> {
+        indicators
+            .iter()
+            .map(|binding| TimeframeRequirement {
+                alias: binding.alias.clone(),
+                timeframe: binding.timeframe.clone(),
+            })
+            .collect()
     }
 }
 

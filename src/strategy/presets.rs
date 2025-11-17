@@ -6,8 +6,8 @@ use super::types::{
     ConditionBindingSpec, ConditionDeclarativeSpec, ConditionInputSpec, ConditionOperator,
     DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec, PositionDirection, PriceField,
     StopHandlerSpec, StrategyDefinition, StrategyMetadata, StrategyParamValue,
-    StrategyParameterMap, StrategyRuleSpec, StrategySignalType, TimeframeRequirement,
-    UserFormulaMetadata,
+    StrategyParameterMap, StrategyRuleSpec, StrategySignalType, TakeHandlerSpec,
+    TimeframeRequirement, UserFormulaMetadata,
 };
 
 pub fn default_strategy_definitions() -> Vec<StrategyDefinition> {
@@ -245,6 +245,7 @@ fn sma_crossover_definition() -> StrategyDefinition {
     trend_stop_loss_params.insert("percentage".to_string(), StrategyParamValue::Number(0.7));
     let mut trend_take_profit_params = StrategyParameterMap::new();
     trend_take_profit_params.insert("percentage".to_string(), StrategyParamValue::Number(1.2));
+
     let stop_handlers = vec![
         StopHandlerSpec {
             id: "stop_loss_pct".to_string(),
@@ -259,18 +260,6 @@ fn sma_crossover_definition() -> StrategyDefinition {
             target_entry_ids: vec!["enter_long".to_string()],
         },
         StopHandlerSpec {
-            id: "take_profit_pct".to_string(),
-            name: "Take Profit Pct".to_string(),
-            handler_name: "TakeProfitPct".to_string(),
-            timeframe: timeframe.clone(),
-            price_field: PriceField::Close,
-            parameters: take_profit_params,
-            direction: PositionDirection::Long,
-            priority: 20,
-            tags: vec!["stop".to_string(), "target".to_string()],
-            target_entry_ids: vec!["enter_long".to_string()],
-        },
-        StopHandlerSpec {
             id: "stop_loss_pct_trend".to_string(),
             name: "Stop Loss Pct Trend".to_string(),
             handler_name: "StopLossPct".to_string(),
@@ -282,7 +271,22 @@ fn sma_crossover_definition() -> StrategyDefinition {
             tags: vec!["stop".to_string(), "trend".to_string()],
             target_entry_ids: vec!["enter_long_trend".to_string()],
         },
-        StopHandlerSpec {
+    ];
+
+    let take_handlers = vec![
+        TakeHandlerSpec {
+            id: "take_profit_pct".to_string(),
+            name: "Take Profit Pct".to_string(),
+            handler_name: "TakeProfitPct".to_string(),
+            timeframe: timeframe.clone(),
+            price_field: PriceField::Close,
+            parameters: take_profit_params,
+            direction: PositionDirection::Long,
+            priority: 20,
+            tags: vec!["take".to_string(), "target".to_string()],
+            target_entry_ids: vec!["enter_long".to_string()],
+        },
+        TakeHandlerSpec {
             id: "take_profit_pct_trend".to_string(),
             name: "Take Profit Pct Trend".to_string(),
             handler_name: "TakeProfitPct".to_string(),
@@ -291,32 +295,13 @@ fn sma_crossover_definition() -> StrategyDefinition {
             parameters: trend_take_profit_params,
             direction: PositionDirection::Long,
             priority: 25,
-            tags: vec!["stop".to_string(), "trend".to_string()],
+            tags: vec!["take".to_string(), "trend".to_string()],
             target_entry_ids: vec!["enter_long_trend".to_string()],
         },
     ];
 
-    let timeframe_requirements = vec![
-        TimeframeRequirement {
-            alias: fast_alias.clone(),
-            timeframe: timeframe.clone(),
-        },
-        TimeframeRequirement {
-            alias: slow_alias.clone(),
-            timeframe: timeframe.clone(),
-        },
-        TimeframeRequirement {
-            alias: trend_alias.clone(),
-            timeframe: timeframe.clone(),
-        },
-        TimeframeRequirement {
-            alias: ema_alias.clone(),
-            timeframe: higher_timeframe.clone(),
-        },
-    ];
-
-    StrategyDefinition {
-        metadata: StrategyMetadata {
+    StrategyDefinition::new(
+        StrategyMetadata {
             id: "SMA_CROSSOVER_LONG".to_string(),
             name: "SMA Crossover Long".to_string(),
             description: Some("Простая стратегия пересечения скользящих средних".to_string()),
@@ -327,15 +312,15 @@ fn sma_crossover_definition() -> StrategyDefinition {
             created_at: None,
             updated_at: None,
         },
-        parameters: Vec::new(),
+        Vec::new(),
         indicator_bindings,
         formulas,
         condition_bindings,
         entry_rules,
         exit_rules,
         stop_handlers,
-        timeframe_requirements,
-        defaults: StrategyParameterMap::new(),
-        optimizer_hints: BTreeMap::new(),
-    }
+        take_handlers,
+        StrategyParameterMap::new(),
+        BTreeMap::new(),
+    )
 }

@@ -1,5 +1,5 @@
 use chrono::Utc;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use crate::data_model::types::TimeFrame;
 use crate::discovery::config::StrategyDiscoveryConfig;
@@ -10,7 +10,7 @@ use crate::strategy::types::{
     ConditionOperator, DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec,
     PositionDirection, RuleLogic, StopHandlerSpec, StrategyCategory, StrategyDefinition,
     StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyParameterSpec,
-    StrategyRuleSpec, StrategySignalType, TimeframeRequirement,
+    StrategyRuleSpec, StrategySignalType, TakeHandlerSpec,
 };
 
 pub struct StrategyConverter;
@@ -28,7 +28,8 @@ impl StrategyConverter {
             Self::create_indicator_bindings(candidate, base_timeframe.clone())?;
         let condition_bindings =
             Self::create_condition_bindings(candidate, base_timeframe.clone())?;
-        let stop_handlers = Self::create_stop_handlers(candidate, base_timeframe.clone())?;
+        let (stop_handlers, take_handlers) =
+            Self::create_stop_and_take_handlers(candidate, base_timeframe.clone())?;
 
         let exit_condition_bindings =
             Self::create_condition_bindings_for_exit(candidate, base_timeframe.clone())?;
@@ -36,21 +37,19 @@ impl StrategyConverter {
         let entry_rules = Self::create_entry_rules(candidate, &condition_bindings)?;
         let exit_rules = Self::create_exit_rules(candidate, &exit_condition_bindings)?;
 
-        let timeframe_requirements = Self::create_timeframe_requirements(candidate);
-
-        Ok(StrategyDefinition {
+        Ok(StrategyDefinition::new(
             metadata,
             parameters,
             indicator_bindings,
-            formulas: vec![],
+            vec![], // formulas
             condition_bindings,
             entry_rules,
             exit_rules,
             stop_handlers,
-            timeframe_requirements,
+            take_handlers,
             defaults,
-            optimizer_hints: BTreeMap::new(),
-        })
+            BTreeMap::new(), // optimizer_hints
+        ))
     }
 
     fn create_metadata(candidate: &StrategyCandidate) -> StrategyMetadata {
@@ -373,9 +372,22 @@ impl StrategyConverter {
                 let price_field = Self::extract_price_field_from_condition_id(&condition.id)
                     .unwrap_or_else(|| crate::strategy::types::PriceField::Close);
 
+                // Используем таймфреймы из ConditionInfo, если они указаны
+                let primary_source = if let Some(ref tf) = condition.primary_timeframe {
+                    DataSeriesSource::indicator_with_timeframe(indicator_alias, tf.clone())
+                } else {
+                    DataSeriesSource::indicator(indicator_alias)
+                };
+
+                let secondary_source = if let Some(ref tf) = condition.secondary_timeframe {
+                    DataSeriesSource::price_with_timeframe(price_field, tf.clone())
+                } else {
+                    DataSeriesSource::price(price_field)
+                };
+
                 Ok(ConditionInputSpec::Dual {
-                    primary: DataSeriesSource::indicator(indicator_alias),
-                    secondary: DataSeriesSource::price(price_field),
+                    primary: primary_source,
+                    secondary: secondary_source,
                 })
             }
             "indicator_indicator" => {
@@ -392,9 +404,22 @@ impl StrategyConverter {
                     });
                 }
 
+                // Используем таймфреймы из ConditionInfo, если они указаны
+                let primary_source = if let Some(ref tf) = condition.primary_timeframe {
+                    DataSeriesSource::indicator_with_timeframe(aliases[0].clone(), tf.clone())
+                } else {
+                    DataSeriesSource::indicator(aliases[0].clone())
+                };
+
+                let secondary_source = if let Some(ref tf) = condition.secondary_timeframe {
+                    DataSeriesSource::indicator_with_timeframe(aliases[1].clone(), tf.clone())
+                } else {
+                    DataSeriesSource::indicator(aliases[1].clone())
+                };
+
                 Ok(ConditionInputSpec::Dual {
-                    primary: DataSeriesSource::indicator(aliases[0].clone()),
-                    secondary: DataSeriesSource::indicator(aliases[1].clone()),
+                    primary: primary_source,
+                    secondary: secondary_source,
                 })
             }
             "indicator_constant" => {
@@ -407,8 +432,15 @@ impl StrategyConverter {
                     )?;
                 let constant_value = condition.constant_value.unwrap_or(0.0) as f32;
 
+                // Используем таймфрейм из ConditionInfo для индикатора, если он указан
+                let primary_source = if let Some(ref tf) = condition.primary_timeframe {
+                    DataSeriesSource::indicator_with_timeframe(indicator_alias, tf.clone())
+                } else {
+                    DataSeriesSource::indicator(indicator_alias)
+                };
+
                 Ok(ConditionInputSpec::Dual {
-                    primary: DataSeriesSource::indicator(indicator_alias),
+                    primary: primary_source,
                     secondary: DataSeriesSource::custom(format!("constant_{}", constant_value)),
                 })
             }
@@ -418,11 +450,12 @@ impl StrategyConverter {
         }
     }
 
-    fn create_stop_handlers(
+    fn create_stop_and_take_handlers(
         candidate: &StrategyCandidate,
         base_timeframe: TimeFrame,
-    ) -> Result<Vec<StopHandlerSpec>, StrategyConversionError> {
-        let mut handlers = Vec::new();
+    ) -> Result<(Vec<StopHandlerSpec>, Vec<TakeHandlerSpec>), StrategyConversionError> {
+        let mut stop_handlers = Vec::new();
+        let mut take_handlers = Vec::new();
 
         for stop_handler in &candidate.stop_handlers {
             let mut parameters = StrategyParameterMap::new();
@@ -432,21 +465,40 @@ impl StrategyConverter {
                 }
             }
 
-            handlers.push(StopHandlerSpec {
-                id: stop_handler.id.clone(),
-                name: stop_handler.name.clone(),
-                handler_name: stop_handler.handler_name.clone(),
-                timeframe: base_timeframe.clone(),
-                price_field: crate::strategy::types::PriceField::Close,
-                parameters,
-                direction: PositionDirection::Both,
-                priority: stop_handler.priority,
-                tags: vec![stop_handler.stop_type.clone()],
-                target_entry_ids: vec![],
-            });
+            match stop_handler.stop_type.as_str() {
+                "stop_loss" => {
+                    stop_handlers.push(StopHandlerSpec {
+                        id: stop_handler.id.clone(),
+                        name: stop_handler.name.clone(),
+                        handler_name: stop_handler.handler_name.clone(),
+                        timeframe: base_timeframe.clone(),
+                        price_field: crate::strategy::types::PriceField::Close,
+                        parameters,
+                        direction: PositionDirection::Both,
+                        priority: stop_handler.priority,
+                        tags: vec![stop_handler.stop_type.clone()],
+                        target_entry_ids: vec![],
+                    });
+                }
+                "take_profit" => {
+                    take_handlers.push(TakeHandlerSpec {
+                        id: stop_handler.id.clone(),
+                        name: stop_handler.name.clone(),
+                        handler_name: stop_handler.handler_name.clone(),
+                        timeframe: base_timeframe.clone(),
+                        price_field: crate::strategy::types::PriceField::Close,
+                        parameters,
+                        direction: PositionDirection::Both,
+                        priority: stop_handler.priority,
+                        tags: vec![stop_handler.stop_type.clone()],
+                        target_entry_ids: vec![],
+                    });
+                }
+                _ => {}
+            }
         }
 
-        Ok(handlers)
+        Ok((stop_handlers, take_handlers))
     }
 
     fn create_entry_rules(
@@ -542,22 +594,6 @@ impl StrategyConverter {
         // Здесь мы создаем exit rules только из условий
 
         Ok(exit_rules)
-    }
-
-    fn create_timeframe_requirements(candidate: &StrategyCandidate) -> Vec<TimeframeRequirement> {
-        let mut timeframes = HashSet::new();
-        for tf in &candidate.timeframes {
-            timeframes.insert(tf.clone());
-        }
-
-        timeframes
-            .into_iter()
-            .enumerate()
-            .map(|(idx, tf)| TimeframeRequirement {
-                alias: format!("tf_{}", idx),
-                timeframe: tf,
-            })
-            .collect()
     }
 
     fn make_parameter_name(prefix: &str, param_name: &str) -> String {

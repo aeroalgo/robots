@@ -1,3 +1,4 @@
+use crate::data_model::types::TimeFrame;
 use crate::indicators::types::ParameterType;
 use crate::strategy::types::ConditionOperator;
 use serde::{Deserialize, Serialize};
@@ -45,6 +46,12 @@ pub struct ConditionInfo {
     /// Значение константы для условий типа "indicator_constant" (например, 70 для RSI > 70)
     /// Если None, то константа берется из optimization_params
     pub constant_value: Option<f64>,
+    /// Таймфрейм для primary источника (индикатор или цена)
+    /// Если None, используется базовый таймфрейм стратегии
+    pub primary_timeframe: Option<TimeFrame>,
+    /// Таймфрейм для secondary источника (индикатор, цена или константа)
+    /// Если None, используется базовый таймфрейм стратегии
+    pub secondary_timeframe: Option<TimeFrame>,
 }
 
 /// Информация о параметре условия

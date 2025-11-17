@@ -666,6 +666,7 @@ impl StrategyBuilder {
             entry_rules,
             exit_rules,
             stop_handlers: Vec::new(),
+            take_handlers: vec![],
             timeframe_requirements,
             defaults,
             optimizer_hints: BTreeMap::new(),

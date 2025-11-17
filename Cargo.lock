@@ -3192,6 +3192,7 @@ dependencies = [
  "num-traits",
  "num_cpus",
  "parquet 50.0.0",
+ "rand 0.8.5",
  "redis",
  "reqwest",
  "serde",

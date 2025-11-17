@@ -182,8 +182,8 @@
   - **Оценка времени**: 1 неделя
   - **Зависимости**: Планирование архитектуры хранения данных
   
-- [ ] **Интеграция Redis/Parquet кэширования в вычислительном слое бэктеста**
-  - **Описание**: Связать реализованные `CacheRepository` (Redis) и `AnalyticsRepository` (Arrow/Parquet) с исполнителем стратегий, чтобы backtest/strategy engine читал горячие данные и исторические сегменты через единый слой данных, поддерживающий сериализацию формул и повторяемость расчётов.
+- [ ] **Интеграция Redis/Parquet кэширования в вычислительном слое бэктеста (Multi-level caching)**
+  - **Описание**: Реализовать multi-level caching стратегию (Redis L1 + Arrow/Parquet L2 + ClickHouse L3) с единым интерфейсом `DataFeedGateway`. Связать реализованные `CacheRepository` (Redis) и `AnalyticsRepository` (Arrow/Parquet) с исполнителем стратегий, чтобы backtest/strategy engine читал горячие данные и исторические сегменты через единый слой данных с автоматическим fallback между уровнями, поддерживающий сериализацию формул и повторяемость расчётов.
   - **Сложность**: Уровень 3 (Feature)
   - **Technology Stack**:
     - Язык: Rust (`tokio`, `async-trait`, `arrow`, `parquet`, `clickhouse`, `redis`)
@@ -196,9 +196,13 @@
     - [ ] Настроить feature-flag `data_access.unified_cache=true` в конфиге и подтвердить сборку.
     - [ ] Выполнить smoke-тест backtest с новым data layer.
   - **Requirements Analysis**:
+    - **Multi-level caching стратегия**: Реализовать иерархию кэширования с автоматическим fallback:
+      - **L1 (Redis)**: Горячие данные (последние свечи, кэш индикаторов) — проверка первой
+      - **L2 (Arrow/Parquet)**: Исторические сегменты — проверка второй, ленивая загрузка с memory-mapping
+      - **L3 (ClickHouse)**: Полные исторические данные — fallback при отсутствии в L1/L2
     - Backtest должен подхватывать горячие свечи/индикаторы из Redis, если окно симуляции перекрывает realtime данные.
     - Исторические сегменты (Arrow/Parquet) должны лениво подгружаться и memory-map'иться без копирования.
-    - Единый интерфейс данных (`DataFeedGateway`) обязан абстрагировать источник и экспонировать согласованные таймстемпы/метаданные.
+    - Единый интерфейс данных (`DataFeedGateway`) обязан абстрагировать источник и экспонировать согласованные таймстемпы/метаданные, скрывая детали fallback логики.
     - Необходимо обеспечить детерминированность расчётов при повторных прогонах (фиксация кэшей и партиций).
   - **Данные в Redis для Backtest**:
     - [x] Горячие свечи: `market:{symbol}:{tf}:last_candle` — последние свечи для realtime периода, используемые когда окно бэктеста перекрывается с realtime данными.
@@ -215,19 +219,23 @@
     - Партиционировать Parquet сегменты по `symbol/tf/date`, подключать через manifest для быстрых seek операций.
     - Прописать TTL/eviction политики, чтобы бэктест не захламлял Redis.
   - **Implementation Strategy**:
-    1. Сформировать интерфейс `DataFeedGateway` и внедрить его в `BacktestExecutor` вместо прямого доступа к `QuoteFrame`.
-    2. Реализовать Redis провайдер (indicator cache, последние свечи, сигнал кэши).
-    3. Реализовать Parquet провайдер (стриминг `RecordBatch` → `QuoteFrame`).
-    4. Добавить конфигурацию и wiring в `AppConfig`/`StrategyRuntimeConfig`.
-    5. Обновить serialization/metrics, чтобы фиксировать источник данных.
+    1. Сформировать интерфейс `DataFeedGateway` с поддержкой multi-level fallback (L1 → L2 → L3) и внедрить его в `BacktestExecutor` вместо прямого доступа к `QuoteFrame`.
+    2. Реализовать Redis провайдер (L1) — indicator cache, последние свечи, сигнал кэши.
+    3. Реализовать Parquet провайдер (L2) — стриминг `RecordBatch` → `QuoteFrame` с memory-mapping.
+    4. Реализовать ClickHouse провайдер (L3) — fallback для полных исторических данных.
+    5. Реализовать логику автоматического fallback: проверка L1 → при отсутствии проверка L2 → при отсутствии запрос к L3.
+    6. Добавить конфигурацию и wiring в `AppConfig`/`StrategyRuntimeConfig`.
+    7. Обновить serialization/metrics, чтобы фиксировать источник данных (L1/L2/L3) для отладки и мониторинга.
   - **Detailed Steps**:
-    1. `data_access/mod.rs`: описать trait `UnifiedDataProvider` с методами `warmup`, `next_batch`, `flush_cache`.
-    2. `cache.rs`: добавить операции `prefetch_indicator_series`, `store_backtest_snapshot` и TTL guard.
-    3. `analytics_repository.rs`: реализовать `stream_parquet_segment(symbol, tf, range)` возвращающий `impl Stream<Item = RecordBatch>`.
-    4. `strategy/executor/backtest_executor.rs`: встроить state machine загрузки батчей и fallback на ClickHouse.
-    5. `strategy/context.rs`: расширить хранение precomputed series метаданными источника.
-    6. Конфиги (`configs/runtime/*.toml`): добавить секцию `data_pipeline` с флагами `enable_redis_cache`, `parquet_segment_path`.
-    7. Тесты: `tests/data_feed_unified.rs` с mock Redis и parquet fixtures.
+    1. `data_access/mod.rs`: описать trait `DataFeedGateway` с методами `get_data(symbol, tf, range)` и поддержкой multi-level fallback.
+    2. `data_access/repository/unified_data_feed.rs` (новый файл): реализовать `UnifiedDataFeed` с провайдерами L1/L2/L3 и логикой fallback.
+    3. `data_access/repository/cache.rs`: добавить операции `prefetch_indicator_series`, `store_backtest_snapshot` и TTL guard для L1 провайдера.
+    4. `data_access/repository/analytics.rs`: реализовать `stream_parquet_segment(symbol, tf, range)` возвращающий `impl Stream<Item = RecordBatch>` для L2 провайдера.
+    5. `data_access/repository/clickhouse_feed.rs` (новый файл): реализовать ClickHouse провайдер (L3) с методами загрузки исторических данных.
+    6. `strategy/executor.rs`: заменить прямой доступ к `QuoteFrame` на использование `DataFeedGateway` с поддержкой multi-level fallback.
+    7. `strategy/context.rs`: расширить хранение precomputed series метаданными источника (L1/L2/L3) для отладки.
+    8. Конфиги (`configs/runtime/*.toml`): добавить секцию `data_pipeline` с флагами `enable_redis_cache`, `parquet_segment_path`, `enable_multi_level_cache`.
+    9. Тесты: `tests/data_feed_unified.rs` с mock Redis, parquet fixtures и проверкой fallback логики L1 → L2 → L3.
   - **Dependencies**:
     - Завершённый Redis layout (`data_access/cache/layout.rs`).
     - `OhlcvParquetExporter` и доступные parquet сегменты.
@@ -462,11 +470,44 @@
   - **Зависимости**: Registry и фабрика
 
 - [ ] **Задача**: Оптимизация индикаторов с SIMD
-  - **Описание**: Векторизация вычислений для повышения производительности
+  - **Описание**: Векторизация вычислений для повышения производительности индикаторов, операций с векторами и агрегации данных
+  - **Сложность**: Уровень 3 (Feature)
   - **Статус**: Не начато
   - **Приоритет**: Средний
   - **Оценка времени**: 1-2 недели
   - **Зависимости**: Портирование базовых индикаторов
+  - **Technology Stack**:
+    - Язык: Rust (`packed_simd_2` или `std::arch` для SIMD инструкций)
+    - Целевые архитектуры: x86_64 (AVX2/AVX-512), ARM (NEON)
+  - **Места интеграции SIMD**:
+    1. **`src/data_model/vector.rs`** — операции с ValueVector:
+       - `sum()` — векторизованное суммирование массива
+       - `mean()` — векторизованное вычисление среднего
+       - `rolling_sum()` — скользящая сумма с SIMD
+       - `rolling_mean()` — скользящее среднее
+       - `normalize()` — нормализация (variance/std с SIMD)
+       - `zip_with()` — поэлементные операции (add, sub, mul, div)
+    2. **`src/indicators/implementations.rs`** — вычисления индикаторов:
+       - **SMA**: векторизация суммирования окон данных
+       - **EMA**: векторизация экспоненциальных вычислений
+       - **MAXFOR/MINFOR**: SIMD поиск максимума/минимума в окне
+       - **TypicalPrice/WeightedClose**: векторизация вычисления цен (H+L+C+O)
+       - Все индикаторы с циклами по массивам данных
+    3. **`src/candles/aggregator.rs`** — агрегация свечей:
+       - Поиск max/min для high/low с SIMD
+       - Суммирование объемов
+       - Вычисление типичных цен при агрегации
+  - **Implementation Strategy**:
+    1. Создать модуль `src/utils/simd.rs` с обертками для SIMD операций
+    2. Реализовать fallback на обычные операции при отсутствии SIMD поддержки
+    3. Добавить feature flags для разных SIMD наборов (`avx2`, `avx512`, `neon`)
+    4. Векторизовать критические операции в ValueVector
+    5. Оптимизировать индикаторы с наибольшей нагрузкой (SMA, EMA, MAXFOR, MINFOR)
+    6. Добавить бенчмарки для измерения прироста производительности
+  - **Expected Performance Gains**:
+    - ValueVector операции: 4-8x ускорение для больших массивов (>1000 элементов)
+    - Индикаторы: 2-4x ускорение для оконных вычислений
+    - Агрегация свечей: 3-5x ускорение для больших батчей
 
 #### План портирования индикаторов с 1-2 параметрами
 - **Фаза 1 — vvAverages**
@@ -704,6 +745,7 @@
        - `pct`: start 1, end 10, step 0.2
        - Эти настройки применяются ко всем индикаторам/условиям, использующим соответствующие параметры.
     4. **Индикаторы по индикаторам**: Опция, позволяющая строить часть индикаторов не по цене, а по уже построенным индикаторам. Это позволяет создавать условия между индикаторами (например, RSI от EMA, или MACD от Bollinger Bands).
+    5. **Таймфреймы для индикаторов и цен в условиях**: Поддержка указания разных таймфреймов для индикаторов и цен в условиях. Это позволяет создавать мультитаймфреймовые условия (например, Close на 60min > EMA на 240min, или SMA на 60min > EMA на 240min). Индикаторы и цены могут быть привязаны к любому таймфрейму из доступных в конфигурации.
   - **Связь с оптимизацией**: После генерации стратегии будет проводиться оптимизация параметров через генетический алгоритм (задача "Создание генетического алгоритма оптимизации").
   - **Шаги реализации**:
     1. [x] Спроектировать структуру конфигурации поиска стратегий с параметрами выше.
@@ -777,6 +819,29 @@
       - [x] Автоматическое создание exit правил из exit conditions
       - [x] Поддержка комбинаций exit conditions и stop handlers (вместе и по отдельности)
       - [x] Генерация стратегий с различными комбинациями: entry+стопы, entry+exit+стопы, entry+exit (без стопов)
+    - [x] **Поддержка таймфреймов для индикаторов и цен в условиях** (реализовано):
+      - [x] Добавлены поля `primary_timeframe` и `secondary_timeframe` в `ConditionInfo`
+      - [x] Обновлена генерация условий для поддержки разных таймфреймов (все методы генерации условий)
+      - [x] Обновлен `StrategyConverter` для использования `indicator_with_timeframe()` и `price_with_timeframe()`
+      - [x] Обновлен `engine.rs` для передачи таймфреймов в генерацию условий
+      - [ ] Добавлены тесты для генерации условий с разными таймфреймами
+      - [ ] Обновлена документация с примерами использования
+    7. [x] **Поддержка таймфреймов для индикаторов и цен в условиях**:
+       - [x] Добавить в `ConditionInfo` поля для таймфреймов:
+         - `primary_timeframe: Option<TimeFrame>` — таймфрейм для primary источника (индикатор или цена)
+         - `secondary_timeframe: Option<TimeFrame>` — таймфрейм для secondary источника (индикатор, цена или константа)
+       - [x] Обновить генерацию условий в `ConditionCombinationGenerator`:
+         - Генерировать комбинации условий с разными таймфреймами для индикаторов и цен
+         - Поддержка условий типа "цена на TF1 > индикатор на TF2" (например, Close на 60min > EMA на 240min)
+         - Поддержка условий типа "индикатор на TF1 > индикатор на TF2" (например, SMA на 60min > EMA на 240min)
+         - Учитывать доступные таймфреймы из `StrategyDiscoveryConfig`
+       - [x] Обновить `StrategyConverter` в `strategy_converter.rs`:
+         - Использовать `DataSeriesSource::indicator_with_timeframe()` вместо `DataSeriesSource::indicator()` когда указан таймфрейм
+         - Использовать `DataSeriesSource::price_with_timeframe()` вместо `DataSeriesSource::price()` когда указан таймфрейм
+         - Обновить метод `create_condition_input()` для поддержки таймфреймов из `ConditionInfo`
+       - [x] Обновить `engine.rs` для передачи таймфреймов в генерацию условий
+       - [ ] Добавить тесты для генерации условий с разными таймфреймами
+       - [ ] Обновить документацию с примерами использования
 
 - [ ] **Задача**: Реализация Strategy Builder
   - **Описание**: Автоматическое создание стратегий из комбинаций индикаторов

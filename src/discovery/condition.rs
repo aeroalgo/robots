@@ -15,6 +15,7 @@ impl ConditionCombinationGenerator {
     /// * `indicators` - список индикаторов для использования
     /// * `price_fields` - список полей цены (Open, High, Low, Close)
     /// * `operators` - список операторов для условий
+    /// * `timeframes` - опциональный список таймфреймов для генерации мультитаймфреймовых условий
     ///
     /// # Возвращает
     /// Вектор комбинаций условий
@@ -22,6 +23,7 @@ impl ConditionCombinationGenerator {
         indicators: &[IndicatorInfo],
         price_fields: &[PriceField],
         operators: &[ConditionOperator],
+        timeframes: Option<&[TimeFrame]>,
     ) -> Vec<ConditionInfo> {
         let mut conditions = Vec::new();
 
@@ -30,23 +32,55 @@ impl ConditionCombinationGenerator {
                 for operator in operators {
                     // Проверяем, применим ли оператор к комбинации индикатор-цена
                     if Self::is_valid_operator_for_indicator_price(operator) {
-                        let condition = ConditionInfo {
-                            id: format!(
-                                "ind_price_{}_{:?}_{:?}",
-                                indicator.alias, price_field, operator
-                            ),
-                            name: format!(
-                                "{} {} {:?}",
-                                indicator.name,
-                                Self::operator_to_str(operator),
-                                price_field
-                            ),
-                            operator: operator.clone(),
-                            condition_type: "indicator_price".to_string(),
-                            optimization_params: Vec::new(), // Может быть процент для DualWithPercent
-                            constant_value: None,
-                        };
-                        conditions.push(condition);
+                        // Если таймфреймы указаны, генерируем комбинации с разными таймфреймами
+                        if let Some(tfs) = timeframes {
+                            for primary_tf in tfs {
+                                for secondary_tf in tfs {
+                                    let condition = ConditionInfo {
+                                        id: format!(
+                                            "ind_price_{}_{:?}_{:?}_tf{:?}_tf{:?}",
+                                            indicator.alias, price_field, operator, primary_tf, secondary_tf
+                                        ),
+                                        name: format!(
+                                            "{} ({:?}) {} {:?} ({:?})",
+                                            indicator.name,
+                                            primary_tf,
+                                            Self::operator_to_str(operator),
+                                            price_field,
+                                            secondary_tf
+                                        ),
+                                        operator: operator.clone(),
+                                        condition_type: "indicator_price".to_string(),
+                                        optimization_params: Vec::new(),
+                                        constant_value: None,
+                                        primary_timeframe: Some(primary_tf.clone()),
+                                        secondary_timeframe: Some(secondary_tf.clone()),
+                                    };
+                                    conditions.push(condition);
+                                }
+                            }
+                        } else {
+                            // Без таймфреймов - используем базовый таймфрейм стратегии
+                            let condition = ConditionInfo {
+                                id: format!(
+                                    "ind_price_{}_{:?}_{:?}",
+                                    indicator.alias, price_field, operator
+                                ),
+                                name: format!(
+                                    "{} {} {:?}",
+                                    indicator.name,
+                                    Self::operator_to_str(operator),
+                                    price_field
+                                ),
+                                operator: operator.clone(),
+                                condition_type: "indicator_price".to_string(),
+                                optimization_params: Vec::new(),
+                                constant_value: None,
+                                primary_timeframe: None,
+                                secondary_timeframe: None,
+                            };
+                            conditions.push(condition);
+                        }
                     }
                 }
             }
@@ -60,12 +94,14 @@ impl ConditionCombinationGenerator {
     /// # Аргументы
     /// * `indicators` - список индикаторов для использования
     /// * `operators` - список операторов для условий
+    /// * `timeframes` - опциональный список таймфреймов для генерации мультитаймфреймовых условий
     ///
     /// # Возвращает
     /// Вектор комбинаций условий индикатор-индикатор
     pub fn generate_indicator_indicator_conditions(
         indicators: &[IndicatorInfo],
         operators: &[ConditionOperator],
+        timeframes: Option<&[TimeFrame]>,
     ) -> Vec<ConditionInfo> {
         let mut conditions = Vec::new();
 
@@ -78,23 +114,55 @@ impl ConditionCombinationGenerator {
                 for operator in operators {
                     // Проверяем, применим ли оператор к комбинации индикатор-индикатор
                     if Self::is_valid_operator_for_indicator_indicator(operator) {
-                        let condition = ConditionInfo {
-                            id: format!(
-                                "ind_ind_{}_{}_{:?}",
-                                primary.alias, secondary.alias, operator
-                            ),
-                            name: format!(
-                                "{} {} {}",
-                                primary.name,
-                                Self::operator_to_str(operator),
-                                secondary.name
-                            ),
-                            operator: operator.clone(),
-                            condition_type: "indicator_indicator".to_string(),
-                            optimization_params: Vec::new(),
-                            constant_value: None,
-                        };
-                        conditions.push(condition);
+                        // Если таймфреймы указаны, генерируем комбинации с разными таймфреймами
+                        if let Some(tfs) = timeframes {
+                            for primary_tf in tfs {
+                                for secondary_tf in tfs {
+                                    let condition = ConditionInfo {
+                                        id: format!(
+                                            "ind_ind_{}_{}_{:?}_tf{:?}_tf{:?}",
+                                            primary.alias, secondary.alias, operator, primary_tf, secondary_tf
+                                        ),
+                                        name: format!(
+                                            "{} ({:?}) {} {} ({:?})",
+                                            primary.name,
+                                            primary_tf,
+                                            Self::operator_to_str(operator),
+                                            secondary.name,
+                                            secondary_tf
+                                        ),
+                                        operator: operator.clone(),
+                                        condition_type: "indicator_indicator".to_string(),
+                                        optimization_params: Vec::new(),
+                                        constant_value: None,
+                                        primary_timeframe: Some(primary_tf.clone()),
+                                        secondary_timeframe: Some(secondary_tf.clone()),
+                                    };
+                                    conditions.push(condition);
+                                }
+                            }
+                        } else {
+                            // Без таймфреймов - используем базовый таймфрейм стратегии
+                            let condition = ConditionInfo {
+                                id: format!(
+                                    "ind_ind_{}_{}_{:?}",
+                                    primary.alias, secondary.alias, operator
+                                ),
+                                name: format!(
+                                    "{} {} {}",
+                                    primary.name,
+                                    Self::operator_to_str(operator),
+                                    secondary.name
+                                ),
+                                operator: operator.clone(),
+                                condition_type: "indicator_indicator".to_string(),
+                                optimization_params: Vec::new(),
+                                constant_value: None,
+                                primary_timeframe: None,
+                                secondary_timeframe: None,
+                            };
+                            conditions.push(condition);
+                        }
                     }
                 }
             }
@@ -110,6 +178,7 @@ impl ConditionCombinationGenerator {
     /// * `indicators` - список индикаторов (только осцилляторы)
     /// * `operators` - список операторов (обычно GreaterThan и LessThan)
     /// * `constant_values` - значения констант для условий (например, [30, 50, 70] для RSI)
+    /// * `timeframes` - опциональный список таймфреймов для генерации мультитаймфреймовых условий
     ///
     /// # Возвращает
     /// Вектор комбинаций условий индикатор-константа
@@ -117,6 +186,7 @@ impl ConditionCombinationGenerator {
         indicators: &[IndicatorInfo],
         operators: &[ConditionOperator],
         constant_values: &[f64],
+        timeframes: Option<&[TimeFrame]>,
     ) -> Vec<ConditionInfo> {
         let mut conditions = Vec::new();
 
@@ -131,27 +201,60 @@ impl ConditionCombinationGenerator {
                 // Для условий индикатор-константа обычно используются только > и <
                 if Self::is_valid_operator_for_indicator_constant(operator) {
                     for &constant in constant_values {
-                        let condition = ConditionInfo {
-                            id: format!(
-                                "ind_const_{}_{:?}_{}",
-                                oscillator.alias, operator, constant
-                            ),
-                            name: format!(
-                                "{} {} {:.1}",
-                                oscillator.name,
-                                Self::operator_to_str(operator),
-                                constant
-                            ),
-                            operator: operator.clone(),
-                            condition_type: "indicator_constant".to_string(),
-                            optimization_params: vec![ConditionParamInfo {
-                                name: "threshold".to_string(),
-                                optimizable: true,
-                                global_param_name: None, // Можно добавить глобальную настройку
-                            }],
-                            constant_value: Some(constant),
-                        };
-                        conditions.push(condition);
+                        // Если таймфреймы указаны, генерируем комбинации с разными таймфреймами
+                        if let Some(tfs) = timeframes {
+                            for primary_tf in tfs {
+                                let condition = ConditionInfo {
+                                    id: format!(
+                                        "ind_const_{}_{:?}_{}_tf{:?}",
+                                        oscillator.alias, operator, constant, primary_tf
+                                    ),
+                                    name: format!(
+                                        "{} ({:?}) {} {:.1}",
+                                        oscillator.name,
+                                        primary_tf,
+                                        Self::operator_to_str(operator),
+                                        constant
+                                    ),
+                                    operator: operator.clone(),
+                                    condition_type: "indicator_constant".to_string(),
+                                    optimization_params: vec![ConditionParamInfo {
+                                        name: "threshold".to_string(),
+                                        optimizable: true,
+                                        global_param_name: None,
+                                    }],
+                                    constant_value: Some(constant),
+                                    primary_timeframe: Some(primary_tf.clone()),
+                                    secondary_timeframe: None, // Константа не имеет таймфрейма
+                                };
+                                conditions.push(condition);
+                            }
+                        } else {
+                            // Без таймфреймов - используем базовый таймфрейм стратегии
+                            let condition = ConditionInfo {
+                                id: format!(
+                                    "ind_const_{}_{:?}_{}",
+                                    oscillator.alias, operator, constant
+                                ),
+                                name: format!(
+                                    "{} {} {:.1}",
+                                    oscillator.name,
+                                    Self::operator_to_str(operator),
+                                    constant
+                                ),
+                                operator: operator.clone(),
+                                condition_type: "indicator_constant".to_string(),
+                                optimization_params: vec![ConditionParamInfo {
+                                    name: "threshold".to_string(),
+                                    optimizable: true,
+                                    global_param_name: None,
+                                }],
+                                constant_value: Some(constant),
+                                primary_timeframe: None,
+                                secondary_timeframe: None,
+                            };
+                            conditions.push(condition);
+                        }
                     }
                 }
             }
@@ -166,6 +269,7 @@ impl ConditionCombinationGenerator {
         price_fields: &[PriceField],
         operators: &[ConditionOperator],
         allow_indicator_indicator: bool,
+        timeframes: Option<&[TimeFrame]>,
     ) -> Vec<ConditionInfo> {
         Self::generate_all_conditions_with_constants(
             indicators,
@@ -173,6 +277,7 @@ impl ConditionCombinationGenerator {
             operators,
             allow_indicator_indicator,
             &[], // Пустой массив по умолчанию (не генерируем условия с константой)
+            timeframes,
         )
     }
 
@@ -185,6 +290,7 @@ impl ConditionCombinationGenerator {
     /// * `allow_indicator_indicator` - разрешить ли условия индикатор-индикатор
     /// * `oscillator_thresholds` - значения констант для осцилляторов (например, [30, 50, 70] для RSI)
     ///   Если пустой массив, условия индикатор-константа не генерируются
+    /// * `timeframes` - опциональный список таймфреймов для генерации мультитаймфреймовых условий
     ///
     /// # Возвращает
     /// Вектор всех возможных комбинаций условий
@@ -194,18 +300,19 @@ impl ConditionCombinationGenerator {
         operators: &[ConditionOperator],
         allow_indicator_indicator: bool,
         oscillator_thresholds: &[f64],
+        timeframes: Option<&[TimeFrame]>,
     ) -> Vec<ConditionInfo> {
         let mut all_conditions = Vec::new();
 
         // Условия индикатор-цена
         let indicator_price =
-            Self::generate_indicator_price_conditions(indicators, price_fields, operators);
+            Self::generate_indicator_price_conditions(indicators, price_fields, operators, timeframes);
         all_conditions.extend(indicator_price);
 
         // Условия индикатор-индикатор (если разрешено)
         if allow_indicator_indicator {
             let indicator_indicator =
-                Self::generate_indicator_indicator_conditions(indicators, operators);
+                Self::generate_indicator_indicator_conditions(indicators, operators, timeframes);
             all_conditions.extend(indicator_indicator);
         }
 
@@ -215,6 +322,7 @@ impl ConditionCombinationGenerator {
                 indicators,
                 operators,
                 oscillator_thresholds,
+                timeframes,
             );
             all_conditions.extend(indicator_constant);
         }
