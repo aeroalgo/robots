@@ -15,7 +15,6 @@ pub fn example_strategy_generation() {
         base_timeframe: TimeFrame::Minutes(60),
         allow_indicator_on_indicator: false,
         max_indicator_depth: 2,
-        oscillator_thresholds: vec![],
     };
 
     // Доступные индикаторы (упрощенный пример)

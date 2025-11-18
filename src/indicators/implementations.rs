@@ -83,7 +83,7 @@ pub fn get_optimization_range(
 }
 
 /// Возвращает диапазон оптимизации для пороговых значений осцилляторов
-fn get_oscillator_threshold_range(
+pub fn get_oscillator_threshold_range(
     indicator_name: &str,
     param_name: &str,
 ) -> Option<OptimizationRange> {

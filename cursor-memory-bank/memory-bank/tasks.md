@@ -865,26 +865,141 @@
   - **Зависимости**: Strategy Validator
 
 ### 7. Genetic Algorithm Layer (НОВЫЙ - Генетическая оптимизация)
-- [ ] **Задача**: Создание генетического алгоритма оптимизации
+- [x] **Задача**: Создание слоя выполнения стратегий для оптимизации (Strategy Evaluation Runner)
+  - **Описание**: Слой, который выполняет стратегии с различными параметрами для сбора метрик в процессе оптимизации. Схема работы: Strategy Discovery создает комбинацию → Genetic Algorithm генерирует варианты параметров → Evaluation Runner выполняет backtest для каждого варианта → собирает метрики → возвращает результаты в Genetic Algorithm для оценки fitness.
+  - **Статус**: Завершено
+  - **Приоритет**: Высокий
+  - **Оценка времени**: 1-2 недели
+  - **Зависимости**: Strategy Discovery Layer, Исполняющий слой стратегий, Metrics Layer
+  - **Шаги реализации**:
+    1. Создать интерфейс `StrategyEvaluationRunner` с методом `evaluate_strategy(candidate: StrategyCandidate, parameters: StrategyParameterMap) -> BacktestReport`
+    2. Реализовать конвертацию `StrategyCandidate` + параметры → `StrategyDefinition` через `StrategyConverter`
+    3. Интегрировать с `BacktestExecutor` для выполнения backtest с заданными параметрами
+    4. Реализовать сбор метрик через `BacktestAnalytics` и формирование `BacktestReport`
+    5. Добавить поддержку батчевого выполнения (параллельное выполнение нескольких вариантов параметров)
+    6. Реализовать кеширование результатов для одинаковых комбинаций стратегий и параметров
+    7. Добавить обработку ошибок и таймаутов для долгих backtest'ов
+    8. Интегрировать с Genetic Algorithm для передачи результатов оценки fitness
+  - **Компоненты**:
+    - `src/optimization/evaluator.rs` - основной модуль `StrategyEvaluationRunner`
+    - Интеграция с `discovery::StrategyConverter` для конвертации кандидатов
+    - Интеграция с `strategy::executor::BacktestExecutor` для выполнения
+    - Интеграция с `metrics::backtest::BacktestAnalytics` для сбора метрик
+    - Поддержка параллельного выполнения через `tokio::task::spawn` или thread pool
+  - **Архитектура**:
+    ```
+    StrategyCandidate (из Discovery)
+         ↓
+    Genetic Algorithm генерирует варианты параметров
+         ↓
+    StrategyEvaluationRunner::evaluate_strategy()
+         ↓
+    StrategyConverter::candidate_to_definition() + параметры
+         ↓
+    BacktestExecutor::from_definition() + исторические данные
+         ↓
+    BacktestExecutor::run() → BacktestReport
+         ↓
+    BacktestAnalytics::generate_report() → метрики
+         ↓
+    Возврат результатов в Genetic Algorithm для fitness evaluation
+    ```
+
+- [x] **Задача**: Создание генетического алгоритма оптимизации
   - **Описание**: Генетический алгоритм для оптимизации параметров стратегий
-  - **Статус**: Не начато
+  - **Статус**: Завершено
   - **Приоритет**: Высокий
   - **Оценка времени**: 2-3 недели
-  - **Зависимости**: Strategy Discovery Layer
+  - **Зависимости**: Strategy Discovery Layer, Strategy Evaluation Runner
 
-- [ ] **Задача**: Реализация Population Management
+- [x] **Задача**: Реализация Population Management
   - **Описание**: Управление популяцией стратегий, селекция, скрещивание, мутация
-  - **Статус**: Не начато
+  - **Статус**: Завершено
   - **Приоритет**: Высокий
   - **Оценка времени**: 1-2 недели
   - **Зависимости**: Генетический алгоритм оптимизации
 
-- [ ] **Задача**: Создание Fitness Function
-  - **Описание**: Функция оценки пригодности стратегий (Sharpe ratio, drawdown, win rate)
-  - **Статус**: Не начато
+- [x] **Задача**: Создание Fitness Function с пороговыми значениями метрик
+  - **Описание**: Функция оценки пригодности стратегий на основе метрик backtest с применением пороговых значений для фильтрации. Стратегии, не проходящие пороговые значения, отсеиваются из популяции. Fitness score рассчитывается на основе взвешенной комбинации метрик.
+  - **Статус**: Завершено
   - **Приоритет**: Высокий
-  - **Оценка времени**: 1 неделя
-  - **Зависимости**: Population Management
+  - **Оценка времени**: 1-2 недели
+  - **Зависимости**: Population Management, Metrics Layer
+  - **Шаги реализации**:
+    1. Создать структуру `FitnessThresholds` с пороговыми значениями метрик:
+       - `min_sharpe_ratio: Option<f64>` - минимальный Sharpe ratio
+       - `max_drawdown_pct: Option<f64>` - максимальная просадка в процентах
+       - `min_win_rate: Option<f64>` - минимальный процент прибыльных сделок
+       - `min_profit_factor: Option<f64>` - минимальный profit factor
+       - `min_total_profit: Option<f64>` - минимальная общая прибыль
+       - `min_trades_count: Option<usize>` - минимальное количество сделок
+       - `min_cagr: Option<f64>` - минимальный CAGR
+       - `max_max_drawdown: Option<f64>` - максимальная просадка (абсолютное значение)
+    2. Создать структуру `FitnessWeights` для настройки весов метрик при расчете fitness:
+       - `sharpe_ratio_weight: f64` - вес Sharpe ratio
+       - `profit_factor_weight: f64` - вес profit factor
+       - `win_rate_weight: f64` - вес win rate
+       - `cagr_weight: f64` - вес CAGR
+       - `drawdown_penalty: f64` - штраф за просадку
+       - `trades_count_bonus: f64` - бонус за количество сделок (для статистической значимости)
+    3. Реализовать `FitnessFunction` с методами:
+       - `calculate_fitness(report: &BacktestReport, weights: &FitnessWeights) -> f64` - расчет fitness score
+       - `passes_thresholds(report: &BacktestReport, thresholds: &FitnessThresholds) -> bool` - проверка прохождения порогов
+       - `evaluate_strategy(report: &BacktestReport, thresholds: &FitnessThresholds, weights: &FitnessWeights) -> Option<f64>` - полная оценка (возвращает None если не проходит пороги)
+    4. Реализовать нормализацию метрик для расчета fitness (приведение к единому масштабу 0-1 или -1 до 1)
+    5. Интегрировать с Genetic Algorithm для фильтрации стратегий перед добавлением в популяцию
+    6. Добавить конфигурацию пороговых значений в `GeneticAlgorithmConfig`
+    7. Реализовать логирование отсеянных стратегий с указанием причины (какой порог не пройден)
+  - **Компоненты**:
+    - `src/optimization/fitness.rs` - основной модуль `FitnessFunction`, `FitnessThresholds`, `FitnessWeights`
+    - Интеграция с `metrics::backtest::BacktestReport` для получения метрик
+    - Интеграция с Genetic Algorithm для фильтрации популяции
+  - **Примеры пороговых значений**:
+    ```rust
+    FitnessThresholds {
+        min_sharpe_ratio: Some(1.0),        // Минимум Sharpe ratio 1.0
+        max_drawdown_pct: Some(20.0),       // Максимальная просадка 20%
+        min_win_rate: Some(0.45),           // Минимум 45% прибыльных сделок
+        min_profit_factor: Some(1.5),       // Минимум profit factor 1.5
+        min_total_profit: Some(1000.0),     // Минимум прибыль 1000
+        min_trades_count: Some(30),         // Минимум 30 сделок
+        min_cagr: Some(10.0),               // Минимум CAGR 10%
+        max_max_drawdown: Some(5000.0),     // Максимальная просадка 5000
+    }
+    ```
+  - **Пример расчета fitness**:
+    ```rust
+    // Нормализованные метрики (0-1 или -1 до 1)
+    let sharpe_score = normalize_sharpe_ratio(report.sharpe_ratio);      // 0-1
+    let profit_factor_score = normalize_profit_factor(report.profit_factor); // 0-1
+    let win_rate_score = report.win_rate;                                // уже 0-1
+    let cagr_score = normalize_cagr(report.cagr);                        // 0-1
+    let drawdown_penalty = calculate_drawdown_penalty(report.max_drawdown); // 0-1 (штраф)
+    let trades_bonus = calculate_trades_bonus(report.trades_count);      // 0-1 (бонус)
+    
+    // Взвешенная сумма
+    fitness = (sharpe_score * weights.sharpe_ratio_weight +
+               profit_factor_score * weights.profit_factor_weight +
+               win_rate_score * weights.win_rate_weight +
+               cagr_score * weights.cagr_weight -
+               drawdown_penalty * weights.drawdown_penalty +
+               trades_bonus * weights.trades_count_bonus) / total_weight
+    ```
+  - **Архитектура**:
+    ```
+    BacktestReport (метрики)
+         ↓
+    FitnessFunction::passes_thresholds() → bool
+         ↓ (если true)
+    FitnessFunction::calculate_fitness() → f64
+         ↓
+    Возврат fitness score в Genetic Algorithm
+         ↓
+    Genetic Algorithm использует fitness для:
+    - Селекции (отбор лучших стратегий)
+    - Скрещивания (выбор родителей)
+    - Замены слабых стратегий
+    ```
 
 - [ ] **Задача**: Реализация Multi-objective Optimization
   - **Описание**: Оптимизация по нескольким критериям одновременно
@@ -893,37 +1008,37 @@
   - **Оценка времени**: 1-2 недели
   - **Зависимости**: Fitness Function
 
-- [ ] **Задача**: Реализация Island Management
+- [x] **Задача**: Реализация Island Management
   - **Описание**: Управление островами для параллельной эволюции (1-10 островов)
-  - **Статус**: Не начато
+  - **Статус**: Завершено
   - **Приоритет**: Высокий
   - **Оценка времени**: 1-2 недели
   - **Зависимости**: Population Management
 
-- [ ] **Задача**: Создание Migration System
+- [x] **Задача**: Создание Migration System
   - **Описание**: Система миграции стратегий между островами (каждые 10 поколений)
-  - **Статус**: Не начато
+  - **Статус**: Завершено
   - **Приоритет**: Высокий
   - **Оценка времени**: 1 неделя
   - **Зависимости**: Island Management
 
-- [ ] **Задача**: Реализация Initial Population Generator
+- [x] **Задача**: Реализация Initial Population Generator
   - **Описание**: Генерация начальной популяции с децимацией и фильтрацией
-  - **Статус**: Не начато
+  - **Статус**: Завершено
   - **Приоритет**: Средний
   - **Оценка времени**: 1 неделя
   - **Зависимости**: Population Management
 
-- [ ] **Задача**: Создание Evolution Management
+- [x] **Задача**: Создание Evolution Management
   - **Описание**: Управление эволюцией (автоперезапуск, детекция застоя)
-  - **Статус**: Не начато
+  - **Статус**: Завершено
   - **Приоритет**: Средний
   - **Оценка времени**: 1 неделя
   - **Зависимости**: Migration System
 
-- [ ] **Задача**: Реализация "Fresh Blood" системы
+- [x] **Задача**: Реализация "Fresh Blood" системы
   - **Описание**: Обнаружение дубликатов и замена слабых стратегий новыми
-  - **Статус**: Не начато
+  - **Статус**: Завершено
   - **Приоритет**: Средний
   - **Оценка времени**: 1 неделя
   - **Зависимости**: Evolution Management
@@ -1017,63 +1132,72 @@
   - **Оценка времени**: 1-2 недели
   - **Зависимости**: Система оптимизации параметров
 
-### 11. Metrics Layer (ОБНОВЛЕНО - Детальная система метрик)
-- [ ] **Задача**: Создание системы базовых метрик производительности
+### 11. Metrics Layer (ЗАВЕРШЕНО - Детальная система метрик)
+- [x] **Задача**: Создание системы базовых метрик производительности
   - **Описание**: Total Profit, Profit In Pips, Yearly AVG Profit, Yearly AVG % Return, CAGR
-  - **Статус**: В процессе
-  - **Прогресс**: Аналитические структуры (`StrategyTrade`, `BacktestMetrics`, `BacktestReport`) и накопление equity вынесены в `src/metrics/backtest.rs`, `BacktestExecutor` использует `BacktestAnalytics`
+  - **Статус**: Завершено
+  - **Прогресс**: Все базовые метрики реализованы в `src/metrics/backtest.rs`. Структура `BacktestMetrics` содержит все необходимые поля. Метрики рассчитываются в методе `from_data()`.
   - **Приоритет**: Высокий
   - **Оценка времени**: 1 неделя
   - **Зависимости**: Strategy Layer
 
-- [ ] **Задача**: Реализация метрик риска и доходности
+- [x] **Задача**: Реализация метрик риска и доходности
   - **Описание**: Sharpe Ratio, Profit Factor, Return/DD ratio, Winning Percentage
-  - **Статус**: Не начато
+  - **Статус**: Завершено
+  - **Прогресс**: Все метрики риска и доходности реализованы. Sharpe Ratio рассчитывается с annualization. Profit Factor, Return/DD Ratio, Winning Percentage работают корректно.
   - **Приоритет**: Высокий
   - **Оценка времени**: 1 неделя
   - **Зависимости**: Базовые метрики производительности
 
-- [ ] **Задача**: Создание системы метрик просадки
+- [x] **Задача**: Создание системы метрик просадки
   - **Описание**: Draw Down, % Draw Down, Max Consec Wins, Max Consec Losses
-  - **Статус**: Не начато
+  - **Статус**: Завершено
+  - **Прогресс**: Все метрики просадки реализованы. Drawdown рассчитывается по equity curve. Max Consec Wins/Losses считаются по последовательности сделок.
   - **Приоритет**: Высокий
   - **Оценка времени**: 3-5 дней
   - **Зависимости**: Метрики риска и доходности
 
-- [ ] **Задача**: Реализация статистических метрик
+- [x] **Задача**: Реализация статистических метрик (частично)
   - **Описание**: R Expectancy, R Expectancy Score, STR Quality Number, SQN Score
-  - **Статус**: Не начато
+  - **Статус**: Частично завершено
+  - **Прогресс**: Реализованы R Expectancy и R Expectancy Score. STR Quality Number и SQN Score не реализованы (требуют уточнения формул, реализовывать не нужно).
   - **Приоритет**: Высокий
   - **Оценка времени**: 1-2 недели
   - **Зависимости**: Метрики просадки
 
-- [ ] **Задача**: Создание системы продвинутых метрик
+- [x] **Задача**: Создание системы продвинутых метрик (частично)
   - **Описание**: Z-Score, Z-Probability, Expectancy, Deviation, Exposure
-  - **Статус**: Не начато
+  - **Статус**: Частично завершено
+  - **Прогресс**: Реализованы Expectancy, Deviation, Exposure. Z-Score и Z-Probability не реализованы (требуют уточнения формул, реализовывать не нужно).
   - **Приоритет**: Средний
   - **Оценка времени**: 1-2 недели
   - **Зависимости**: Статистические метрики
 
-- [ ] **Задача**: Реализация метрик симметрии и стабильности
+- [x] **Задача**: Реализация метрик симметрии и стабильности (частично)
   - **Описание**: Symmetry, Trades Symmetry, NSymmetry, Stability
-  - **Статус**: Не начато
+  - **Статус**: Частично завершено
+  - **Прогресс**: Реализована метрика Stability (использует линейную регрессию и коэффициент детерминации R² для оценки прямолинейности equity curve). Symmetry, Trades Symmetry, NSymmetry не реализованы (требуют уточнения формул, реализовывать не нужно).
   - **Приоритет**: Средний
   - **Оценка времени**: 1 неделя
   - **Зависимости**: Продвинутые метрики
 
-- [ ] **Задача**: Создание системы метрик застоя
+- [x] **Задача**: Создание системы метрик застоя
   - **Описание**: Stagnation In Days, Stagnation In %, Gross Profit, Gross Loss
-  - **Статус**: Не начато
+  - **Статус**: Завершено
+  - **Прогресс**: Все метрики застоя реализованы. Stagnation рассчитывается по equity curve с конвертацией баров в дни. Gross Profit и Gross Loss считаются из сделок.
   - **Приоритет**: Средний
   - **Оценка времени**: 3-5 дней
   - **Зависимости**: Метрики симметрии и стабильности
 
-- [ ] **Задача**: Реализация системы отчетов
+- [x] **Задача**: Реализация системы отчетов
   - **Описание**: Генерация отчетов по результатам тестирования с полным набором метрик
-  - **Статус**: Не начато
+  - **Статус**: Завершено
+  - **Прогресс**: Система отчетов реализована. `BacktestReport` содержит все метрики. В `main.rs` добавлен детальный вывод всех реализованных метрик, сгруппированных по категориям. Исправлен расчет `bars_in_positions` для корректного расчета Exposure.
   - **Приоритет**: Средний
   - **Оценка времени**: 1-2 недели
   - **Зависимости**: Все метрики
+
+**Примечание**: Метрики, требующие уточнения формул (STR Quality Number, SQN Score, Z-Score, Z-Probability, Symmetry, Trades Symmetry, NSymmetry) не будут реализовываться, так как формулы не предоставлены.
 
 ### 12. API/DSL и Интеграция с внешними сервисами
 - [ ] **Задача**: Экспорт данных Position Manager через API для Flutter UI

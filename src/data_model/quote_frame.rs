@@ -31,6 +31,7 @@ pub enum QuoteFrameError {
     BarBuilderError(String),
 }
 
+#[derive(Clone)]
 pub struct QuoteFrame {
     symbol: Symbol,
     timeframe: TimeFrame,

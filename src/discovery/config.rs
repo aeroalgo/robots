@@ -22,11 +22,6 @@ pub struct StrategyDiscoveryConfig {
 
     /// Максимальная глубина вложенности индикаторов (если allow_indicator_on_indicator = true)
     pub max_indicator_depth: usize,
-
-    /// Пороги для условий индикатор-константа осцилляторов
-    /// Например, [30.0, 50.0, 70.0] для RSI (перепроданность/нейтральность/перекупленность)
-    /// Если пустой массив, условия индикатор-константа не генерируются
-    pub oscillator_thresholds: Vec<f64>,
 }
 
 impl Default for StrategyDiscoveryConfig {
@@ -37,7 +32,6 @@ impl Default for StrategyDiscoveryConfig {
             base_timeframe: TimeFrame::Minutes(60),
             allow_indicator_on_indicator: false,
             max_indicator_depth: 1,
-            oscillator_thresholds: vec![], // По умолчанию не генерируем условия с константой
         }
     }
 }

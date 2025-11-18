@@ -109,12 +109,130 @@ async fn run() -> Result<()> {
         .context("Не удалось рассчитать EMA 50")?;
     print_strategy_data_table(&executor, &timeframe, &ema_timeframe, &ema_50_values)?;
 
+    println!("\n=== БАЗОВЫЕ МЕТРИКИ ===");
     println!(
-        "Всего сделок: {} | PnL: {:.2} | Win rate: {:.2}% | Средняя сделка: {:.2}",
-        report.metrics.total_trades,
-        report.metrics.total_pnl,
-        report.metrics.win_rate * 100.0,
+        "Всего сделок: {} | Прибыльных: {} | Убыточных: {}",
+        report.metrics.total_trades, report.metrics.number_of_wins, report.metrics.number_of_losses
+    );
+    println!(
+        "Total Profit: {:.2} | Win Rate: {:.2}% | Average Trade: {:.2}",
+        report.metrics.total_profit,
+        report.metrics.winning_percentage * 100.0,
         report.metrics.average_trade
+    );
+
+    if let Some(aw) = report.metrics.average_win {
+        println!("Average Win: {:.2}", aw);
+    }
+    if let Some(al) = report.metrics.average_loss {
+        println!("Average Loss: {:.2}", al);
+    }
+    println!(
+        "Gross Profit: {:.2} | Gross Loss: {:.2}",
+        report.metrics.gross_profit, report.metrics.gross_loss
+    );
+
+    println!("\n=== МЕТРИКИ РИСКА И ДОХОДНОСТИ ===");
+    if let Some(pf) = report.metrics.profit_factor {
+        println!("Profit Factor: {:.2}", pf);
+    }
+    if let Some(sr) = report.metrics.sharpe_ratio {
+        println!("Sharpe Ratio: {:.2}", sr);
+    }
+    if let Some(rdd) = report.metrics.return_dd_ratio {
+        println!("Return/DD Ratio: {:.2}", rdd);
+    }
+    if let Some(wlr) = report.metrics.wins_losses_ratio {
+        println!("Wins/Losses Ratio: {:.2}", wlr);
+    }
+    if let Some(pr) = report.metrics.payout_ratio {
+        println!("Payout Ratio: {:.2}", pr);
+    }
+
+    println!("\n=== МЕТРИКИ ПРОСАДКИ ===");
+    if let Some(dd) = report.metrics.drawdown {
+        println!("Max Drawdown: {:.2}", dd);
+    }
+    if let Some(dd_pct) = report.metrics.drawdown_percent {
+        println!("Max Drawdown %: {:.2}%", dd_pct);
+    }
+    println!(
+        "Max Consecutive Wins: {} | Max Consecutive Losses: {}",
+        report.metrics.max_consec_wins, report.metrics.max_consec_losses
+    );
+
+    println!("\n=== ВРЕМЕННЫЕ МЕТРИКИ ===");
+    if let Some(yap) = report.metrics.yearly_avg_profit {
+        println!("Yearly Avg Profit: {:.2}", yap);
+    }
+    if let Some(yapr) = report.metrics.yearly_avg_percent_return {
+        println!("Yearly Avg % Return: {:.2}%", yapr);
+    }
+    if let Some(cagr) = report.metrics.cagr {
+        println!("CAGR: {:.2}%", cagr);
+    }
+    if let Some(map) = report.metrics.monthly_avg_profit {
+        println!("Monthly Avg Profit: {:.2}", map);
+    }
+    if let Some(dap) = report.metrics.daily_avg_profit {
+        println!("Daily Avg Profit: {:.2}", dap);
+    }
+    if let Some(ahpr) = report.metrics.ahpr {
+        println!("AHPR: {:.2}%", ahpr);
+    }
+
+    println!("\n=== СТАТИСТИЧЕСКИЕ МЕТРИКИ ===");
+    if let Some(exp) = report.metrics.expectancy {
+        println!("Expectancy: {:.2}", exp);
+    }
+    if let Some(re) = report.metrics.r_expectancy {
+        println!("R Expectancy: {:.2}", re);
+    }
+    if let Some(res) = report.metrics.r_expectancy_score {
+        println!("R Expectancy Score: {:.2}", res);
+    }
+    if let Some(dev) = report.metrics.deviation {
+        println!("Deviation: {:.2}", dev);
+    }
+
+    println!("\n=== ПРОДВИНУТЫЕ МЕТРИКИ ===");
+    if let Some(exp) = report.metrics.exposure {
+        println!("Exposure: {:.2}%", exp * 100.0);
+    }
+    if let Some(stab) = report.metrics.stability {
+        println!("Stability: {:.4}", stab);
+    }
+
+    println!("\n=== МЕТРИКИ ЗАСТОЯ ===");
+    if let Some(sid) = report.metrics.stagnation_in_days {
+        println!("Stagnation In Days: {}", sid);
+    }
+    if let Some(sp) = report.metrics.stagnation_percent {
+        println!("Stagnation %: {:.2}%", sp);
+    }
+
+    println!("\n=== ДОПОЛНИТЕЛЬНЫЕ МЕТРИКИ ===");
+    if let Some(apmdd) = report.metrics.annual_percent_max_dd_ratio {
+        println!("Annual % / Max DD %: {:.2}", apmdd);
+    }
+    if let Some(pp) = report.metrics.profit_in_pips {
+        println!("Profit In Pips: {:.2}", pp);
+    }
+
+    println!("\n=== ИНФОРМАЦИЯ О BACKTEST ===");
+    println!(
+        "Initial Capital: {:.2} | Ending Capital: {:.2}",
+        report.metrics.initial_capital, report.metrics.ending_capital
+    );
+    if let Some(sd) = report.metrics.start_date {
+        println!("Start Date: {}", sd.format("%Y-%m-%d %H:%M:%S"));
+    }
+    if let Some(ed) = report.metrics.end_date {
+        println!("End Date: {}", ed.format("%Y-%m-%d %H:%M:%S"));
+    }
+    println!(
+        "Total Bars: {} | Bars In Positions: {}",
+        report.metrics.total_bars, report.metrics.bars_in_positions
     );
 
     if report.trades.is_empty() {

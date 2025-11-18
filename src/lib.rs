@@ -10,6 +10,7 @@ pub mod data_model;
 pub mod discovery;
 pub mod indicators;
 pub mod metrics;
+pub mod optimization;
 pub mod position;
 pub mod risk;
 pub mod strategy;

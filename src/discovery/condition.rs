@@ -185,9 +185,10 @@ impl ConditionCombinationGenerator {
     pub fn generate_indicator_constant_conditions(
         indicators: &[IndicatorInfo],
         operators: &[ConditionOperator],
-        constant_values: &[f64],
         timeframes: Option<&[TimeFrame]>,
     ) -> Vec<ConditionInfo> {
+        use crate::indicators::implementations::get_oscillator_threshold_range;
+        
         let mut conditions = Vec::new();
 
         // Фильтруем только осцилляторы
@@ -200,19 +201,49 @@ impl ConditionCombinationGenerator {
             for operator in operators {
                 // Для условий индикатор-константа обычно используются только > и <
                 if Self::is_valid_operator_for_indicator_constant(operator) {
-                    for &constant in constant_values {
-                        // Если таймфреймы указаны, генерируем комбинации с разными таймфреймами
-                        if let Some(tfs) = timeframes {
-                            for primary_tf in tfs {
+                    // Получаем диапазон оптимизации для этого осциллятора
+                    if let Some(range) = get_oscillator_threshold_range(&oscillator.name, "threshold") {
+                        // Генерируем значения из диапазона с шагом
+                        let mut constant = range.start;
+                        while constant <= range.end {
+                            // Если таймфреймы указаны, генерируем комбинации с разными таймфреймами
+                            if let Some(tfs) = timeframes {
+                                for primary_tf in tfs {
+                                    let condition = ConditionInfo {
+                                        id: format!(
+                                            "ind_const_{}_{:?}_{}_tf{:?}",
+                                            oscillator.alias, operator, constant, primary_tf
+                                        ),
+                                        name: format!(
+                                            "{} ({:?}) {} {:.1}",
+                                            oscillator.name,
+                                            primary_tf,
+                                            Self::operator_to_str(operator),
+                                            constant
+                                        ),
+                                        operator: operator.clone(),
+                                        condition_type: "indicator_constant".to_string(),
+                                        optimization_params: vec![ConditionParamInfo {
+                                            name: "threshold".to_string(),
+                                            optimizable: true,
+                                            global_param_name: None,
+                                        }],
+                                        constant_value: Some(constant as f64),
+                                        primary_timeframe: Some(primary_tf.clone()),
+                                        secondary_timeframe: None, // Константа не имеет таймфрейма
+                                    };
+                                    conditions.push(condition);
+                                }
+                            } else {
+                                // Без таймфреймов - используем базовый таймфрейм стратегии
                                 let condition = ConditionInfo {
                                     id: format!(
-                                        "ind_const_{}_{:?}_{}_tf{:?}",
-                                        oscillator.alias, operator, constant, primary_tf
+                                        "ind_const_{}_{:?}_{}",
+                                        oscillator.alias, operator, constant
                                     ),
                                     name: format!(
-                                        "{} ({:?}) {} {:.1}",
+                                        "{} {} {:.1}",
                                         oscillator.name,
-                                        primary_tf,
                                         Self::operator_to_str(operator),
                                         constant
                                     ),
@@ -223,37 +254,14 @@ impl ConditionCombinationGenerator {
                                         optimizable: true,
                                         global_param_name: None,
                                     }],
-                                    constant_value: Some(constant),
-                                    primary_timeframe: Some(primary_tf.clone()),
-                                    secondary_timeframe: None, // Константа не имеет таймфрейма
+                                    constant_value: Some(constant as f64),
+                                    primary_timeframe: None,
+                                    secondary_timeframe: None,
                                 };
                                 conditions.push(condition);
                             }
-                        } else {
-                            // Без таймфреймов - используем базовый таймфрейм стратегии
-                            let condition = ConditionInfo {
-                                id: format!(
-                                    "ind_const_{}_{:?}_{}",
-                                    oscillator.alias, operator, constant
-                                ),
-                                name: format!(
-                                    "{} {} {:.1}",
-                                    oscillator.name,
-                                    Self::operator_to_str(operator),
-                                    constant
-                                ),
-                                operator: operator.clone(),
-                                condition_type: "indicator_constant".to_string(),
-                                optimization_params: vec![ConditionParamInfo {
-                                    name: "threshold".to_string(),
-                                    optimizable: true,
-                                    global_param_name: None,
-                                }],
-                                constant_value: Some(constant),
-                                primary_timeframe: None,
-                                secondary_timeframe: None,
-                            };
-                            conditions.push(condition);
+                            
+                            constant += range.step;
                         }
                     }
                 }
@@ -276,7 +284,6 @@ impl ConditionCombinationGenerator {
             price_fields,
             operators,
             allow_indicator_indicator,
-            &[], // Пустой массив по умолчанию (не генерируем условия с константой)
             timeframes,
         )
     }
@@ -288,8 +295,7 @@ impl ConditionCombinationGenerator {
     /// * `price_fields` - список полей цены (Open, High, Low, Close)
     /// * `operators` - список операторов для условий
     /// * `allow_indicator_indicator` - разрешить ли условия индикатор-индикатор
-    /// * `oscillator_thresholds` - значения констант для осцилляторов (например, [30, 50, 70] для RSI)
-    ///   Если пустой массив, условия индикатор-константа не генерируются
+    /// Пороги для осцилляторов автоматически берутся из get_oscillator_threshold_range()
     /// * `timeframes` - опциональный список таймфреймов для генерации мультитаймфреймовых условий
     ///
     /// # Возвращает
@@ -299,7 +305,6 @@ impl ConditionCombinationGenerator {
         price_fields: &[PriceField],
         operators: &[ConditionOperator],
         allow_indicator_indicator: bool,
-        oscillator_thresholds: &[f64],
         timeframes: Option<&[TimeFrame]>,
     ) -> Vec<ConditionInfo> {
         let mut all_conditions = Vec::new();
@@ -316,16 +321,14 @@ impl ConditionCombinationGenerator {
             all_conditions.extend(indicator_indicator);
         }
 
-        // Условия индикатор-константа для осцилляторов (если указаны пороги)
-        if !oscillator_thresholds.is_empty() {
-            let indicator_constant = Self::generate_indicator_constant_conditions(
-                indicators,
-                operators,
-                oscillator_thresholds,
-                timeframes,
-            );
-            all_conditions.extend(indicator_constant);
-        }
+        // Условия индикатор-константа для осцилляторов
+        // Используем значения из get_oscillator_threshold_range
+        let indicator_constant = Self::generate_indicator_constant_conditions(
+            indicators,
+            operators,
+            timeframes,
+        );
+        all_conditions.extend(indicator_constant);
 
         all_conditions
     }

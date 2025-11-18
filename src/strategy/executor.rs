@@ -310,6 +310,10 @@ impl BacktestExecutor {
                 continue;
             }
             
+            // Отслеживаем бары в позициях (только после warmup)
+            let has_open_positions = self.position_manager.open_position_count() > 0;
+            self.analytics.increment_bars_in_positions_if_has_positions(has_open_positions);
+            
             self.feed.expand_aggregated_timeframes(&mut self.context, self.strategy.indicator_bindings())?;
             
             if let Some(pending) = self.deferred_decision.take() {
@@ -370,9 +374,35 @@ impl BacktestExecutor {
                 self.process_immediate_stop_checks().await?;
             }
         }
-        Ok(self
-            .analytics
-            .build_report(self.position_manager.portfolio_snapshot().realized_pnl))
+        let initial_capital = self.analytics.equity_curve().first()
+            .copied()
+            .unwrap_or(10000.0);
+        
+        let start_date = self.feed.primary_timeframe.as_ref()
+            .and_then(|tf| self.feed.frames.get(tf))
+            .and_then(|frame| frame.first())
+            .map(|quote| quote.timestamp());
+        
+        let end_date = self.feed.primary_timeframe.as_ref()
+            .and_then(|tf| self.feed.frames.get(tf))
+            .and_then(|frame| frame.latest())
+            .map(|quote| quote.timestamp());
+        
+        let total_bars = self.feed.primary_timeframe.as_ref()
+            .and_then(|tf| self.feed.frames.get(tf))
+            .map(|frame| frame.len())
+            .unwrap_or(0);
+        
+        let bars_in_positions = self.analytics.bars_in_positions();
+        
+        Ok(self.analytics.build_report(
+            initial_capital,
+            start_date,
+            end_date,
+            total_bars,
+            bars_in_positions,
+            None,
+        ))
     }
 
 

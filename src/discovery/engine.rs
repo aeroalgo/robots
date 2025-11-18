@@ -149,7 +149,6 @@ impl StrategyDiscoveryEngine {
             price_fields,
             operators,
             self.config.allow_indicator_on_indicator,
-            &self.config.oscillator_thresholds,
             timeframes_for_conditions,
         );
 
@@ -253,7 +252,6 @@ impl StrategyDiscoveryEngine {
             price_fields,
             operators,
             self.config.allow_indicator_on_indicator, // разрешаем условия индикатор-индикатор, если разрешено строить индикаторы по индикаторам
-            &self.config.oscillator_thresholds, // пороги для осцилляторов (например, [30, 50, 70] для RSI)
             timeframes_for_conditions, // передаем таймфреймы для генерации мультитаймфреймовых условий
         );
 

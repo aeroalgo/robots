@@ -93,7 +93,7 @@ fn sma_crossover_definition() -> StrategyDefinition {
     };
 
     let close_above_ema_input = ConditionInputSpec::Dual {
-        primary: DataSeriesSource::price_with_timeframe(PriceField::Close, timeframe.clone()),
+        primary: DataSeriesSource::price_with_timeframe(PriceField::Close, higher_timeframe.clone()),
         secondary: DataSeriesSource::indicator_with_timeframe(
             ema_alias.clone(),
             higher_timeframe.clone(),
@@ -160,7 +160,7 @@ fn sma_crossover_definition() -> StrategyDefinition {
         ConditionBindingSpec {
             id: "close_above_ema_240".to_string(),
             name: "Close base TF above EMA compressed TF".to_string(),
-            timeframe: timeframe.clone(),
+            timeframe: higher_timeframe.clone(),
             declarative: ConditionDeclarativeSpec::from_input(
                 ConditionOperator::GreaterThan,
                 &close_above_ema_input,
