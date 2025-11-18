@@ -1,6 +1,6 @@
 use crate::data_model::types::TimeFrame;
 use crate::discovery::condition::ConditionCombinationGenerator;
-use crate::discovery::config::{GlobalParamRange, StrategyDiscoveryConfig};
+use crate::discovery::config::StrategyDiscoveryConfig;
 use crate::discovery::indicator::IndicatorCombinationGenerator;
 use crate::discovery::stop_handler::StopHandlerCombinationGenerator;
 use crate::discovery::strategy_converter::{StrategyConversionError, StrategyConverter};
@@ -613,18 +613,6 @@ impl StrategyDiscoveryEngine {
             }
         }
         result
-    }
-
-    /// Применяет глобальные настройки параметров к параметрам индикатора
-    pub fn apply_global_param_ranges(
-        &self,
-        param: &IndicatorParamInfo,
-    ) -> Option<GlobalParamRange> {
-        if let Some(global_name) = &param.global_param_name {
-            self.config.global_param_ranges.get(global_name).cloned()
-        } else {
-            None
-        }
     }
 
     /// Извлекает стоп-лоссы и тейк-профиты отдельно из конфигураций

@@ -8,6 +8,7 @@ use crate::condition::types::{
 };
 use crate::data_model::types::{Symbol, TimeFrame};
 use crate::risk::stops::StopHandler;
+use crate::risk::takes::TakeHandler;
 use serde::{Deserialize, Serialize};
 
 pub type StrategyId = String;
@@ -107,6 +108,19 @@ pub struct PreparedStopHandler {
     pub id: String,
     pub name: String,
     pub handler: Arc<dyn StopHandler>,
+    pub timeframe: TimeFrame,
+    pub price_field: PriceField,
+    pub direction: PositionDirection,
+    pub priority: i32,
+    pub tags: Vec<String>,
+    pub target_entry_ids: Vec<String>,
+}
+
+#[derive(Clone)]
+pub struct PreparedTakeHandler {
+    pub id: String,
+    pub name: String,
+    pub handler: Arc<dyn TakeHandler>,
     pub timeframe: TimeFrame,
     pub price_field: PriceField,
     pub direction: PositionDirection,

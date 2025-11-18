@@ -12,12 +12,13 @@ use super::context::StrategyContext;
 use super::types::{
     ConditionBindingSpec, ConditionDeclarativeSpec, ConditionEvaluation, ConditionInputSpec,
     ConditionOperator, DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec,
-    PositionDirection, PreparedCondition, PreparedStopHandler, PriceField, RuleLogic, StopSignal,
+    PositionDirection, PreparedCondition, PreparedStopHandler, PreparedTakeHandler, PriceField, RuleLogic, StopSignal,
     StopSignalKind, StrategyDecision, StrategyDefinition, StrategyError, StrategyId,
     StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyRuleSpec, StrategySignal,
     StrategySignalType, StrategyUserInput, TimeframeRequirement, UserFormulaMetadata,
 };
 use crate::risk::stops::{StopEvaluationContext, StopHandlerError, StopHandlerFactory};
+use crate::risk::takes::{TakeEvaluationContext, TakeHandlerError, TakeHandlerFactory};
 
 #[derive(Clone)]
 pub struct DynamicStrategy {
@@ -28,6 +29,7 @@ pub struct DynamicStrategy {
     entry_rules: Vec<StrategyRuleSpec>,
     exit_rules: Vec<StrategyRuleSpec>,
     stop_handlers: Vec<PreparedStopHandler>,
+    take_handlers: Vec<PreparedTakeHandler>,
     timeframe_requirements: Vec<TimeframeRequirement>,
     parameters: StrategyParameterMap,
 }
@@ -41,6 +43,7 @@ impl DynamicStrategy {
         entry_rules: Vec<StrategyRuleSpec>,
         exit_rules: Vec<StrategyRuleSpec>,
         stop_handlers: Vec<PreparedStopHandler>,
+        take_handlers: Vec<PreparedTakeHandler>,
         timeframe_requirements: Vec<TimeframeRequirement>,
         parameters: StrategyParameterMap,
     ) -> Self {
@@ -52,6 +55,7 @@ impl DynamicStrategy {
             entry_rules,
             exit_rules,
             stop_handlers,
+            take_handlers,
             timeframe_requirements,
             parameters,
         }
@@ -331,6 +335,102 @@ impl DynamicStrategy {
         signals.sort_by(|a, b| a.priority.cmp(&b.priority));
         Ok(signals)
     }
+
+    fn evaluate_take_handlers(
+        &self,
+        context: &StrategyContext,
+    ) -> Result<Vec<StopSignal>, StrategyError> {
+        let mut signals = Vec::new();
+        if context.active_positions().is_empty() {
+            return Ok(signals);
+        }
+        for handler in &self.take_handlers {
+            let timeframe_data = context.timeframe(&handler.timeframe)?;
+            let series = timeframe_data
+                .price_series_slice(&handler.price_field)
+                .ok_or_else(|| StrategyError::MissingPriceSeries {
+                    field: handler.price_field.clone(),
+                    timeframe: handler.timeframe.clone(),
+                })?;
+            if series.is_empty() {
+                continue;
+            }
+            let index = timeframe_data.index().min(series.len().saturating_sub(1));
+            let current_price = series[index] as f64;
+            for position in context.active_positions().values() {
+                if position.timeframe != handler.timeframe {
+                    continue;
+                }
+                if !self.stop_direction_matches(&handler.direction, &position.direction) {
+                    continue;
+                }
+                if !handler.target_entry_ids.is_empty() {
+                    let mut matches_target = false;
+                    if let Some(group) = position.position_group.as_ref() {
+                        if handler.target_entry_ids.iter().any(|id| id == group) {
+                            matches_target = true;
+                        }
+                    }
+                    if !matches_target {
+                        if let Some(entry_id) = position.entry_rule_id.as_ref() {
+                            if handler.target_entry_ids.iter().any(|id| id == entry_id) {
+                                matches_target = true;
+                            }
+                        }
+                    }
+                    if !matches_target {
+                        continue;
+                    }
+                }
+                let eval_ctx = TakeEvaluationContext {
+                    position,
+                    timeframe_data,
+                    price_field: handler.price_field.clone(),
+                    index,
+                    current_price,
+                };
+                if let Some(outcome) = handler.handler.evaluate(&eval_ctx) {
+                    let mut signal = StrategySignal {
+                        rule_id: handler.id.clone(),
+                        signal_type: StrategySignalType::Exit,
+                        direction: position.direction.clone(),
+                        timeframe: handler.timeframe.clone(),
+                        strength: SignalStrength::VeryStrong,
+                        trend: TrendDirection::Sideways,
+                        quantity: Some(position.quantity),
+                        entry_rule_id: position.entry_rule_id.clone(),
+                        tags: handler.tags.clone(),
+                        position_group: None,
+                        target_entry_ids: Vec::new(),
+                    };
+                    if let Some(group) = position.position_group.as_ref() {
+                        signal.target_entry_ids.push(group.clone());
+                    }
+                    if let Some(entry_id) = position.entry_rule_id.as_ref() {
+                        if !signal.target_entry_ids.iter().any(|id| id == entry_id) {
+                            signal.target_entry_ids.push(entry_id.clone());
+                        }
+                    }
+                    if !signal.tags.iter().any(|tag| tag == "take") {
+                        signal.tags.push("take".to_string());
+                    }
+                    let mut metadata = outcome.metadata;
+                    metadata.insert("handler_name".to_string(), handler.name.clone());
+                    signals.push(StopSignal {
+                        handler_id: handler.id.clone(),
+                        signal,
+                        exit_price: outcome.exit_price,
+                        kind: outcome.kind,
+                        priority: handler.priority,
+                        metadata,
+                    });
+                }
+            }
+        }
+        signals.sort_by(|a, b| a.priority.cmp(&b.priority));
+        Ok(signals)
+    }
+
     fn stop_direction_matches(
         &self,
         handler_direction: &PositionDirection,
@@ -406,6 +506,7 @@ impl Strategy for DynamicStrategy {
             .map(|condition| (condition.id.clone(), condition))
             .collect();
         let mut stop_signals = self.evaluate_stop_handlers(context)?;
+        let mut take_signals = self.evaluate_take_handlers(context)?;
         let mut decision = StrategyDecision::empty();
         for stop in &stop_signals {
             decision.exits.push(stop.signal.clone());
@@ -414,6 +515,16 @@ impl Strategy for DynamicStrategy {
                 stop.exit_price.to_string(),
             );
         }
+        for take in &take_signals {
+            decision.exits.push(take.signal.clone());
+            decision.metadata.insert(
+                format!("take.{}.exit_price", take.handler_id),
+                take.exit_price.to_string(),
+            );
+        }
+        let mut all_stop_signals = stop_signals;
+        all_stop_signals.extend(take_signals);
+        all_stop_signals.sort_by(|a, b| a.priority.cmp(&b.priority));
         for rule in &self.entry_rules {
             if let Some(signal) =
                 self.evaluate_rule(rule, &evaluations, &condition_lookup, context)?
@@ -436,8 +547,19 @@ impl Strategy for DynamicStrategy {
                 }
             }
         }
-        decision.stop_signals = stop_signals;
+        decision.stop_signals = all_stop_signals;
         Ok(decision)
+    }
+
+    fn evaluate_stop_signals(
+        &self,
+        context: &StrategyContext,
+    ) -> Result<Vec<StopSignal>, StrategyError> {
+        let mut stop_signals = self.evaluate_stop_handlers(context)?;
+        let mut take_signals = self.evaluate_take_handlers(context)?;
+        stop_signals.extend(take_signals);
+        stop_signals.sort_by(|a, b| a.priority.cmp(&b.priority));
+        Ok(stop_signals)
     }
 
     fn clone_box(&self) -> Box<dyn Strategy> {
@@ -535,6 +657,27 @@ impl StrategyBuilder {
             });
         }
 
+        let mut prepared_take_handlers = Vec::new();
+        for handler in &self.definition.take_handlers {
+            let mut normalized_params = HashMap::new();
+            for (key, value) in &handler.parameters {
+                normalized_params.insert(key.to_ascii_lowercase(), value.clone());
+            }
+            let instance = TakeHandlerFactory::create(&handler.handler_name, &normalized_params)
+                .map_err(|err| map_take_error(&handler.handler_name, err))?;
+            prepared_take_handlers.push(PreparedTakeHandler {
+                id: handler.id.clone(),
+                name: handler.name.clone(),
+                handler: Arc::from(instance),
+                timeframe: handler.timeframe.clone(),
+                price_field: handler.price_field.clone(),
+                direction: handler.direction.clone(),
+                priority: handler.priority,
+                tags: handler.tags.clone(),
+                target_entry_ids: handler.target_entry_ids.clone(),
+            });
+        }
+
         let mut parameters = self.definition.defaults.clone();
         for (key, value) in self.parameter_overrides {
             parameters.insert(key, value);
@@ -547,6 +690,7 @@ impl StrategyBuilder {
             self.definition.entry_rules.clone(),
             self.definition.exit_rules.clone(),
             prepared_stop_handlers,
+            prepared_take_handlers,
             self.definition.timeframe_requirements.clone(),
             parameters,
         );
@@ -681,6 +825,10 @@ fn map_condition_error(name: &str, error: ConditionError) -> StrategyError {
 
 fn map_stop_error(name: &str, error: StopHandlerError) -> StrategyError {
     StrategyError::DefinitionError(format!("stop handler {} creation failed: {}", name, error))
+}
+
+fn map_take_error(name: &str, error: TakeHandlerError) -> StrategyError {
+    StrategyError::DefinitionError(format!("take handler {} creation failed: {}", name, error))
 }
 
 fn extract_condition_operator(

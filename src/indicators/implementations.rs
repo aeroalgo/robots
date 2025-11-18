@@ -4,10 +4,137 @@ use crate::indicators::{
         TrendDirection, TrendIndicator, VolatilityIndicator,
     },
     parameters::*,
-    types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
+    types::{
+        IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet, ParameterType,
+    },
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
+
+/// Диапазон оптимизации параметра
+#[derive(Debug, Clone)]
+pub struct OptimizationRange {
+    pub start: f32,
+    pub end: f32,
+    pub step: f32,
+}
+
+impl OptimizationRange {
+    pub fn new(start: f32, end: f32, step: f32) -> Self {
+        Self { start, end, step }
+    }
+}
+
+/// Возвращает диапазон оптимизации для параметра индикатора
+///
+/// # Аргументы
+/// * `indicator_name` - имя индикатора (например, "SMA", "RSI", "BBUpper")
+/// * `param_name` - имя параметра (например, "period", "deviation", "coeff_atr")
+/// * `param_type` - тип параметра
+///
+/// # Возвращает
+/// Опциональный диапазон оптимизации (start, end, step)
+pub fn get_optimization_range(
+    indicator_name: &str,
+    param_name: &str,
+    param_type: &ParameterType,
+) -> Option<OptimizationRange> {
+    // Универсальные диапазоны по типу параметра
+    match param_type {
+        ParameterType::Period => {
+            // Для period: 100-200, шаг 10
+            Some(OptimizationRange::new(100.0, 200.0, 10.0))
+        }
+        ParameterType::Multiplier => {
+            // Для multiplier зависит от имени параметра
+            match param_name.to_lowercase().as_str() {
+                "deviation" => {
+                    // Для deviation: 0.5-3, шаг 0.2
+                    Some(OptimizationRange::new(0.5, 3.0, 0.2))
+                }
+                "coeff_atr" | "atr_multiplier" | "atr_coefficient" => {
+                    // Для coeff_atr: 1-10, шаг 0.2
+                    Some(OptimizationRange::new(1.0, 10.0, 0.2))
+                }
+                _ => {
+                    // По умолчанию для multiplier: 0.5-5, шаг 0.2
+                    Some(OptimizationRange::new(0.5, 5.0, 0.2))
+                }
+            }
+        }
+        ParameterType::Threshold => {
+            // Для threshold зависит от индикатора (осцилляторы)
+            get_oscillator_threshold_range(indicator_name, param_name)
+        }
+        ParameterType::Coefficient => {
+            // Для coefficient: 0.1-1.0, шаг 0.1
+            Some(OptimizationRange::new(0.1, 1.0, 0.1))
+        }
+        ParameterType::Custom => {
+            // Для custom параметров пытаемся определить по имени
+            match param_name.to_lowercase().as_str() {
+                "period" | "length" => Some(OptimizationRange::new(100.0, 200.0, 10.0)),
+                "deviation" => Some(OptimizationRange::new(0.5, 3.0, 0.2)),
+                "coeff_atr" | "atr_multiplier" => Some(OptimizationRange::new(1.0, 10.0, 0.2)),
+                _ => None,
+            }
+        }
+    }
+}
+
+/// Возвращает диапазон оптимизации для пороговых значений осцилляторов
+fn get_oscillator_threshold_range(
+    indicator_name: &str,
+    param_name: &str,
+) -> Option<OptimizationRange> {
+    match indicator_name.to_uppercase().as_str() {
+        "RSI" => {
+            // RSI работает в диапазоне 0-100
+            // Обычно используется 30/70, но можно оптимизировать 20-80
+            Some(OptimizationRange::new(20.0, 80.0, 5.0))
+        }
+        "STOCHASTIC" => {
+            // Stochastic работает в диапазоне 0-100
+            // Обычно используется 20/80
+            Some(OptimizationRange::new(10.0, 90.0, 5.0))
+        }
+        "WILLIAMSR" | "WILLIAMS_R" | "%R" => {
+            // Williams %R работает в диапазоне -100 до 0
+            // Обычно используется -20/-80
+            Some(OptimizationRange::new(-90.0, -10.0, 5.0))
+        }
+        "CCI" => {
+            // CCI может быть от -200 до +200
+            // Обычно используется ±100
+            Some(OptimizationRange::new(-200.0, 200.0, 20.0))
+        }
+        "MACD" => {
+            // MACD signal line threshold обычно около 0
+            Some(OptimizationRange::new(-5.0, 5.0, 0.5))
+        }
+        "MOMENTUM" => {
+            // Momentum может быть любым числом
+            Some(OptimizationRange::new(-100.0, 100.0, 10.0))
+        }
+        _ => {
+            // Для неизвестных осцилляторов пытаемся определить по имени параметра
+            match param_name.to_lowercase().as_str() {
+                "overbought" | "upper" | "high" => {
+                    // Верхний порог, обычно 70-90 для 0-100 диапазона
+                    Some(OptimizationRange::new(60.0, 95.0, 5.0))
+                }
+                "oversold" | "lower" | "low" => {
+                    // Нижний порог, обычно 10-30 для 0-100 диапазона
+                    Some(OptimizationRange::new(5.0, 40.0, 5.0))
+                }
+                _ => {
+                    // По умолчанию для threshold: 0-100, шаг 5
+                    Some(OptimizationRange::new(0.0, 100.0, 5.0))
+                }
+            }
+        }
+    }
+}
 
 fn adjust_period(period: usize, len: usize) -> Option<usize> {
     if len == 0 {

@@ -13,54 +13,60 @@ impl StopHandlerCombinationGenerator {
     ///
     /// # Возвращает
     /// Вектор комбинаций стоп-обработчиков
+    ///
+    /// # Логика
+    /// Каждая конфигурация (handler_name) создает один StopHandlerInfo с оптимизируемыми параметрами.
+    /// Комбинации создаются между разными типами стопов, а не между значениями параметров.
+    /// Параметры оптимизируются отдельно, не создавая отдельные комбинации стратегий.
     pub fn generate_combinations_from_configs(
         configs: &[StopHandlerConfig],
     ) -> Vec<Vec<StopHandlerInfo>> {
         let mut all_combinations = Vec::new();
 
         // Разделяем конфигурации по типам стопов
+        // Каждая конфигурация (handler_name) создает ОДИН StopHandlerInfo с оптимизируемыми параметрами
         let mut stop_losses: Vec<StopHandlerInfo> = Vec::new();
         let mut take_profits: Vec<StopHandlerInfo> = Vec::new();
 
         for config in configs {
-            for (i, &param_value) in config.parameter_values.iter().enumerate() {
-                let stop_info = StopHandlerInfo {
-                    id: format!("{}_{}_{}", config.handler_name, config.stop_type, i),
-                    name: format!("{} {:.2}", config.handler_name, param_value),
-                    handler_name: config.handler_name.clone(),
-                    stop_type: config.stop_type.clone(),
-                    optimization_params: vec![ConditionParamInfo {
-                        name: config.parameter_name.clone(),
-                        optimizable: true,
-                        global_param_name: config.global_param_name.clone(),
-                    }],
-                    priority: config.priority,
-                };
+            // Создаем один StopHandlerInfo для каждого типа стопа (handler_name)
+            // Параметры будут оптимизироваться, но не создавать отдельные комбинации
+            let stop_info = StopHandlerInfo {
+                id: format!("{}_{}", config.handler_name, config.stop_type),
+                name: config.handler_name.clone(),
+                handler_name: config.handler_name.clone(),
+                stop_type: config.stop_type.clone(),
+                optimization_params: vec![ConditionParamInfo {
+                    name: config.parameter_name.clone(),
+                    optimizable: true,
+                    global_param_name: config.global_param_name.clone(),
+                }],
+                priority: config.priority,
+            };
 
-                match config.stop_type.as_str() {
-                    "stop_loss" => stop_losses.push(stop_info),
-                    "take_profit" => take_profits.push(stop_info),
-                    _ => {}
-                }
+            match config.stop_type.as_str() {
+                "stop_loss" => stop_losses.push(stop_info),
+                "take_profit" => take_profits.push(stop_info),
+                _ => {}
             }
         }
 
-        // Генерируем комбинации: каждый стоп-лосс с каждым тейк-профитом
+        // Генерируем все возможные комбинации:
+        // 1. Только стоп-лоссы (без тейк-профитов)
+        for stop_loss in &stop_losses {
+            all_combinations.push(vec![stop_loss.clone()]);
+        }
+
+        // 2. Только тейк-профиты (без стоп-лоссов)
+        for take_profit in &take_profits {
+            all_combinations.push(vec![take_profit.clone()]);
+        }
+
+        // 3. Комбинации стоп-лоссов с тейк-профитами
+        // Это комбинации РАЗНЫХ ТИПОВ стопов, а не разных значений параметров
         for stop_loss in &stop_losses {
             for take_profit in &take_profits {
                 all_combinations.push(vec![stop_loss.clone(), take_profit.clone()]);
-            }
-        }
-
-        // Если нет стоп-лоссов или тейк-профитов, добавляем только те, что есть
-        if stop_losses.is_empty() && !take_profits.is_empty() {
-            for take_profit in &take_profits {
-                all_combinations.push(vec![take_profit.clone()]);
-            }
-        }
-        if !stop_losses.is_empty() && take_profits.is_empty() {
-            for stop_loss in &stop_losses {
-                all_combinations.push(vec![stop_loss.clone()]);
             }
         }
 
