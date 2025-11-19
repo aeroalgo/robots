@@ -75,36 +75,52 @@ impl DynamicStrategy {
     ) -> Result<HashMap<String, ConditionEvaluation>, StrategyError> {
         let mut result = HashMap::new();
         for condition in &self.conditions {
-            let input = context.prepare_condition_input(condition)?;
             let timeframe_data = context.timeframe(&condition.timeframe)?;
-            let raw = condition.condition.check(input).await.map_err(|err| {
-                StrategyError::ConditionFailure {
-                    condition_id: condition.id.clone(),
-                    source: err,
-                }
-            })?;
-            let idx = self.resolve_index(timeframe_data.index(), raw.signals.len());
-            let satisfied = raw.signals.get(idx).copied().unwrap_or(false);
-            let strength = raw
-                .strengths
-                .get(idx)
-                .copied()
-                .unwrap_or(SignalStrength::Weak);
-            let trend = raw
-                .directions
-                .get(idx)
-                .copied()
-                .unwrap_or(TrendDirection::Sideways);
-            result.insert(
-                condition.id.clone(),
+            
+            let evaluation = if let Some(precomputed) = timeframe_data.condition_result(&condition.id) {
+                let idx = self.resolve_index(timeframe_data.index(), precomputed.signals.len());
                 ConditionEvaluation {
                     condition_id: condition.id.clone(),
-                    satisfied,
-                    strength,
-                    trend,
+                    satisfied: precomputed.signals.get(idx).copied().unwrap_or(false),
+                    strength: precomputed
+                        .strengths
+                        .get(idx)
+                        .copied()
+                        .unwrap_or(SignalStrength::Weak),
+                    trend: precomputed
+                        .directions
+                        .get(idx)
+                        .copied()
+                        .unwrap_or(TrendDirection::Sideways),
                     weight: condition.weight(),
-                },
-            );
+                }
+            } else {
+                let input = context.prepare_condition_input(condition)?;
+                let raw = condition.condition.check(input).await.map_err(|err| {
+                    StrategyError::ConditionFailure {
+                        condition_id: condition.id.clone(),
+                        source: err,
+                    }
+                })?;
+                let idx = self.resolve_index(timeframe_data.index(), raw.signals.len());
+                ConditionEvaluation {
+                    condition_id: condition.id.clone(),
+                    satisfied: raw.signals.get(idx).copied().unwrap_or(false),
+                    strength: raw
+                        .strengths
+                        .get(idx)
+                        .copied()
+                        .unwrap_or(SignalStrength::Weak),
+                    trend: raw
+                        .directions
+                        .get(idx)
+                        .copied()
+                        .unwrap_or(TrendDirection::Sideways),
+                    weight: condition.weight(),
+                }
+            };
+            
+            result.insert(condition.id.clone(), evaluation);
         }
         Ok(result)
     }

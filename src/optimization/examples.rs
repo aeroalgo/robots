@@ -1,5 +1,6 @@
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::{Symbol, TimeFrame};
+use crate::discovery::StrategyDiscoveryConfig;
 use crate::optimization::*;
 use anyhow::Result;
 use std::collections::HashMap;
@@ -98,8 +99,19 @@ pub async fn example_genetic_optimization() -> Result<()> {
     println!("   Создано {} островов\n", island_manager.islands_count());
 
     println!("🧬 Создание генетического алгоритма...");
-    let genetic_algorithm =
-        GeneticAlgorithm::new(config.clone(), frames.clone(), base_timeframe.clone());
+    let discovery_config = StrategyDiscoveryConfig {
+        max_optimization_params: 8,
+        timeframe_count: 2,
+        base_timeframe: base_timeframe.clone(),
+        allow_indicator_on_indicator: true,
+        max_indicator_depth: 1,
+    };
+    let mut genetic_algorithm = GeneticAlgorithmV3::new(
+        config.clone(),
+        frames.clone(),
+        base_timeframe.clone(),
+        discovery_config,
+    );
 
     println!("📈 Создание менеджеров эволюции...");
     let mut evolution_manager = EvolutionManager::new(config.clone());

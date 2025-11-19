@@ -4,8 +4,8 @@ use crate::data_model::types::TimeFrame;
 use crate::discovery::StrategyCandidate;
 use crate::optimization::evaluator::StrategyEvaluationRunner;
 use crate::optimization::fitness::{FitnessFunction, FitnessThresholds};
-use crate::optimization::genetic_v2::GeneticAlgorithmV2;
-use crate::optimization::initial_population_v2::InitialPopulationGeneratorV2;
+use crate::optimization::genetic::GeneticAlgorithmV3;
+use crate::optimization::initial_population::InitialPopulationGenerator;
 use crate::optimization::types::{
     EvaluatedStrategy, GeneticAlgorithmConfig, GeneticIndividual, Population,
 };
@@ -50,7 +50,7 @@ impl PerStructureOptimizer {
         println!("   Условия выхода: {}", candidate.exit_conditions.len());
         println!("   Стоп-обработчики: {}", candidate.stop_handlers.len());
 
-        let generator = InitialPopulationGeneratorV2::with_discovery_config(
+        let generator = InitialPopulationGenerator::with_discovery_config(
             self.config.clone(),
             self.frames.clone(),
             self.base_timeframe.clone(),
@@ -60,10 +60,11 @@ impl PerStructureOptimizer {
         let mut population = generator.generate(Some(vec![candidate.clone()])).await?;
         population.island_id = None;
 
-        let genetic_algorithm = GeneticAlgorithmV2::new(
+        let mut genetic_algorithm = GeneticAlgorithmV3::new(
             self.config.clone(),
             self.frames.clone(),
             self.base_timeframe.clone(),
+            self.discovery_config.clone(),
         );
 
         println!("   Начальная популяция: {} стратегий", population.individuals.len());

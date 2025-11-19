@@ -1,4 +1,3 @@
-use crate::optimization::genetic::GeneticAlgorithm;
 use crate::optimization::island::IslandManager;
 use crate::optimization::migration::MigrationSystem;
 use crate::optimization::types::{GeneticAlgorithmConfig, Population};

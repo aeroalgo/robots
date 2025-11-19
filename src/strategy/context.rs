@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::condition::types::ConditionInputData;
+use crate::condition::types::{ConditionInputData, ConditionResultData};
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::{timestamp_from_millis, Symbol, TimeFrame};
 use crate::indicators::types::OHLCData;
@@ -20,6 +20,7 @@ pub struct TimeframeData {
     prices: HashMap<PriceField, Arc<Vec<f32>>>,
     indicators: HashMap<String, Arc<Vec<f32>>>,
     custom: HashMap<String, Arc<Vec<f32>>>,
+    condition_results: HashMap<String, Arc<ConditionResultData>>,
     ohlc: Option<Arc<OHLCData>>,
     timestamps: Option<Arc<Vec<i64>>>,
 }
@@ -33,6 +34,7 @@ impl TimeframeData {
             prices: HashMap::new(),
             indicators: HashMap::new(),
             custom: HashMap::new(),
+            condition_results: HashMap::new(),
             ohlc: None,
             timestamps: None,
         }
@@ -159,6 +161,29 @@ impl TimeframeData {
 
     pub fn current_timestamp(&self) -> Option<chrono::DateTime<chrono::Utc>> {
         self.timestamp_at(self.index)
+    }
+
+    pub fn insert_condition_result(
+        &mut self,
+        condition_id: impl Into<String>,
+        result: ConditionResultData,
+    ) {
+        self.condition_results
+            .insert(condition_id.into(), Arc::new(result));
+    }
+
+    pub fn insert_condition_result_arc(
+        &mut self,
+        condition_id: impl Into<String>,
+        result: Arc<ConditionResultData>,
+    ) {
+        self.condition_results.insert(condition_id.into(), result);
+    }
+
+    pub fn condition_result(&self, condition_id: &str) -> Option<&ConditionResultData> {
+        self.condition_results
+            .get(condition_id)
+            .map(|data| data.as_ref())
     }
 }
 

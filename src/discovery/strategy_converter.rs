@@ -465,37 +465,40 @@ impl StrategyConverter {
                 }
             }
 
-            match stop_handler.stop_type.as_str() {
-                "stop_loss" => {
-                    stop_handlers.push(StopHandlerSpec {
-                        id: stop_handler.id.clone(),
-                        name: stop_handler.name.clone(),
-                        handler_name: stop_handler.handler_name.clone(),
-                        timeframe: base_timeframe.clone(),
-                        price_field: crate::strategy::types::PriceField::Close,
-                        parameters,
-                        direction: PositionDirection::Both,
-                        priority: stop_handler.priority,
-                        tags: vec![stop_handler.stop_type.clone()],
-                        target_entry_ids: vec![],
-                    });
+            stop_handlers.push(StopHandlerSpec {
+                id: stop_handler.id.clone(),
+                name: stop_handler.name.clone(),
+                handler_name: stop_handler.handler_name.clone(),
+                timeframe: base_timeframe.clone(),
+                price_field: crate::strategy::types::PriceField::Close,
+                parameters,
+                direction: PositionDirection::Both,
+                priority: stop_handler.priority,
+                tags: vec!["stop_loss".to_string()],
+                target_entry_ids: vec![],
+            });
+        }
+
+        for take_handler in &candidate.take_handlers {
+            let mut parameters = StrategyParameterMap::new();
+            for param in &take_handler.optimization_params {
+                if param.optimizable {
+                    parameters.insert(param.name.clone(), StrategyParamValue::Number(0.0));
                 }
-                "take_profit" => {
-                    take_handlers.push(TakeHandlerSpec {
-                        id: stop_handler.id.clone(),
-                        name: stop_handler.name.clone(),
-                        handler_name: stop_handler.handler_name.clone(),
-                        timeframe: base_timeframe.clone(),
-                        price_field: crate::strategy::types::PriceField::Close,
-                        parameters,
-                        direction: PositionDirection::Both,
-                        priority: stop_handler.priority,
-                        tags: vec![stop_handler.stop_type.clone()],
-                        target_entry_ids: vec![],
-                    });
-                }
-                _ => {}
             }
+
+            take_handlers.push(TakeHandlerSpec {
+                id: take_handler.id.clone(),
+                name: take_handler.name.clone(),
+                handler_name: take_handler.handler_name.clone(),
+                timeframe: base_timeframe.clone(),
+                price_field: crate::strategy::types::PriceField::Close,
+                parameters,
+                direction: PositionDirection::Both,
+                priority: take_handler.priority,
+                tags: vec!["take_profit".to_string()],
+                target_entry_ids: vec![],
+            });
         }
 
         Ok((stop_handlers, take_handlers))

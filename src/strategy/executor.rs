@@ -297,6 +297,7 @@ impl BacktestExecutor {
             }
         }
         self.populate_indicators().await?;
+        self.populate_conditions().await?;
         self.analytics
             .push_equity_point(self.position_manager.portfolio_snapshot().total_equity);
         let mut processed_bars = 0usize;
@@ -496,6 +497,63 @@ impl BacktestExecutor {
             .timeframe_mut(timeframe)
             .map_err(StrategyExecutionError::Strategy)?;
         data.insert_indicator_arc(alias.to_string(), values);
+        Ok(())
+    }
+
+    async fn populate_conditions(&mut self) -> Result<(), StrategyExecutionError> {
+        let mut grouped: HashMap<TimeFrame, Vec<String>> = HashMap::new();
+        for condition in self.strategy.conditions() {
+            grouped
+                .entry(condition.timeframe.clone())
+                .or_default()
+                .push(condition.id.clone());
+        }
+
+        for (timeframe, condition_ids) in grouped {
+            let frame = {
+                let frame_ref = self.feed.frames.get(&timeframe).ok_or_else(|| {
+                    StrategyExecutionError::Feed(format!(
+                        "timeframe {:?} not available in feed for conditions",
+                        timeframe
+                    ))
+                })?;
+                Arc::clone(frame_ref)
+            };
+
+            self.ensure_timeframe_data(&timeframe, &frame);
+
+            for condition_id in condition_ids {
+                let condition = self
+                    .strategy
+                    .conditions()
+                    .iter()
+                    .find(|c| c.id == condition_id)
+                    .ok_or_else(|| {
+                        StrategyExecutionError::Feed(format!(
+                            "condition {} not found",
+                            condition_id
+                        ))
+                    })?;
+
+                let input = self
+                    .context
+                    .prepare_condition_input(condition)
+                    .map_err(|err| StrategyExecutionError::Strategy(err))?;
+
+                let result = condition.condition.check(input).await.map_err(|err| {
+                    StrategyExecutionError::Strategy(StrategyError::ConditionFailure {
+                        condition_id: condition.id.clone(),
+                        source: err,
+                    })
+                })?;
+
+                let data = self
+                    .context
+                    .timeframe_mut(&timeframe)
+                    .map_err(StrategyExecutionError::Strategy)?;
+                data.insert_condition_result(condition.id.clone(), result);
+            }
+        }
         Ok(())
     }
 

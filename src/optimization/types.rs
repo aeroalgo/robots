@@ -44,6 +44,8 @@ pub struct GeneticAlgorithmConfig {
     pub restart_on_stagnation: bool,
     pub fresh_blood_rate: f64,
     pub detect_duplicates: bool,
+    pub param_mutation_min_percent: f64,
+    pub param_mutation_max_percent: f64,
 }
 
 impl Default for GeneticAlgorithmConfig {
@@ -66,6 +68,8 @@ impl Default for GeneticAlgorithmConfig {
             restart_on_stagnation: false,
             fresh_blood_rate: 0.1,
             detect_duplicates: true,
+            param_mutation_min_percent: 0.03,
+            param_mutation_max_percent: 0.05,
         }
     }
 }

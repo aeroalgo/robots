@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
+use crate::indicators::implementations::OptimizationRange;
 use crate::position::view::ActivePosition;
 use crate::strategy::context::TimeframeData;
 use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind, StrategyParamValue};
@@ -39,6 +40,23 @@ pub enum TakeHandlerError {
     UnknownHandler(String),
     #[error("invalid parameter {0}")]
     InvalidParameter(String),
+}
+
+pub fn get_optimization_range(
+    handler_name: &str,
+    param_name: &str,
+) -> Option<OptimizationRange> {
+    match handler_name.to_uppercase().as_str() {
+        "TAKEPROFITPCT" | "TAKE_PROFIT_PCT" | "TAKEPROFIT" => {
+            match param_name.to_lowercase().as_str() {
+                "percentage" | "take_profit" | "take" | "value" | "pct" => {
+                    Some(OptimizationRange::new(1.0, 10.0, 0.2))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 impl TakeHandlerFactory {

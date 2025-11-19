@@ -351,12 +351,15 @@ impl StrategyDiscoveryEngine {
                 for entry_conditions in &entry_condition_combinations {
                     for stop_handlers in &stop_combinations {
                         // Вариант 1: Entry условия + стопы (без exit условий)
+                        let (stop_handlers_split, take_handlers_split) = StrategyCandidate::split_handlers(stop_handlers);
+                        
                         let candidate = StrategyCandidate {
                             indicators: base_indicators.clone(),
                             nested_indicators: nested_indicators.clone(),
                             conditions: entry_conditions.clone(),
                             exit_conditions: vec![],
-                            stop_handlers: stop_handlers.clone(),
+                            stop_handlers: stop_handlers_split,
+                            take_handlers: take_handlers_split,
                             timeframes: timeframes.clone(),
                             config: self.config.clone(),
                         };
@@ -394,7 +397,27 @@ impl StrategyDiscoveryEngine {
                                 })
                                 .sum();
 
-                            if indicator_params + entry_params + exit_params + stop_params
+                            let (stop_handlers_split, take_handlers_split) = StrategyCandidate::split_handlers(stop_handlers);
+                            let stop_params_split: usize = stop_handlers_split
+                                .iter()
+                                .map(|s| {
+                                    s.optimization_params
+                                        .iter()
+                                        .filter(|p| p.optimizable)
+                                        .count()
+                                })
+                                .sum();
+                            let take_params_split: usize = take_handlers_split
+                                .iter()
+                                .map(|s| {
+                                    s.optimization_params
+                                        .iter()
+                                        .filter(|p| p.optimizable)
+                                        .count()
+                                })
+                                .sum();
+                            
+                            if indicator_params + entry_params + exit_params + stop_params_split + take_params_split
                                 <= self.config.max_optimization_params
                             {
                                 let candidate = StrategyCandidate {
@@ -402,7 +425,8 @@ impl StrategyDiscoveryEngine {
                                     nested_indicators: nested_indicators.clone(),
                                     conditions: entry_conditions.clone(),
                                     exit_conditions: exit_conditions.clone(),
-                                    stop_handlers: stop_handlers.clone(),
+                                    stop_handlers: stop_handlers_split,
+                                    take_handlers: take_handlers_split,
                                     timeframes: timeframes.clone(),
                                     config: self.config.clone(),
                                 };
@@ -443,6 +467,7 @@ impl StrategyDiscoveryEngine {
                                 conditions: entry_conditions.clone(),
                                 exit_conditions: exit_conditions.clone(),
                                 stop_handlers: vec![],
+                                take_handlers: vec![],
                                 timeframes: timeframes.clone(),
                                 config: self.config.clone(),
                             };
@@ -659,11 +684,17 @@ pub struct StrategyCandidate {
     /// Условия выхода (exit conditions)
     pub exit_conditions: Vec<ConditionInfo>,
     pub stop_handlers: Vec<StopHandlerInfo>,
+    pub take_handlers: Vec<StopHandlerInfo>,
     pub timeframes: Vec<TimeFrame>,
     pub config: StrategyDiscoveryConfig,
 }
 
 impl StrategyCandidate {
+    /// Разделяет список обработчиков на stop_handlers и take_handlers
+    pub fn split_handlers(handlers: &[StopHandlerInfo]) -> (Vec<StopHandlerInfo>, Vec<StopHandlerInfo>) {
+        handlers.iter().cloned().partition(|h| h.stop_type == "stop_loss")
+    }
+    
     /// Вычисляет общее количество параметров оптимизации для этой стратегии
     pub fn total_optimization_params(&self) -> usize {
         // Параметры базовых индикаторов
@@ -713,7 +744,7 @@ impl StrategyCandidate {
 
         let condition_params = entry_condition_params + exit_condition_params;
 
-        // Параметры стоп-обработчиков (стоп-лосс и тейк-профит)
+        // Параметры стоп-обработчиков (стоп-лосс)
         let stop_params: usize = self
             .stop_handlers
             .iter()
@@ -725,13 +756,33 @@ impl StrategyCandidate {
             })
             .sum();
 
-        indicator_params + condition_params + stop_params
+        // Параметры тейк-обработчиков (тейк-профит)
+        let take_params: usize = self
+            .take_handlers
+            .iter()
+            .map(|take| {
+                take.optimization_params
+                    .iter()
+                    .filter(|p| p.optimizable)
+                    .count()
+            })
+            .sum();
+
+        indicator_params + condition_params + stop_params + take_params
     }
 
     /// Проверяет, соответствует ли кандидат ограничениям конфигурации
     pub fn is_valid(&self) -> bool {
+        let has_exit_conditions = !self.exit_conditions.is_empty();
+        let has_stop_handlers = !self.stop_handlers.is_empty();
+        let has_take_handlers = !self.take_handlers.is_empty();
+        let has_any_exit = has_exit_conditions || has_stop_handlers || has_take_handlers;
+        let only_take = !has_exit_conditions && !has_stop_handlers && has_take_handlers;
+        
         self.total_optimization_params() <= self.config.max_optimization_params
             && self.timeframes.len() <= self.config.timeframe_count
+            && has_any_exit
+            && !only_take
     }
 
     /// Возвращает все индикаторы кандидата (базовые + вложенные) для удобства работы
@@ -956,6 +1007,7 @@ impl Iterator for StrategyIterator {
                             conditions: entry_conditions.clone(),
                             exit_conditions: exit_conditions.clone(),
                             stop_handlers: vec![],
+                            take_handlers: vec![],
                             timeframes: timeframes.clone(),
                             config: self.config.clone(),
                         };
@@ -982,6 +1034,7 @@ impl Iterator for StrategyIterator {
                             conditions: entry_conditions.clone(),
                             exit_conditions: vec![],
                             stop_handlers: vec![stop_loss.clone()],
+                            take_handlers: vec![],
                             timeframes: timeframes.clone(),
                             config: self.config.clone(),
                         };
@@ -991,33 +1044,7 @@ impl Iterator for StrategyIterator {
                     }
                 }
 
-                // 3. Только take profit
-                for take_profit in self.take_profits.iter() {
-                    let take_params: usize = take_profit
-                        .optimization_params
-                        .iter()
-                        .filter(|p| p.optimizable)
-                        .count();
-
-                    if indicator_params + entry_params + take_params
-                        <= self.config.max_optimization_params
-                    {
-                        let candidate = StrategyCandidate {
-                            indicators: base_indicators.clone(),
-                            nested_indicators: nested_indicators.clone(),
-                            conditions: entry_conditions.clone(),
-                            exit_conditions: vec![],
-                            stop_handlers: vec![take_profit.clone()],
-                            timeframes: timeframes.clone(),
-                            config: self.config.clone(),
-                        };
-                        if candidate.is_valid() {
-                            candidates.push(candidate);
-                        }
-                    }
-                }
-
-                // 4. Exit условия + stop loss
+                // 3. Exit условия + stop loss
                 for exit_conditions in &exit_condition_combinations {
                     let exit_params: usize = exit_conditions
                         .iter()
@@ -1045,6 +1072,7 @@ impl Iterator for StrategyIterator {
                                 conditions: entry_conditions.clone(),
                                 exit_conditions: exit_conditions.clone(),
                                 stop_handlers: vec![stop_loss.clone()],
+                                take_handlers: vec![],
                                 timeframes: timeframes.clone(),
                                 config: self.config.clone(),
                             };
@@ -1055,7 +1083,7 @@ impl Iterator for StrategyIterator {
                     }
                 }
 
-                // 5. Exit условия + take profit
+                // 4. Exit условия + take profit
                 for exit_conditions in &exit_condition_combinations {
                     let exit_params: usize = exit_conditions
                         .iter()
@@ -1082,7 +1110,8 @@ impl Iterator for StrategyIterator {
                                 nested_indicators: nested_indicators.clone(),
                                 conditions: entry_conditions.clone(),
                                 exit_conditions: exit_conditions.clone(),
-                                stop_handlers: vec![take_profit.clone()],
+                                stop_handlers: vec![],
+                                take_handlers: vec![take_profit.clone()],
                                 timeframes: timeframes.clone(),
                                 config: self.config.clone(),
                             };
@@ -1093,7 +1122,7 @@ impl Iterator for StrategyIterator {
                     }
                 }
 
-                // 6. Stop loss + take profit
+                // 5. Stop loss + take profit
                 for stop_loss in self.stop_losses.iter() {
                     let stop_params: usize = stop_loss
                         .optimization_params
@@ -1116,7 +1145,8 @@ impl Iterator for StrategyIterator {
                                 nested_indicators: nested_indicators.clone(),
                                 conditions: entry_conditions.clone(),
                                 exit_conditions: vec![],
-                                stop_handlers: vec![stop_loss.clone(), take_profit.clone()],
+                                stop_handlers: vec![stop_loss.clone()],
+                                take_handlers: vec![take_profit.clone()],
                                 timeframes: timeframes.clone(),
                                 config: self.config.clone(),
                             };
@@ -1127,7 +1157,7 @@ impl Iterator for StrategyIterator {
                     }
                 }
 
-                // 7. Exit условия + stop loss + take profit
+                // 6. Exit условия + stop loss + take profit
                 for exit_conditions in &exit_condition_combinations {
                     let exit_params: usize = exit_conditions
                         .iter()
@@ -1165,7 +1195,8 @@ impl Iterator for StrategyIterator {
                                     nested_indicators: nested_indicators.clone(),
                                     conditions: entry_conditions.clone(),
                                     exit_conditions: exit_conditions.clone(),
-                                    stop_handlers: vec![stop_loss.clone(), take_profit.clone()],
+                                    stop_handlers: vec![stop_loss.clone()],
+                                    take_handlers: vec![take_profit.clone()],
                                     timeframes: timeframes.clone(),
                                     config: self.config.clone(),
                                 };
