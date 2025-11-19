@@ -3,7 +3,7 @@ use crate::indicators::OHLCData;
 use std::collections::HashMap;
 
 /// Пример использования условия "выше другого вектора"
-pub async fn above_condition_example() -> Result<(), String> {
+pub fn above_condition_example() -> Result<(), String> {
     println!("=== Пример условия 'Above' ===");
 
     let condition = ConditionFactory::create_condition_default("Above")
@@ -14,7 +14,6 @@ pub async fn above_condition_example() -> Result<(), String> {
 
     let result = condition
         .check(ConditionInputData::dual(&data1, &data2))
-        .await
         .map_err(|e| format!("Ошибка проверки условия: {:?}", e))?;
 
     println!("Вектор 1: {:?}", data1);
@@ -27,7 +26,7 @@ pub async fn above_condition_example() -> Result<(), String> {
 }
 
 /// Пример использования условия "пересечение выше"
-pub async fn crosses_above_example() -> Result<(), String> {
+pub fn crosses_above_example() -> Result<(), String> {
     println!("\n=== Пример условия 'CrossesAbove' ===");
 
     let condition = ConditionFactory::create_condition_default("CrossesAbove")
@@ -38,7 +37,6 @@ pub async fn crosses_above_example() -> Result<(), String> {
 
     let result = condition
         .check(ConditionInputData::dual(&line1, &line2))
-        .await
         .map_err(|e| format!("Ошибка проверки условия: {:?}", e))?;
 
     println!("Линия 1: {:?}", line1);
@@ -50,7 +48,7 @@ pub async fn crosses_above_example() -> Result<(), String> {
 }
 
 /// Пример использования трендового условия
-pub async fn rising_trend_example() -> Result<(), String> {
+pub fn rising_trend_example() -> Result<(), String> {
     println!("\n=== Пример условия 'RisingTrend' ===");
 
     let mut params = HashMap::new();
@@ -63,7 +61,6 @@ pub async fn rising_trend_example() -> Result<(), String> {
 
     let result = condition
         .check(ConditionInputData::single(&data))
-        .await
         .map_err(|e| format!("Ошибка проверки условия: {:?}", e))?;
 
     println!("Данные: {:?}", data);
@@ -76,7 +73,7 @@ pub async fn rising_trend_example() -> Result<(), String> {
 }
 
 /// Пример комбинирования условий
-pub async fn combined_conditions_example() -> Result<(), String> {
+pub fn combined_conditions_example() -> Result<(), String> {
     println!("\n=== Пример комбинирования условий ===");
 
     let above_condition = ConditionFactory::create_condition_default("Above")
@@ -90,12 +87,10 @@ pub async fn combined_conditions_example() -> Result<(), String> {
 
     let above_result = above_condition
         .check(ConditionInputData::dual(&data, &threshold))
-        .await
         .map_err(|e| format!("Ошибка проверки Above: {:?}", e))?;
 
     let trend_result = trend_condition
         .check(ConditionInputData::single(&data))
-        .await
         .map_err(|e| format!("Ошибка проверки RisingTrend: {:?}", e))?;
 
     let combined_signals: Vec<bool> = above_result
@@ -114,7 +109,7 @@ pub async fn combined_conditions_example() -> Result<(), String> {
 }
 
 /// Пример работы с OHLC данными
-pub async fn ohlc_conditions_example() -> Result<(), String> {
+pub fn ohlc_conditions_example() -> Result<(), String> {
     println!("\n=== Пример работы с OHLC данными ===");
 
     let ohlc_data = create_test_ohlc_data();
@@ -126,7 +121,6 @@ pub async fn ohlc_conditions_example() -> Result<(), String> {
 
     let result = condition
         .check(ConditionInputData::dual(&closes, &threshold))
-        .await
         .map_err(|e| format!("Ошибка проверки условия: {:?}", e))?;
 
     println!("OHLC данные:");
@@ -150,28 +144,28 @@ fn create_test_ohlc_data() -> OHLCData {
 }
 
 /// Запуск всех примеров
-pub async fn run_all_examples() -> Result<(), String> {
+pub fn run_all_examples() -> Result<(), String> {
     println!("🚀 Запуск примеров системы условий\n");
 
-    above_condition_example().await?;
-    crosses_above_example().await?;
-    rising_trend_example().await?;
-    combined_conditions_example().await?;
-    ohlc_conditions_example().await?;
+    above_condition_example()?;
+    crosses_above_example()?;
+    rising_trend_example()?;
+    combined_conditions_example()?;
+    ohlc_conditions_example()?;
 
     println!("\n✅ Все примеры выполнены успешно!");
     Ok(())
 }
 
 /// Запуск всех примеров включая интеграцию
-pub async fn run_all_examples_with_integration() -> Result<(), String> {
+pub fn run_all_examples_with_integration() -> Result<(), String> {
     println!("🚀 Запуск всех примеров системы условий\n");
 
-    above_condition_example().await?;
-    crosses_above_example().await?;
-    rising_trend_example().await?;
-    combined_conditions_example().await?;
-    ohlc_conditions_example().await?;
+    above_condition_example()?;
+    crosses_above_example()?;
+    rising_trend_example()?;
+    combined_conditions_example()?;
+    ohlc_conditions_example()?;
 
     println!("\n{}", "=".repeat(50));
 

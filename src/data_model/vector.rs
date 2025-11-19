@@ -4,6 +4,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use super::quote::Quote;
+use super::vector_ops::unsafe_ops;
 
 #[derive(Debug, Error)]
 pub enum ValueVectorError {
@@ -48,7 +49,7 @@ impl ValueVector {
     }
 
     pub fn sum(&self) -> f32 {
-        self.iter().sum()
+        unsafe_ops::sum_f32_fast(&self.data)
     }
 
     pub fn mean(&self) -> Option<f32> {
@@ -77,11 +78,17 @@ impl ValueVector {
                 right: other.len(),
             });
         }
-        let data: Vec<f32> = self
-            .iter()
-            .zip(other.iter())
-            .map(|(l, r)| func(l, r))
-            .collect();
+        let mut data = Vec::with_capacity(self.len());
+        unsafe {
+            let self_ptr: *const f32 = self.data.as_ptr();
+            let other_ptr: *const f32 = other.data.as_ptr();
+            let data_ptr: *mut f32 = data.as_mut_ptr();
+            data.set_len(self.len());
+            
+            for i in 0..self.len() {
+                *data_ptr.add(i) = func(*self_ptr.add(i), *other_ptr.add(i));
+            }
+        }
         Ok(Self::new(data))
     }
 
@@ -93,7 +100,7 @@ impl ValueVector {
             return Ok(Self::new(Vec::new()));
         }
         let mut result = Vec::with_capacity(self.len() - window + 1);
-        let mut current = self.data[0..window].iter().sum::<f32>();
+        let mut current = unsafe_ops::sum_f32_fast(&self.data[0..window]);
         result.push(current);
         for i in window..self.len() {
             current += self.data[i];
@@ -129,14 +136,7 @@ impl ValueVector {
             return self.clone();
         }
         let mean = self.mean().unwrap_or(0.0);
-        let variance = self
-            .iter()
-            .map(|value| {
-                let diff = value - mean;
-                diff * diff
-            })
-            .sum::<f32>()
-            / (self.len() as f32);
+        let variance = unsafe_ops::sum_sq_diff_f32_fast(&self.data, mean) / (self.len() as f32);
         let std_dev = variance.sqrt();
         if std_dev == 0.0 {
             return self.clone();

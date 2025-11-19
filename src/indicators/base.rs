@@ -2,11 +2,9 @@ use crate::indicators::types::{
     DataConverter, DataValidator, IndicatorCategory, IndicatorError, IndicatorMetadata,
     IndicatorResultData, IndicatorType, InputDataType, OHLCData, ParameterSet,
 };
-use async_trait::async_trait;
 use std::collections::HashMap;
 
 /// Базовый трейт для всех индикаторов
-#[async_trait]
 pub trait Indicator: Send + Sync {
     /// Имя индикатора
     fn name(&self) -> &str;
@@ -29,15 +27,15 @@ pub trait Indicator: Send + Sync {
     fn min_data_points(&self) -> usize;
 
     /// Вычислить индикатор с простыми данными
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError>;
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError>;
 
     /// Вычислить индикатор с OHLC данными
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError>;
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError>;
 
     /// Универсальный метод вычисления
-    async fn calculate(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         match self.indicator_type() {
-            IndicatorType::Simple => self.calculate_simple(data).await,
+            IndicatorType::Simple => self.calculate_simple(data),
             IndicatorType::OHLC => Err(IndicatorError::DataTypeMismatch {
                 expected: "OHLC".to_string(),
                 actual: "Simple".to_string(),
@@ -46,27 +44,27 @@ pub trait Indicator: Send + Sync {
                 expected: "OHLCV".to_string(),
                 actual: "Simple".to_string(),
             }),
-            IndicatorType::Universal => self.calculate_simple(data).await,
+            IndicatorType::Universal => self.calculate_simple(data),
         }
     }
 
     /// Универсальный метод вычисления с OHLC
-    async fn calculate_with_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_with_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         match self.indicator_type() {
             IndicatorType::Simple => {
                 // Конвертируем OHLC в простые данные (по умолчанию используем close)
                 let simple_data = data.close.clone();
-                self.calculate_simple(&simple_data).await
+                self.calculate_simple(&simple_data)
             }
-            IndicatorType::OHLC => self.calculate_ohlc(data).await,
+            IndicatorType::OHLC => self.calculate_ohlc(data),
             IndicatorType::OHLCV => {
                 // Проверяем наличие volume данных
                 if data.volume.is_none() {
                     return Err(IndicatorError::VolumeDataRequired);
                 }
-                self.calculate_ohlc(data).await
+                self.calculate_ohlc(data)
             }
-            IndicatorType::Universal => self.calculate_ohlc(data).await,
+            IndicatorType::Universal => self.calculate_ohlc(data),
         }
     }
 
@@ -142,11 +140,11 @@ pub trait Indicator: Send + Sync {
     }
 
     /// Получить результат с метаданными
-    async fn calculate_with_metadata(
+    fn calculate_with_metadata(
         &self,
         data: &[f32],
     ) -> Result<IndicatorResultData, IndicatorError> {
-        let values = self.calculate(data).await?;
+        let values = self.calculate(data)?;
         Ok(IndicatorResultData {
             values,
             metadata: self.metadata(),
@@ -154,11 +152,11 @@ pub trait Indicator: Send + Sync {
     }
 
     /// Получить результат с метаданными для OHLC
-    async fn calculate_ohlc_with_metadata(
+    fn calculate_ohlc_with_metadata(
         &self,
         data: &OHLCData,
     ) -> Result<IndicatorResultData, IndicatorError> {
-        let values = self.calculate_with_ohlc(data).await?;
+        let values = self.calculate_with_ohlc(data)?;
         Ok(IndicatorResultData {
             values,
             metadata: self.metadata(),
@@ -170,44 +168,39 @@ pub trait Indicator: Send + Sync {
 }
 
 /// Трейт для трендовых индикаторов
-#[async_trait]
 pub trait TrendIndicator: Indicator {
     /// Получить направление тренда
-    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError>;
+    fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError>;
 }
 
 /// Трейт для осцилляторов
-#[async_trait]
 pub trait OscillatorIndicator: Indicator {
     /// Получить зоны перекупленности/перепроданности
-    async fn get_overbought_oversold_zones(
+    fn get_overbought_oversold_zones(
         &self,
         data: &[f32],
     ) -> Result<OverboughtOversoldZones, IndicatorError>;
 }
 
 /// Трейт для индикаторов волатильности
-#[async_trait]
 pub trait VolatilityIndicator: Indicator {
     /// Получить уровень волатильности
-    async fn get_volatility_level(&self, data: &[f32]) -> Result<f32, IndicatorError>;
+    fn get_volatility_level(&self, data: &[f32]) -> Result<f32, IndicatorError>;
 }
 
 /// Трейт для простых индикаторов
-#[async_trait]
 pub trait SimpleIndicator: Indicator {
     /// Вычислить индикатор (алиас для calculate_simple)
-    async fn compute(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
-        self.calculate_simple(data).await
+    fn compute(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+        self.calculate_simple(data)
     }
 }
 
 /// Трейт для OHLC индикаторов
-#[async_trait]
 pub trait OHLCIndicator: Indicator {
     /// Вычислить индикатор (алиас для calculate_ohlc)
-    async fn compute(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
-        self.calculate_ohlc(data).await
+    fn compute(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+        self.calculate_ohlc(data)
     }
 }
 
@@ -248,7 +241,7 @@ pub trait ParameterOptimizer {
     fn get_parameter_combinations(&self) -> Vec<HashMap<String, f32>>;
 
     /// Оптимизировать параметры на основе данных
-    async fn optimize_parameters(
+    fn optimize_parameters(
         &self,
         data: &[f32],
         target_metric: &str,
@@ -301,7 +294,7 @@ impl<T: Indicator> ParameterOptimizer for T {
             .product()
     }
 
-    async fn optimize_parameters(
+    fn optimize_parameters(
         &self,
         _data: &[f32],
         _target_metric: &str,

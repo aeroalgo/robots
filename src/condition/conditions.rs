@@ -1,6 +1,5 @@
 use crate::condition::types::{ConditionInput, ConditionInputData};
 use crate::condition::{base::*, types::*};
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -29,7 +28,6 @@ impl AboveCondition {
     }
 }
 
-#[async_trait]
 impl Condition for AboveCondition {
     fn name(&self) -> &str {
         "Above"
@@ -47,7 +45,7 @@ impl Condition for AboveCondition {
         2
     }
 
-    async fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
+    fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
         self.validate(&input)?;
         let (data1, data2) = match input {
             ConditionInputData::Dual {
@@ -153,7 +151,6 @@ impl GreaterPercentCondition {
     }
 }
 
-#[async_trait]
 impl Condition for GreaterPercentCondition {
     fn name(&self) -> &str {
         "GreaterPercent"
@@ -171,7 +168,7 @@ impl Condition for GreaterPercentCondition {
         2
     }
 
-    async fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
+    fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
         self.validate(&input)?;
         let (data1, data2, percent) = match input {
             ConditionInputData::Dual {
@@ -280,7 +277,6 @@ impl LowerPercentCondition {
     }
 }
 
-#[async_trait]
 impl Condition for LowerPercentCondition {
     fn name(&self) -> &str {
         "LowerPercent"
@@ -298,7 +294,7 @@ impl Condition for LowerPercentCondition {
         2
     }
 
-    async fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
+    fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
         self.validate(&input)?;
         let (data1, data2, percent) = match input {
             ConditionInputData::Dual {
@@ -410,7 +406,6 @@ impl CrossesAboveCondition {
     }
 }
 
-#[async_trait]
 impl Condition for CrossesAboveCondition {
     fn name(&self) -> &str {
         "CrossesAbove"
@@ -428,7 +423,7 @@ impl Condition for CrossesAboveCondition {
         2
     }
 
-    async fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
+    fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
         self.validate(&input)?;
         let (data1, data2) = match input {
             ConditionInputData::Dual {
@@ -537,7 +532,6 @@ impl CrossesBelowCondition {
     }
 }
 
-#[async_trait]
 impl Condition for CrossesBelowCondition {
     fn name(&self) -> &str {
         "CrossesBelow"
@@ -555,7 +549,7 @@ impl Condition for CrossesBelowCondition {
         2
     }
 
-    async fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
+    fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
         self.validate(&input)?;
         let (data1, data2) = match input {
             ConditionInputData::Dual {
@@ -698,7 +692,6 @@ impl RisingTrendCondition {
     }
 }
 
-#[async_trait]
 impl Condition for RisingTrendCondition {
     fn name(&self) -> &str {
         "RisingTrend"
@@ -716,7 +709,7 @@ impl Condition for RisingTrendCondition {
         self.period
     }
 
-    async fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
+    fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
         self.validate(&input)?;
         let data = match input {
             ConditionInputData::Single { data } => data,
@@ -837,7 +830,6 @@ impl BelowCondition {
     }
 }
 
-#[async_trait]
 impl Condition for BelowCondition {
     fn name(&self) -> &str {
         "Below"
@@ -855,7 +847,7 @@ impl Condition for BelowCondition {
         2
     }
 
-    async fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
+    fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
         self.validate(&input)?;
         let (data1, data2) = match input {
             ConditionInputData::Dual {
@@ -990,7 +982,6 @@ impl FallingTrendCondition {
     }
 }
 
-#[async_trait]
 impl Condition for FallingTrendCondition {
     fn name(&self) -> &str {
         "FallingTrend"
@@ -1008,7 +999,7 @@ impl Condition for FallingTrendCondition {
         self.period
     }
 
-    async fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
+    fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData> {
         self.validate(&input)?;
         let data = match input {
             ConditionInputData::Single { data } => data,

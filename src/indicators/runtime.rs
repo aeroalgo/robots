@@ -67,7 +67,7 @@ impl IndicatorRuntimeEngine {
         }
     }
 
-    pub async fn compute_registry(
+    pub fn compute_registry(
         &mut self,
         timeframe: &TimeFrame,
         name: &str,
@@ -79,7 +79,7 @@ impl IndicatorRuntimeEngine {
             return Ok(values.clone());
         }
         let indicator = IndicatorFactory::create_indicator(name, parameters.clone())?;
-        let values = Arc::new(indicator.calculate_ohlc(data).await?);
+        let values = Arc::new(indicator.calculate_ohlc(data)?);
         self.registry_cache.insert(key, values.clone());
         Ok(values)
     }

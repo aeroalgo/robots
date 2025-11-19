@@ -30,21 +30,21 @@ mod tests {
 
         // Тестируем BBMiddle
         let bb_middle = BBMiddle::new(5.0, 2.0).unwrap();
-        let middle_values = bb_middle.calculate_ohlc(&ohlc_data).await.unwrap();
+        let middle_values = bb_middle.calculate_ohlc(&ohlc_data).unwrap();
 
         assert_eq!(middle_values.len(), ohlc_data.len());
         assert!(middle_values[4] > 0.0); // Первое значение SMA
 
         // Тестируем BBUpper
         let bb_upper = BBUpper::new(5.0, 2.0).unwrap();
-        let upper_values = bb_upper.calculate_ohlc(&ohlc_data).await.unwrap();
+        let upper_values = bb_upper.calculate_ohlc(&ohlc_data).unwrap();
 
         assert_eq!(upper_values.len(), ohlc_data.len());
         assert!(upper_values[4] > middle_values[4]); // Верхняя линия должна быть выше средней
 
         // Тестируем BBLower
         let bb_lower = BBLower::new(5.0, 2.0).unwrap();
-        let lower_values = bb_lower.calculate_ohlc(&ohlc_data).await.unwrap();
+        let lower_values = bb_lower.calculate_ohlc(&ohlc_data).unwrap();
 
         assert_eq!(lower_values.len(), ohlc_data.len());
         assert!(lower_values[4] < middle_values[4]); // Нижняя линия должна быть ниже средней
@@ -56,21 +56,21 @@ mod tests {
 
         // Тестируем KCMiddle
         let kc_middle = KCMiddle::new(5.0).unwrap();
-        let middle_values = kc_middle.calculate_ohlc(&ohlc_data).await.unwrap();
+        let middle_values = kc_middle.calculate_ohlc(&ohlc_data).unwrap();
 
         assert_eq!(middle_values.len(), ohlc_data.len());
         assert!(middle_values[4] > 0.0); // EMA должна быть положительной после прогрева периода
 
         // Тестируем KCUpper
         let kc_upper = KCUpper::new(5.0, 5.0, 2.0).unwrap();
-        let upper_values = kc_upper.calculate_ohlc(&ohlc_data).await.unwrap();
+        let upper_values = kc_upper.calculate_ohlc(&ohlc_data).unwrap();
 
         assert_eq!(upper_values.len(), ohlc_data.len());
         assert!(upper_values[4] > middle_values[4]); // Верхняя линия должна быть выше средней после прогрева
 
         // Тестируем KCLower
         let kc_lower = KCLower::new(5.0, 5.0, 2.0).unwrap();
-        let lower_values = kc_lower.calculate_ohlc(&ohlc_data).await.unwrap();
+        let lower_values = kc_lower.calculate_ohlc(&ohlc_data).unwrap();
 
         assert_eq!(lower_values.len(), ohlc_data.len());
         assert!(lower_values[4] < middle_values[4]); // Нижняя линия должна быть ниже средней после прогрева
@@ -84,9 +84,9 @@ mod tests {
         let bb_upper = BBUpper::new(5.0, 2.0).unwrap();
         let bb_lower = BBLower::new(5.0, 2.0).unwrap();
 
-        let middle_values = bb_middle.calculate_ohlc(&ohlc_data).await.unwrap();
-        let upper_values = bb_upper.calculate_ohlc(&ohlc_data).await.unwrap();
-        let lower_values = bb_lower.calculate_ohlc(&ohlc_data).await.unwrap();
+        let middle_values = bb_middle.calculate_ohlc(&ohlc_data).unwrap();
+        let upper_values = bb_upper.calculate_ohlc(&ohlc_data).unwrap();
+        let lower_values = bb_lower.calculate_ohlc(&ohlc_data).unwrap();
 
         // Проверяем, что верхняя и нижняя линии симметричны относительно средней
         for i in 4..ohlc_data.len() {
@@ -110,9 +110,9 @@ mod tests {
         let kc_upper = KCUpper::new(5.0, 5.0, 2.0).unwrap();
         let kc_lower = KCLower::new(5.0, 5.0, 2.0).unwrap();
 
-        let middle_values = kc_middle.calculate_ohlc(&ohlc_data).await.unwrap();
-        let upper_values = kc_upper.calculate_ohlc(&ohlc_data).await.unwrap();
-        let lower_values = kc_lower.calculate_ohlc(&ohlc_data).await.unwrap();
+        let middle_values = kc_middle.calculate_ohlc(&ohlc_data).unwrap();
+        let upper_values = kc_upper.calculate_ohlc(&ohlc_data).unwrap();
+        let lower_values = kc_lower.calculate_ohlc(&ohlc_data).unwrap();
 
         // Проверяем, что верхняя и нижняя линии симметричны относительно средней
         for i in 0..ohlc_data.len() {

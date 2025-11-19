@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
-use async_trait::async_trait;
 
 use crate::condition::factory::ConditionFactory;
 use crate::condition::types::{ConditionError, SignalStrength, TrendDirection};
@@ -69,11 +68,11 @@ impl DynamicStrategy {
         &self.definition
     }
 
-    async fn evaluate_conditions(
+    fn evaluate_conditions(
         &self,
         context: &StrategyContext,
     ) -> Result<HashMap<String, ConditionEvaluation>, StrategyError> {
-        let mut result = HashMap::new();
+        let mut result = HashMap::with_capacity(self.conditions.len());
         for condition in &self.conditions {
             let timeframe_data = context.timeframe(&condition.timeframe)?;
             
@@ -96,7 +95,7 @@ impl DynamicStrategy {
                 }
             } else {
                 let input = context.prepare_condition_input(condition)?;
-                let raw = condition.condition.check(input).await.map_err(|err| {
+                let raw = condition.condition.check(input).map_err(|err| {
                     StrategyError::ConditionFailure {
                         condition_id: condition.id.clone(),
                         source: err,
@@ -151,8 +150,8 @@ impl DynamicStrategy {
         let mut satisfied_count = 0usize;
         let mut weight_sum = 0.0f32;
         let mut weighted_score = 0.0f32;
-        let mut strength_values = Vec::new();
-        let mut trend_weights: HashMap<TrendDirection, f32> = HashMap::new();
+        let mut strength_values = Vec::with_capacity(rule.conditions.len());
+        let mut trend_weights: HashMap<TrendDirection, f32> = HashMap::with_capacity(rule.conditions.len());
         for condition_id in &rule.conditions {
             let evaluation = evaluations.get(condition_id).ok_or_else(|| {
                 StrategyError::UnknownConditionReference {
@@ -214,7 +213,7 @@ impl DynamicStrategy {
             entry_rule_id: None,
             tags: rule.tags.clone(),
             position_group: None,
-            target_entry_ids: Vec::new(),
+            target_entry_ids: Vec::with_capacity(rule.target_entry_ids.len()),
         };
         match signal.signal_type {
             StrategySignalType::Entry => {
@@ -261,10 +260,12 @@ impl DynamicStrategy {
         &self,
         context: &StrategyContext,
     ) -> Result<Vec<StopSignal>, StrategyError> {
-        let mut signals = Vec::new();
         if context.active_positions().is_empty() {
-            return Ok(signals);
+            return Ok(Vec::new());
         }
+        let positions_count = context.active_positions().len();
+        let handlers_count = self.stop_handlers.len();
+        let mut signals = Vec::with_capacity(positions_count * handlers_count);
         for handler in &self.stop_handlers {
             let timeframe_data = context.timeframe(&handler.timeframe)?;
             let series = timeframe_data
@@ -322,7 +323,7 @@ impl DynamicStrategy {
                         entry_rule_id: position.entry_rule_id.clone(),
                         tags: handler.tags.clone(),
                         position_group: None,
-                        target_entry_ids: Vec::new(),
+                        target_entry_ids: Vec::with_capacity(handler.target_entry_ids.len() + 1),
                     };
                     if let Some(group) = position.position_group.as_ref() {
                         signal.target_entry_ids.push(group.clone());
@@ -356,10 +357,12 @@ impl DynamicStrategy {
         &self,
         context: &StrategyContext,
     ) -> Result<Vec<StopSignal>, StrategyError> {
-        let mut signals = Vec::new();
         if context.active_positions().is_empty() {
-            return Ok(signals);
+            return Ok(Vec::new());
         }
+        let positions_count = context.active_positions().len();
+        let handlers_count = self.take_handlers.len();
+        let mut signals = Vec::with_capacity(positions_count * handlers_count);
         for handler in &self.take_handlers {
             let timeframe_data = context.timeframe(&handler.timeframe)?;
             let series = timeframe_data
@@ -417,7 +420,7 @@ impl DynamicStrategy {
                         entry_rule_id: position.entry_rule_id.clone(),
                         tags: handler.tags.clone(),
                         position_group: None,
-                        target_entry_ids: Vec::new(),
+                        target_entry_ids: Vec::with_capacity(handler.target_entry_ids.len() + 1),
                     };
                     if let Some(group) = position.position_group.as_ref() {
                         signal.target_entry_ids.push(group.clone());
@@ -480,7 +483,6 @@ impl DynamicStrategy {
     }
 }
 
-#[async_trait]
 impl Strategy for DynamicStrategy {
     fn id(&self) -> &StrategyId {
         &self.metadata.id
@@ -514,13 +516,13 @@ impl Strategy for DynamicStrategy {
         &self.timeframe_requirements
     }
 
-    async fn evaluate(&self, context: &StrategyContext) -> Result<StrategyDecision, StrategyError> {
-        let evaluations = self.evaluate_conditions(context).await?;
+    fn evaluate(&self, context: &StrategyContext) -> Result<StrategyDecision, StrategyError> {
+        let evaluations = self.evaluate_conditions(context)?;
         let condition_lookup: HashMap<_, _> = self
             .conditions
             .iter()
             .map(|condition| (condition.id.clone(), condition))
-            .collect();
+            .collect::<HashMap<_, _>>();
         let mut stop_signals = self.evaluate_stop_handlers(context)?;
         let mut take_signals = self.evaluate_take_handlers(context)?;
         let mut decision = StrategyDecision::empty();
@@ -616,7 +618,7 @@ impl StrategyBuilder {
 
     pub fn build(self) -> Result<DynamicStrategy, StrategyError> {
         let indicator_bindings = self.definition.indicator_bindings.clone();
-        let mut prepared_conditions = Vec::new();
+        let mut prepared_conditions = Vec::with_capacity(self.definition.condition_bindings.len());
         for binding in &self.definition.condition_bindings {
             let factory_name = binding.factory_name();
             let condition =
@@ -652,9 +654,9 @@ impl StrategyBuilder {
                 }
             }
         }
-        let mut prepared_stop_handlers = Vec::new();
+        let mut prepared_stop_handlers = Vec::with_capacity(self.definition.stop_handlers.len());
         for handler in &self.definition.stop_handlers {
-            let mut normalized_params = HashMap::new();
+            let mut normalized_params = HashMap::with_capacity(handler.parameters.len());
             for (key, value) in &handler.parameters {
                 normalized_params.insert(key.to_ascii_lowercase(), value.clone());
             }
@@ -673,9 +675,9 @@ impl StrategyBuilder {
             });
         }
 
-        let mut prepared_take_handlers = Vec::new();
+        let mut prepared_take_handlers = Vec::with_capacity(self.definition.take_handlers.len());
         for handler in &self.definition.take_handlers {
-            let mut normalized_params = HashMap::new();
+            let mut normalized_params = HashMap::with_capacity(handler.parameters.len());
             for (key, value) in &handler.parameters {
                 normalized_params.insert(key.to_ascii_lowercase(), value.clone());
             }
@@ -715,13 +717,13 @@ impl StrategyBuilder {
 
     pub fn from_user_input(input: StrategyUserInput) -> Result<Self, StrategyError> {
         let metadata = StrategyMetadata::with_id(input.name.clone(), input.name.clone());
-        let mut indicator_bindings = Vec::new();
-        let mut formula_metadata = Vec::new();
+        let mut indicator_bindings = Vec::with_capacity(input.indicators.len());
+        let mut formula_metadata = Vec::with_capacity(input.indicators.len());
         for indicator in &input.indicators {
             let timeframe =
                 crate::data_model::types::TimeFrame::from_identifier(&indicator.timeframe);
-            let mut numeric_params = HashMap::new();
-            let mut string_params = HashMap::new();
+            let mut numeric_params = HashMap::with_capacity(indicator.parameters.len());
+            let mut string_params = HashMap::with_capacity(indicator.parameters.len());
             for (key, value) in &indicator.parameters {
                 if let Some(number) = value.as_f64() {
                     numeric_params.insert(key.clone(), number as f32);
@@ -768,7 +770,7 @@ impl StrategyBuilder {
                 tags: Vec::new(),
             });
         }
-        let mut condition_bindings = Vec::new();
+        let mut condition_bindings = Vec::with_capacity(input.conditions.len());
         for condition in &input.conditions {
             let timeframe =
                 crate::data_model::types::TimeFrame::from_identifier(&condition.timeframe);
@@ -790,6 +792,8 @@ impl StrategyBuilder {
         }
         let mut entry_rules = Vec::new();
         let mut exit_rules = Vec::new();
+        entry_rules.reserve(input.actions.len());
+        exit_rules.reserve(input.actions.len());
         for action in &input.actions {
             let rule = StrategyRuleSpec {
                 id: action.rule_id.clone(),
@@ -925,7 +929,7 @@ fn parse_condition_operator(value: &str) -> Option<ConditionOperator> {
 }
 
 fn extract_numeric_parameters(parameters: &StrategyParameterMap) -> HashMap<String, f32> {
-    let mut result = HashMap::new();
+    let mut result = HashMap::with_capacity(parameters.len());
     for (key, value) in parameters {
         if let Some(number) = value.as_f64() {
             result.insert(key.clone(), number as f32);

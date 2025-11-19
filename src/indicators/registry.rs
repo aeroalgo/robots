@@ -793,7 +793,6 @@ impl CloneBox for Box<dyn Indicator + Send + Sync> {
 // Пустой индикатор для fallback
 struct EmptyIndicator;
 
-#[async_trait::async_trait]
 impl Indicator for EmptyIndicator {
     fn name(&self) -> &str {
         "Empty"
@@ -815,10 +814,10 @@ impl Indicator for EmptyIndicator {
     fn min_data_points(&self) -> usize {
         1
     }
-    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Ok(vec![0.0])
     }
-    async fn calculate_ohlc(&self, _data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, _data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         Ok(vec![0.0])
     }
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {

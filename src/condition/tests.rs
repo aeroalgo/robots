@@ -26,7 +26,6 @@ mod tests {
 
         let result = condition
             .check(ConditionInputData::dual(&data1, &data2))
-            .await
             .unwrap();
 
         assert_eq!(result.signals.len(), data1.len());
@@ -45,7 +44,6 @@ mod tests {
 
         let result = condition
             .check(ConditionInputData::dual(&line1, &line2))
-            .await
             .unwrap();
 
         assert_eq!(result.signals[0], false);
@@ -63,7 +61,6 @@ mod tests {
 
         let result = condition
             .check(ConditionInputData::single(&data))
-            .await
             .unwrap();
 
         assert_eq!(result.signals[0], false);
@@ -80,7 +77,6 @@ mod tests {
 
         let result = condition
             .check(ConditionInputData::dual(&line1, &line2))
-            .await
             .unwrap();
 
         assert_eq!(result.signals[0], false);
@@ -93,7 +89,7 @@ mod tests {
         let condition = ConditionFactory::create_condition_default("Above").unwrap();
         let ohlc_data = create_test_ohlc_data();
 
-        let result = condition.check(ConditionInputData::ohlc(&ohlc_data)).await;
+        let result = condition.check(ConditionInputData::ohlc(&ohlc_data));
         assert!(result.is_err());
     }
 
@@ -141,11 +137,9 @@ mod tests {
 
         let original_result = condition
             .check(ConditionInputData::dual(&data1, &data2))
-            .await
             .unwrap();
         let cloned_result = cloned
             .check(ConditionInputData::dual(&data1, &data2))
-            .await
             .unwrap();
 
         assert_eq!(original_result.signals, cloned_result.signals);
@@ -163,7 +157,7 @@ mod tests {
 
         let result = condition
             .check(ConditionInputData::single(&short_data))
-            .await;
+;
         assert!(result.is_err());
 
         let result = ConditionFactory::create_condition("UnknownCondition", HashMap::new());

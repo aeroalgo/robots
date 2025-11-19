@@ -66,9 +66,7 @@ async fn sma_crossover_entry_generates_signal() {
         .metadata
         .insert("test_case".to_string(), "entry".to_string());
 
-    let decision = Strategy::evaluate(&strategy, &context)
-        .await
-        .expect("strategy evaluation failed");
+    let decision = Strategy::evaluate(&strategy, &context).expect("strategy evaluation failed");
 
     assert_eq!(decision.entries.len(), 1, "entry signal expected");
     assert_eq!(
@@ -103,9 +101,7 @@ async fn sma_crossover_exit_generates_signal() {
     let slow = vec![1.5, 1.6, 1.55, 1.5];
     let context = context_with_series(timeframe.clone(), fast, slow, 2);
 
-    let decision = Strategy::evaluate(&strategy, &context)
-        .await
-        .expect("strategy evaluation failed");
+    let decision = Strategy::evaluate(&strategy, &context).expect("strategy evaluation failed");
 
     assert_eq!(
         decision.entries.len(),

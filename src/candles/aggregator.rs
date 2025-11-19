@@ -37,8 +37,9 @@ impl TimeFrameAggregator {
         }
 
         let ratio = Self::calculate_ratio(source_tf, &target_timeframe)?;
-        let mut aggregated_quotes = Vec::new();
-        let mut source_indices = HashMap::new();
+        let estimated_bars = (source_frame.len() as f64 / ratio as f64).ceil() as usize;
+        let mut aggregated_quotes = Vec::with_capacity(estimated_bars);
+        let mut source_indices = HashMap::with_capacity(estimated_bars);
 
         let mut current_bar_start: Option<DateTime<Utc>> = None;
         let mut current_bar_open: Option<Price> = None;
@@ -46,7 +47,7 @@ impl TimeFrameAggregator {
         let mut current_bar_low: Option<Price> = None;
         let mut current_bar_close: Option<Price> = None;
         let mut current_bar_volume: Volume = 0.0;
-        let mut current_bar_indices = Vec::new();
+        let mut current_bar_indices = Vec::with_capacity(ratio as usize);
 
         for (idx, quote) in source_frame.iter().enumerate() {
             let quote_time = quote.timestamp();
@@ -185,7 +186,7 @@ impl TimeFrameAggregator {
         Ok(aligned_timestamp)
     }
 
-    fn timeframe_to_minutes(tf: &TimeFrame) -> Option<u32> {
+    pub fn timeframe_to_minutes(tf: &TimeFrame) -> Option<u32> {
         match tf {
             TimeFrame::Minutes(m) => Some(*m),
             TimeFrame::Hours(h) => Some(h * 60),
@@ -238,7 +239,8 @@ impl TimeFrameAggregator {
         let symbol = aggregated_frame.frame.symbol().clone();
         let ratio = aggregated_frame.metadata.aggregation_ratio as usize;
 
-        let mut expanded_quotes = Vec::new();
+        let estimated_size = aggregated_frame.frame.len() * ratio;
+        let mut expanded_quotes = Vec::with_capacity(estimated_size);
 
         for (agg_idx, aggregated_quote) in aggregated_frame.frame.iter().enumerate() {
             if let Some(source_indices) = aggregated_frame.source_indices.get(&agg_idx) {
@@ -273,20 +275,15 @@ impl TimeFrameAggregator {
                 // Используем выровненную временную метку агрегированного бара как начало
                 // Это гарантирует, что развернутые бары начинаются с правильной границы таймфрейма
                 let aggregated_timestamp = aggregated_quote.timestamp();
-                let source_tf_minutes = Self::timeframe_to_minutes(&source_tf)
-                    .ok_or(TimeFrameAggregationError::UnsupportedTimeFrame(
-                        format!("{:?}", source_tf)
-                    ))?;
-                
+                let source_tf_minutes = Self::timeframe_to_minutes(&source_tf).ok_or(
+                    TimeFrameAggregationError::UnsupportedTimeFrame(format!("{:?}", source_tf)),
+                )?;
+
                 for (i, _source_quote) in source_quotes.iter().enumerate() {
                     let is_first = i == 0;
                     let is_last = i == source_quotes.len() - 1;
 
-                    let quote_open = if is_first {
-                        open_price
-                    } else {
-                        close_price
-                    };
+                    let quote_open = if is_first { open_price } else { close_price };
 
                     let quote_close = close_price;
 
@@ -304,7 +301,8 @@ impl TimeFrameAggregator {
                     // Вычисляем временную метку для развернутого бара
                     // Начинаем с выровненной временной метки агрегированного бара
                     // и добавляем интервалы исходного таймфрейма
-                    let expanded_timestamp = aggregated_timestamp + chrono::Duration::minutes(i as i64 * source_tf_minutes as i64);
+                    let expanded_timestamp = aggregated_timestamp
+                        + chrono::Duration::minutes(i as i64 * source_tf_minutes as i64);
 
                     let expanded_quote = Quote::from_parts(
                         symbol.clone(),
@@ -320,8 +318,8 @@ impl TimeFrameAggregator {
                     expanded_quotes.push(expanded_quote);
                 }
             } else {
-                let source_tf_minutes = Self::timeframe_to_minutes(&source_tf)
-                    .ok_or_else(|| {
+                let source_tf_minutes =
+                    Self::timeframe_to_minutes(&source_tf).ok_or_else(|| {
                         TimeFrameAggregationError::UnsupportedTimeFrame(format!("{:?}", source_tf))
                     })?;
 
@@ -359,8 +357,8 @@ impl TimeFrameAggregator {
                     expanded_quotes.push(expanded_quote);
 
                     if i < ratio - 1 {
-                        current_timestamp = current_timestamp
-                            + Duration::minutes(source_tf_minutes as i64);
+                        current_timestamp =
+                            current_timestamp + Duration::minutes(source_tf_minutes as i64);
                     }
                 }
             }
@@ -393,7 +391,10 @@ impl AggregatedQuoteFrame {
         })
     }
 
-    pub fn expand(&self, source_frame: &QuoteFrame) -> Result<QuoteFrame, TimeFrameAggregationError> {
+    pub fn expand(
+        &self,
+        source_frame: &QuoteFrame,
+    ) -> Result<QuoteFrame, TimeFrameAggregationError> {
         TimeFrameAggregator::expand(self, source_frame)
     }
 
@@ -404,6 +405,115 @@ impl AggregatedQuoteFrame {
     pub fn metadata(&self) -> &TimeFrameMetadata {
         &self.metadata
     }
+}
+
+impl TimeFrameAggregator {
+    pub fn build_compressed_frame_from_source(
+        source_frame: &QuoteFrame,
+        target_timeframe: &TimeFrame,
+        up_to_index: usize,
+    ) -> Result<QuoteFrame, TimeFrameAggregationError> {
+        let source_tf = source_frame.timeframe();
+        let target_minutes = Self::timeframe_to_minutes(target_timeframe).ok_or_else(|| {
+            TimeFrameAggregationError::UnsupportedTimeFrame(format!("{:?}", target_timeframe))
+        })?;
+        let source_minutes = Self::timeframe_to_minutes(source_tf).ok_or_else(|| {
+            TimeFrameAggregationError::UnsupportedTimeFrame(format!("{:?}", source_tf))
+        })?;
+        let count_old_candles_in_one_new = (target_minutes / source_minutes) as usize;
+
+        if count_old_candles_in_one_new == 1 {
+            let mut result_frame = QuoteFrame::new(source_frame.symbol().clone(), target_timeframe.clone());
+            for i in 0..=up_to_index.min(source_frame.len().saturating_sub(1)) {
+                if let Some(quote) = source_frame.get(i) {
+                    result_frame.push(quote.clone())?;
+                }
+            }
+            return Ok(result_frame);
+        }
+
+        let mut result_frame =
+            QuoteFrame::new(source_frame.symbol().clone(), target_timeframe.clone());
+        let candle_minute_len = Duration::minutes(target_minutes as i64);
+
+        let mut i = 0;
+        while i <= up_to_index.min(source_frame.len().saturating_sub(1)) {
+            if let Some(first_quote) = source_frame.get(i) {
+                let mut new_candle_start = first_quote.timestamp();
+                let aligned_start = Self::align_to_timeframe(new_candle_start, target_timeframe)?;
+                new_candle_start = aligned_start;
+
+                let mut new_candle_open = first_quote.open();
+                let mut new_candle_high = first_quote.high();
+                let mut new_candle_low = first_quote.low();
+                let mut new_candle_close = first_quote.close();
+                let mut new_candle_volume = first_quote.volume();
+
+                i += 1;
+
+                let end_candle_time = new_candle_start + candle_minute_len;
+                let mut collected_count = 1;
+
+                for i2 in 0..(count_old_candles_in_one_new - 1) {
+                    if i > up_to_index.min(source_frame.len().saturating_sub(1)) {
+                        break;
+                    }
+
+                    if let Some(current_quote) = source_frame.get(i) {
+                        let current_time = current_quote.timestamp();
+
+                        if current_time >= end_candle_time {
+                            i -= 1;
+                            break;
+                        }
+
+                        if new_candle_start.date_naive() != current_time.date_naive() {
+                            i -= 1;
+                            break;
+                        }
+
+                        if current_quote.high() > new_candle_high {
+                            new_candle_high = current_quote.high();
+                        }
+                        if current_quote.low() < new_candle_low {
+                            new_candle_low = current_quote.low();
+                        }
+
+                        new_candle_close = current_quote.close();
+                        new_candle_volume += current_quote.volume();
+                        collected_count += 1;
+
+                        if i2 + 1 < count_old_candles_in_one_new - 1 {
+                            i += 1;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                if collected_count >= count_old_candles_in_one_new {
+                    let aggregated_quote = Quote::from_parts(
+                        source_frame.symbol().clone(),
+                        target_timeframe.clone(),
+                        new_candle_start,
+                        new_candle_open,
+                        new_candle_high,
+                        new_candle_low,
+                        new_candle_close,
+                        new_candle_volume,
+                    );
+                    result_frame.push(aggregated_quote)?;
+                }
+
+                i += 1;
+            } else {
+                i += 1;
+            }
+        }
+
+        Ok(result_frame)
+    }
+
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -419,4 +529,3 @@ pub enum TimeFrameAggregationError {
     #[error("QuoteFrame error: {0}")]
     QuoteFrameError(#[from] QuoteFrameError),
 }
-

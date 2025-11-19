@@ -1543,6 +1543,10 @@ impl DataSource for ClickHouseConnector {
     type Error = DataAccessError;
 
     async fn connect(&mut self) -> Result<()> {
+        if self.client.is_some() {
+            return Ok(());
+        }
+
         let url = self.build_url();
 
         let mut client = Client::default()

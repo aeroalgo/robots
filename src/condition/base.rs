@@ -1,9 +1,7 @@
 use crate::condition::types::{
     ConditionConfig, ConditionError, ConditionInputData, ConditionResult, ConditionResultData,
 };
-use async_trait::async_trait;
 
-#[async_trait]
 pub trait Condition: Send + Sync {
     fn name(&self) -> &str;
 
@@ -13,7 +11,7 @@ pub trait Condition: Send + Sync {
 
     fn min_data_points(&self) -> usize;
 
-    async fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData>;
+    fn check(&self, input: ConditionInputData<'_>) -> ConditionResult<ConditionResultData>;
 
     fn validate(&self, input: &ConditionInputData<'_>) -> Result<(), ConditionError>;
 

@@ -31,10 +31,10 @@ impl TimeframeData {
             timeframe,
             symbol: None,
             index: 0,
-            prices: HashMap::new(),
-            indicators: HashMap::new(),
-            custom: HashMap::new(),
-            condition_results: HashMap::new(),
+            prices: HashMap::with_capacity(4),
+            indicators: HashMap::with_capacity(16),
+            custom: HashMap::with_capacity(8),
+            condition_results: HashMap::with_capacity(8),
             ohlc: None,
             timestamps: None,
         }
@@ -199,21 +199,22 @@ pub struct StrategyContext {
 impl StrategyContext {
     pub fn new() -> Self {
         Self {
-            timeframes: HashMap::new(),
-            user_settings: HashMap::new(),
-            metadata: HashMap::new(),
-            runtime_parameters: HashMap::new(),
-            active_positions: HashMap::new(),
+            timeframes: HashMap::with_capacity(4),
+            user_settings: HashMap::with_capacity(8),
+            metadata: HashMap::with_capacity(8),
+            runtime_parameters: HashMap::with_capacity(16),
+            active_positions: HashMap::with_capacity(8),
         }
     }
 
     pub fn with_timeframes(timeframes: HashMap<TimeFrame, TimeframeData>) -> Self {
+        let timeframes_len = timeframes.len();
         Self {
             timeframes,
-            user_settings: HashMap::new(),
-            metadata: HashMap::new(),
-            runtime_parameters: HashMap::new(),
-            active_positions: HashMap::new(),
+            user_settings: HashMap::with_capacity(8),
+            metadata: HashMap::with_capacity(8),
+            runtime_parameters: HashMap::with_capacity(16),
+            active_positions: HashMap::with_capacity(timeframes_len.max(8)),
         }
     }
 
@@ -244,13 +245,12 @@ impl StrategyContext {
         let source_timeframe = source.timeframe().unwrap_or(default_timeframe);
         let data = self.timeframe(source_timeframe)?;
         match source {
-            DataSeriesSource::Indicator { alias, .. } => {
-                data.indicator_series_slice(alias)
-                    .ok_or_else(|| StrategyError::MissingIndicator {
-                        alias: alias.clone(),
-                        timeframe: source_timeframe.clone(),
-                    })
-            }
+            DataSeriesSource::Indicator { alias, .. } => data
+                .indicator_series_slice(alias)
+                .ok_or_else(|| StrategyError::MissingIndicator {
+                    alias: alias.clone(),
+                    timeframe: source_timeframe.clone(),
+                }),
             DataSeriesSource::Price { field, .. } => {
                 data.price_series_slice(field)
                     .ok_or_else(|| StrategyError::MissingPriceSeries {
@@ -348,11 +348,11 @@ impl StrategyContext {
     }
 
     pub fn set_active_positions(&mut self, book: PositionBook) {
-        self.active_positions = book
-            .entries()
+        let entries = book.entries();
+        self.active_positions = entries
             .iter()
             .map(|position| (position.id.clone(), position.clone()))
-            .collect();
+            .collect::<HashMap<_, _>>();
     }
 
     pub fn upsert_active_position(&mut self, position: ActivePosition) {

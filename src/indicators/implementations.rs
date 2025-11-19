@@ -1,3 +1,4 @@
+use crate::data_model::vector_ops::unsafe_ops;
 use crate::indicators::{
     base::{
         Indicator, OHLCIndicator, OscillatorIndicator, OverboughtOversoldZones, SimpleIndicator,
@@ -8,7 +9,6 @@ use crate::indicators::{
         IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet, ParameterType,
     },
 };
-use async_trait::async_trait;
 use std::collections::HashMap;
 
 /// Диапазон оптимизации параметра
@@ -168,7 +168,6 @@ impl MAXFOR {
     }
 }
 
-#[async_trait]
 impl Indicator for MAXFOR {
     fn name(&self) -> &str {
         "MAXFOR"
@@ -190,11 +189,11 @@ impl Indicator for MAXFOR {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -206,9 +205,8 @@ impl Indicator for MAXFOR {
             let window = period.min(i + 1);
             let start_idx = i + 1 - window;
             let end_idx = i + 1;
-            let max_value = data.high[start_idx..end_idx]
-                .iter()
-                .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            let max_value = unsafe_ops::max_f32_fast(&data.high[start_idx..end_idx])
+                .unwrap_or(f32::NEG_INFINITY);
             max_values.push(max_value);
         }
 
@@ -240,7 +238,6 @@ impl MINFOR {
     }
 }
 
-#[async_trait]
 impl Indicator for MINFOR {
     fn name(&self) -> &str {
         "MINFOR"
@@ -262,11 +259,11 @@ impl Indicator for MINFOR {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -278,9 +275,8 @@ impl Indicator for MINFOR {
             let window = period.min(i + 1);
             let start_idx = i + 1 - window;
             let end_idx = i + 1;
-            let min_value = data.low[start_idx..end_idx]
-                .iter()
-                .fold(f32::INFINITY, |a, &b| a.min(b));
+            let min_value = unsafe_ops::min_f32_fast(&data.low[start_idx..end_idx])
+                .unwrap_or(f32::INFINITY);
             min_values.push(min_value);
         }
 
@@ -312,7 +308,6 @@ impl ATR {
     }
 }
 
-#[async_trait]
 impl Indicator for ATR {
     fn name(&self) -> &str {
         "ATR"
@@ -334,7 +329,7 @@ impl Indicator for ATR {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -343,16 +338,16 @@ impl Indicator for ATR {
         let mut atr_values = vec![0.0; len];
 
         for i in 0..len {
-            let true_ranges = self.true_range_simple(data, period, i).await;
+            let true_ranges = self.true_range_simple(data, period, i);
             let window_len = true_ranges.len().max(1) as f32;
-            let atr = true_ranges.iter().sum::<f32>() / window_len;
+            let atr = unsafe_ops::sum_f32_fast(&true_ranges) / window_len;
             atr_values[i] = atr;
         }
 
         Ok(atr_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -374,7 +369,7 @@ impl Indicator for ATR {
                 true_ranges.push(true_range);
             }
 
-            let atr = true_ranges.iter().sum::<f32>() / period as f32;
+            let atr = unsafe_ops::sum_f32_fast(&true_ranges) / period as f32;
             atr_values.push(atr);
         }
 
@@ -388,7 +383,7 @@ impl Indicator for ATR {
 
 impl ATR {
     /// Вычисляет True Range по простым данным (как в any.rs)
-    async fn true_range_simple(&self, data: &[f32], period: usize, bar_num: usize) -> Vec<f32> {
+    fn true_range_simple(&self, data: &[f32], period: usize, bar_num: usize) -> Vec<f32> {
         let mut true_ranges = Vec::new();
 
         if period == 0 {
@@ -430,10 +425,9 @@ impl ATR {
 }
 
 // ATR теперь универсальный индикатор
-#[async_trait]
 impl VolatilityIndicator for ATR {
-    async fn get_volatility_level(&self, data: &[f32]) -> Result<f32, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+    fn get_volatility_level(&self, data: &[f32]) -> Result<f32, IndicatorError> {
+        let values = self.calculate_simple(data)?;
         Ok(values.last().copied().unwrap_or(0.0))
     }
 }
@@ -466,7 +460,6 @@ impl SuperTrend {
     }
 }
 
-#[async_trait]
 impl Indicator for SuperTrend {
     fn name(&self) -> &str {
         "SuperTrend"
@@ -488,7 +481,7 @@ impl Indicator for SuperTrend {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let coeff_atr = self.parameters.get_value("coeff_atr").unwrap();
         let len = data.len();
@@ -496,7 +489,7 @@ impl Indicator for SuperTrend {
             return Ok(Vec::new());
         };
         let atr_indicator = ATR::new(period as f32)?;
-        let atr_values = atr_indicator.calculate_simple(data).await?;
+        let atr_values = atr_indicator.calculate_simple(data)?;
         let mut supertrend_values = vec![0.0; len];
 
         for i in 2..len {
@@ -537,7 +530,7 @@ impl Indicator for SuperTrend {
         Ok(supertrend_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let coeff_atr = self.parameters.get_value("coeff_atr").unwrap();
         let len = data.len();
@@ -546,9 +539,9 @@ impl Indicator for SuperTrend {
         };
 
         let watr_indicator = WATR::new(period as f32)?;
-        let atr_values = watr_indicator.calculate_ohlc(data).await?;
+        let atr_values = watr_indicator.calculate_ohlc(data)?;
 
-        let median_prices = self.calculate_median_price(data).await;
+        let median_prices = self.calculate_median_price(data);
         let mut supertrend_values = vec![0.0; len];
 
         for i in 2..len {
@@ -596,15 +589,14 @@ impl Indicator for SuperTrend {
 }
 
 impl SuperTrend {
-    async fn calculate_median_price(&self, data: &OHLCData) -> Vec<f32> {
+    fn calculate_median_price(&self, data: &OHLCData) -> Vec<f32> {
         data.get_median_price()
     }
 }
 
-#[async_trait]
 impl TrendIndicator for SuperTrend {
-    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+    fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
+        let values = self.calculate_simple(data)?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
                 if last_value > prev_value {
@@ -643,7 +635,6 @@ impl Stochastic {
     }
 }
 
-#[async_trait]
 impl Indicator for Stochastic {
     fn name(&self) -> &str {
         "Stochastic"
@@ -665,11 +656,11 @@ impl Indicator for Stochastic {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -713,13 +704,12 @@ impl Indicator for Stochastic {
     }
 }
 
-#[async_trait]
 impl OscillatorIndicator for Stochastic {
-    async fn get_overbought_oversold_zones(
+    fn get_overbought_oversold_zones(
         &self,
         data: &[f32],
     ) -> Result<OverboughtOversoldZones, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+        let values = self.calculate_simple(data)?;
         if let Some(current_value) = values.last() {
             Ok(OverboughtOversoldZones::new(80.0, 20.0, *current_value))
         } else {
@@ -762,7 +752,6 @@ impl TrueRange {
     }
 }
 
-#[async_trait]
 impl Indicator for TrueRange {
     fn name(&self) -> &str {
         "TrueRange"
@@ -783,11 +772,11 @@ impl Indicator for TrueRange {
         1
     }
 
-    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         Ok(Self::series(data))
     }
 
@@ -796,9 +785,8 @@ impl Indicator for TrueRange {
     }
 }
 
-#[async_trait]
 impl VolatilityIndicator for TrueRange {
-    async fn get_volatility_level(&self, _data: &[f32]) -> Result<f32, IndicatorError> {
+    fn get_volatility_level(&self, _data: &[f32]) -> Result<f32, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 }
@@ -823,7 +811,6 @@ impl WATR {
     }
 }
 
-#[async_trait]
 impl Indicator for WATR {
     fn name(&self) -> &str {
         "WATR"
@@ -845,11 +832,11 @@ impl Indicator for WATR {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -857,9 +844,9 @@ impl Indicator for WATR {
         };
 
         let tr_indicator = TrueRange::new()?;
-        let true_ranges = tr_indicator.calculate_ohlc(data).await?;
+        let true_ranges = tr_indicator.calculate_ohlc(data)?;
         let wma_indicator = WMA::new(period as f32)?;
-        wma_indicator.calculate_simple(&true_ranges).await
+        wma_indicator.calculate_simple(&true_ranges)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -867,9 +854,8 @@ impl Indicator for WATR {
     }
 }
 
-#[async_trait]
 impl VolatilityIndicator for WATR {
-    async fn get_volatility_level(&self, _data: &[f32]) -> Result<f32, IndicatorError> {
+    fn get_volatility_level(&self, _data: &[f32]) -> Result<f32, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 }
@@ -894,7 +880,6 @@ impl VTRAND {
     }
 }
 
-#[async_trait]
 impl Indicator for VTRAND {
     fn name(&self) -> &str {
         "VTRAND"
@@ -916,19 +901,19 @@ impl Indicator for VTRAND {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
 
         // Создаем временные индикаторы для расчета
         let max_indicator = MAXFOR::new(period as f32)?;
         let min_indicator = MINFOR::new(period as f32)?;
 
-        let max_result = max_indicator.calculate_ohlc(data).await?;
-        let min_result = min_indicator.calculate_ohlc(data).await?;
+        let max_result = max_indicator.calculate_ohlc(data)?;
+        let min_result = min_indicator.calculate_ohlc(data)?;
 
         // VTRAND = (MAXFOR + MINFOR) / 2
         let vtrand_values: Vec<f32> = max_result
@@ -969,7 +954,6 @@ impl SMA {
     }
 }
 
-#[async_trait]
 impl Indicator for SMA {
     fn name(&self) -> &str {
         "SMA"
@@ -991,7 +975,7 @@ impl Indicator for SMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -1008,16 +992,16 @@ impl Indicator for SMA {
         for i in start_index..len {
             let current_window = period.min(i + 1);
             let start = i + 1 - current_window;
-            let sum: f32 = data[start..=i].iter().sum();
+            let sum: f32 = unsafe_ops::sum_f32_fast(&data[start..=i]);
             sma_values.push(sum / current_window as f32);
         }
 
         Ok(sma_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для SMA используем close цены
-        self.calculate_simple(&data.close).await
+        self.calculate_simple(&data.close)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -1027,10 +1011,9 @@ impl Indicator for SMA {
 
 impl SimpleIndicator for SMA {}
 
-#[async_trait]
 impl TrendIndicator for SMA {
-    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+    fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
+        let values = self.calculate_simple(data)?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
                 if last_value > prev_value {
@@ -1069,7 +1052,6 @@ impl EMA {
     }
 }
 
-#[async_trait]
 impl Indicator for EMA {
     fn name(&self) -> &str {
         "EMA"
@@ -1091,7 +1073,7 @@ impl Indicator for EMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap();
         if period <= 0.0 {
             return Err(IndicatorError::InvalidParameter(
@@ -1122,9 +1104,9 @@ impl Indicator for EMA {
         Ok(ema_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для EMA используем close цены
-        self.calculate_simple(&data.close).await
+        self.calculate_simple(&data.close)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -1134,10 +1116,9 @@ impl Indicator for EMA {
 
 impl SimpleIndicator for EMA {}
 
-#[async_trait]
 impl TrendIndicator for EMA {
-    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+    fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
+        let values = self.calculate_simple(data)?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
                 if last_value > prev_value {
@@ -1176,7 +1157,6 @@ impl RSI {
     }
 }
 
-#[async_trait]
 impl Indicator for RSI {
     fn name(&self) -> &str {
         "RSI"
@@ -1198,7 +1178,7 @@ impl Indicator for RSI {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let mut period = self.parameters.get_value("period").unwrap() as usize;
         if period == 0 {
             period = 1;
@@ -1222,8 +1202,8 @@ impl Indicator for RSI {
             }
         }
 
-        let ema_gains = EMA::new(period as f32)?.calculate_simple(&gains).await?;
-        let ema_losses = EMA::new(period as f32)?.calculate_simple(&losses).await?;
+        let ema_gains = EMA::new(period as f32)?.calculate_simple(&gains)?;
+        let ema_losses = EMA::new(period as f32)?.calculate_simple(&losses)?;
 
         let mut rsi_values = vec![0.0; len];
 
@@ -1246,9 +1226,9 @@ impl Indicator for RSI {
         Ok(rsi_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для RSI используем close цены
-        self.calculate_simple(&data.close).await
+        self.calculate_simple(&data.close)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -1258,13 +1238,12 @@ impl Indicator for RSI {
 
 impl SimpleIndicator for RSI {}
 
-#[async_trait]
 impl OscillatorIndicator for RSI {
-    async fn get_overbought_oversold_zones(
+    fn get_overbought_oversold_zones(
         &self,
         data: &[f32],
     ) -> Result<OverboughtOversoldZones, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+        let values = self.calculate_simple(data)?;
         if let Some(current_value) = values.last() {
             Ok(OverboughtOversoldZones::new(70.0, 30.0, *current_value))
         } else {
@@ -1295,7 +1274,6 @@ impl WMA {
     }
 }
 
-#[async_trait]
 impl Indicator for WMA {
     fn name(&self) -> &str {
         "WMA"
@@ -1317,7 +1295,7 @@ impl Indicator for WMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -1349,9 +1327,9 @@ impl Indicator for WMA {
         Ok(wma_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для WMA используем close цены
-        self.calculate_simple(&data.close).await
+        self.calculate_simple(&data.close)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -1361,10 +1339,9 @@ impl Indicator for WMA {
 
 impl SimpleIndicator for WMA {}
 
-#[async_trait]
 impl TrendIndicator for WMA {
-    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+    fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
+        let values = self.calculate_simple(data)?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
                 if last_value > prev_value {
@@ -1403,7 +1380,6 @@ impl AMA {
     }
 }
 
-#[async_trait]
 impl Indicator for AMA {
     fn name(&self) -> &str {
         "AMA"
@@ -1425,7 +1401,7 @@ impl Indicator for AMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         if len == 0 {
@@ -1472,9 +1448,9 @@ impl Indicator for AMA {
         Ok(ama_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для AMMA используем close цены
-        self.calculate_simple(&data.close).await
+        self.calculate_simple(&data.close)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -1484,10 +1460,9 @@ impl Indicator for AMA {
 
 impl SimpleIndicator for AMA {}
 
-#[async_trait]
 impl TrendIndicator for AMA {
-    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+    fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
+        let values = self.calculate_simple(data)?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
                 if last_value > prev_value {
@@ -1526,7 +1501,6 @@ impl ZLEMA {
     }
 }
 
-#[async_trait]
 impl Indicator for ZLEMA {
     fn name(&self) -> &str {
         "ZLEMA"
@@ -1548,7 +1522,7 @@ impl Indicator for ZLEMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         if len == 0 {
@@ -1581,9 +1555,9 @@ impl Indicator for ZLEMA {
         Ok(zlema_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для ZLEMA используем close цены
-        self.calculate_simple(&data.close).await
+        self.calculate_simple(&data.close)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -1593,10 +1567,9 @@ impl Indicator for ZLEMA {
 
 impl SimpleIndicator for ZLEMA {}
 
-#[async_trait]
 impl TrendIndicator for ZLEMA {
-    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+    fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
+        let values = self.calculate_simple(data)?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
                 if last_value > prev_value {
@@ -1635,7 +1608,6 @@ impl GEOMEAN {
     }
 }
 
-#[async_trait]
 impl Indicator for GEOMEAN {
     fn name(&self) -> &str {
         "GEOMEAN"
@@ -1657,7 +1629,7 @@ impl Indicator for GEOMEAN {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -1686,9 +1658,9 @@ impl Indicator for GEOMEAN {
         Ok(geomean_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для GEOMEAN используем close цены
-        self.calculate_simple(&data.close).await
+        self.calculate_simple(&data.close)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -1698,10 +1670,9 @@ impl Indicator for GEOMEAN {
 
 impl SimpleIndicator for GEOMEAN {}
 
-#[async_trait]
 impl TrendIndicator for GEOMEAN {
-    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+    fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
+        let values = self.calculate_simple(data)?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
                 if last_value > prev_value {
@@ -1740,7 +1711,6 @@ impl AMMA {
     }
 }
 
-#[async_trait]
 impl Indicator for AMMA {
     fn name(&self) -> &str {
         "AMMA"
@@ -1762,7 +1732,7 @@ impl Indicator for AMMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         if len == 0 {
@@ -1781,10 +1751,9 @@ impl Indicator for AMMA {
             let start = i + 1 - current_window;
             let slice = &data[start..=i];
 
-            let sma1 = SMA::new(period as f32)?.calculate_simple(slice).await?;
+            let sma1 = SMA::new(period as f32)?.calculate_simple(slice)?;
             let sma2 = SMA::new((period.saturating_mul(2)) as f32)?
-                .calculate_simple(slice)
-                .await?;
+                .calculate_simple(slice)?;
 
             let sma1_value = *sma1.last().unwrap_or(&0.0);
             let sma2_value = *sma2.last().unwrap_or(&0.0);
@@ -1796,9 +1765,9 @@ impl Indicator for AMMA {
         Ok(amma_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для AMMA используем close цены
-        self.calculate_simple(&data.close).await
+        self.calculate_simple(&data.close)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -1808,10 +1777,9 @@ impl Indicator for AMMA {
 
 impl SimpleIndicator for AMMA {}
 
-#[async_trait]
 impl TrendIndicator for AMMA {
-    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+    fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
+        let values = self.calculate_simple(data)?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
                 if last_value > prev_value {
@@ -1850,7 +1818,6 @@ impl SQWMA {
     }
 }
 
-#[async_trait]
 impl Indicator for SQWMA {
     fn name(&self) -> &str {
         "SQWMA"
@@ -1872,7 +1839,7 @@ impl Indicator for SQWMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -1914,9 +1881,9 @@ impl Indicator for SQWMA {
         Ok(sqwma_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для SQWMA используем close цены
-        self.calculate_simple(&data.close).await
+        self.calculate_simple(&data.close)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -1926,10 +1893,9 @@ impl Indicator for SQWMA {
 
 impl SimpleIndicator for SQWMA {}
 
-#[async_trait]
 impl TrendIndicator for SQWMA {
-    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+    fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
+        let values = self.calculate_simple(data)?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
                 if last_value > prev_value {
@@ -1968,7 +1934,6 @@ impl SINEWMA {
     }
 }
 
-#[async_trait]
 impl Indicator for SINEWMA {
     fn name(&self) -> &str {
         "SINEWMA"
@@ -1990,7 +1955,7 @@ impl Indicator for SINEWMA {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -2026,9 +1991,9 @@ impl Indicator for SINEWMA {
         Ok(sinewma_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для SINEWMA используем close цены
-        self.calculate_simple(&data.close).await
+        self.calculate_simple(&data.close)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -2038,10 +2003,9 @@ impl Indicator for SINEWMA {
 
 impl SimpleIndicator for SINEWMA {}
 
-#[async_trait]
 impl TrendIndicator for SINEWMA {
-    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+    fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
+        let values = self.calculate_simple(data)?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
                 if last_value > prev_value {
@@ -2121,7 +2085,6 @@ impl TPBF {
     }
 }
 
-#[async_trait]
 impl Indicator for TPBF {
     fn name(&self) -> &str {
         "TPBF"
@@ -2143,7 +2106,7 @@ impl Indicator for TPBF {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -2152,7 +2115,7 @@ impl Indicator for TPBF {
         Ok(Self::filter(data, period))
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -2174,10 +2137,9 @@ impl Indicator for TPBF {
 
 impl SimpleIndicator for TPBF {}
 
-#[async_trait]
 impl TrendIndicator for TPBF {
-    async fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
-        let values = self.calculate_simple(data).await?;
+    fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
+        let values = self.calculate_simple(data)?;
         if let Some(last_value) = values.last() {
             if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
                 if last_value > prev_value {
@@ -2227,7 +2189,6 @@ impl BBMiddle {
     }
 }
 
-#[async_trait]
 impl Indicator for BBMiddle {
     fn name(&self) -> &str {
         "BBMiddle"
@@ -2248,7 +2209,7 @@ impl Indicator for BBMiddle {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -2273,9 +2234,9 @@ impl Indicator for BBMiddle {
         Ok(sma_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для BB используем close цены
-        self.calculate_simple(&data.close).await
+        self.calculate_simple(&data.close)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -2314,7 +2275,6 @@ impl BBUpper {
     }
 }
 
-#[async_trait]
 impl Indicator for BBUpper {
     fn name(&self) -> &str {
         "BBUpper"
@@ -2335,7 +2295,7 @@ impl Indicator for BBUpper {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let deviation = self.parameters.get_value("deviation").unwrap();
         let len = data.len();
@@ -2355,10 +2315,10 @@ impl Indicator for BBUpper {
             let start = i + 1 - current_window;
             let end = i + 1;
             let window = &data[start..end];
-            let sma: f32 = window.iter().sum::<f32>() / current_window as f32;
+            let sma: f32 = unsafe_ops::sum_f32_fast(window) / current_window as f32;
 
             let variance: f32 =
-                window.iter().map(|&x| (x - sma).powi(2)).sum::<f32>() / current_window as f32;
+                unsafe_ops::sum_sq_diff_f32_fast(window, sma) / current_window as f32;
             let std_dev = variance.sqrt();
 
             let upper = sma + (deviation * std_dev);
@@ -2368,9 +2328,9 @@ impl Indicator for BBUpper {
         Ok(upper_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для BB используем close цены
-        self.calculate_simple(&data.close).await
+        self.calculate_simple(&data.close)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -2409,7 +2369,6 @@ impl BBLower {
     }
 }
 
-#[async_trait]
 impl Indicator for BBLower {
     fn name(&self) -> &str {
         "BBLower"
@@ -2430,7 +2389,7 @@ impl Indicator for BBLower {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let deviation = self.parameters.get_value("deviation").unwrap();
         let len = data.len();
@@ -2450,10 +2409,10 @@ impl Indicator for BBLower {
             let start = i + 1 - current_window;
             let end = i + 1;
             let window = &data[start..end];
-            let sma: f32 = window.iter().sum::<f32>() / current_window as f32;
+            let sma: f32 = unsafe_ops::sum_f32_fast(window) / current_window as f32;
 
             let variance: f32 =
-                window.iter().map(|&x| (x - sma).powi(2)).sum::<f32>() / current_window as f32;
+                unsafe_ops::sum_sq_diff_f32_fast(window, sma) / current_window as f32;
             let std_dev = variance.sqrt();
 
             let lower = sma - (deviation * std_dev);
@@ -2463,9 +2422,9 @@ impl Indicator for BBLower {
         Ok(lower_values)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для BB используем close цены
-        self.calculate_simple(&data.close).await
+        self.calculate_simple(&data.close)
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -2501,7 +2460,6 @@ impl KCMiddle {
     }
 }
 
-#[async_trait]
 impl Indicator for KCMiddle {
     fn name(&self) -> &str {
         "KCMiddle"
@@ -2522,11 +2480,11 @@ impl Indicator for KCMiddle {
         self.parameters.get_value("period").unwrap() as usize
     }
 
-    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
         let Some(period) = adjust_period(period, len) else {
@@ -2598,7 +2556,6 @@ impl KCUpper {
     }
 }
 
-#[async_trait]
 impl Indicator for KCUpper {
     fn name(&self) -> &str {
         "KCUpper"
@@ -2621,11 +2578,11 @@ impl Indicator for KCUpper {
         std::cmp::max(period, atr_period)
     }
 
-    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let atr_period = self.parameters.get_value("atr_period").unwrap() as usize;
         let atr_multiplier = self.parameters.get_value("atr_multiplier").unwrap();
@@ -2638,10 +2595,10 @@ impl Indicator for KCUpper {
         };
 
         let middle_indicator = KCMiddle::new(ema_period as f32).unwrap();
-        let middle_values = middle_indicator.calculate_ohlc(data).await?;
+        let middle_values = middle_indicator.calculate_ohlc(data)?;
 
         let atr_indicator = ATR::new(atr_period as f32).unwrap();
-        let atr_values = atr_indicator.calculate_ohlc(data).await?;
+        let atr_values = atr_indicator.calculate_ohlc(data)?;
 
         let mut upper_values = Vec::with_capacity(len);
         for i in 0..len {
@@ -2697,7 +2654,6 @@ impl KCLower {
     }
 }
 
-#[async_trait]
 impl Indicator for KCLower {
     fn name(&self) -> &str {
         "KCLower"
@@ -2720,11 +2676,11 @@ impl Indicator for KCLower {
         std::cmp::max(period, atr_period)
     }
 
-    async fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_simple(&self, _data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         Err(IndicatorError::OHLCDataRequired)
     }
 
-    async fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
+    fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let atr_period = self.parameters.get_value("atr_period").unwrap() as usize;
         let atr_multiplier = self.parameters.get_value("atr_multiplier").unwrap();
@@ -2737,10 +2693,10 @@ impl Indicator for KCLower {
         };
 
         let middle_indicator = KCMiddle::new(ema_period as f32).unwrap();
-        let middle_values = middle_indicator.calculate_ohlc(data).await?;
+        let middle_values = middle_indicator.calculate_ohlc(data)?;
 
         let atr_indicator = ATR::new(atr_period as f32).unwrap();
-        let atr_values = atr_indicator.calculate_ohlc(data).await?;
+        let atr_values = atr_indicator.calculate_ohlc(data)?;
 
         let mut lower_values = Vec::with_capacity(len);
         for i in 0..len {

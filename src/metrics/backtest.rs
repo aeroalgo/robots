@@ -1,4 +1,5 @@
 use crate::data_model::types::{Symbol, TimeFrame};
+use crate::data_model::vector_ops::unsafe_ops;
 use crate::position::{ClosedTrade, ExecutionReport};
 use crate::strategy::types::PositionDirection;
 use chrono::{DateTime, Utc};
@@ -163,15 +164,8 @@ impl BacktestMetrics {
         let ending_capital = equity_curve.last().copied().unwrap_or(initial_capital);
         let total_profit = ending_capital - initial_capital;
         
-        // Разделение на прибыльные и убыточные сделки
-        let wins: Vec<&StrategyTrade> = trades.iter().filter(|t| t.pnl > 0.0).collect();
-        let losses: Vec<&StrategyTrade> = trades.iter().filter(|t| t.pnl < 0.0).collect();
-        let number_of_wins = wins.len();
-        let number_of_losses = losses.len();
-        
-        // GROSS PROFIT и GROSS LOSS
-        let gross_profit: f64 = wins.iter().map(|t| t.pnl).sum();
-        let gross_loss: f64 = losses.iter().map(|t| t.pnl.abs()).sum();
+        let (number_of_wins, number_of_losses, gross_profit, gross_loss, max_consec_wins, max_consec_losses, sum_sq_diff) = 
+            Self::calculate_trades_metrics_in_single_pass(trades);
         
         // WINNING PERCENTAGE
         let winning_percentage = if total_trades == 0 {
@@ -180,14 +174,12 @@ impl BacktestMetrics {
             number_of_wins as f64 / total_trades as f64
         };
         
-        // AVERAGE TRADE
         let average_trade = if total_trades == 0 {
             0.0
         } else {
             total_profit / total_trades as f64
         };
         
-        // AVERAGE WIN и AVERAGE LOSS
         let average_win = if number_of_wins == 0 {
             None
         } else {
@@ -200,7 +192,6 @@ impl BacktestMetrics {
             Some(gross_loss / number_of_losses as f64)
         };
         
-        // PROFIT FACTOR
         let profit_factor = if gross_loss == 0.0 {
             if gross_profit > 0.0 {
                 Some(f64::INFINITY)
@@ -211,7 +202,6 @@ impl BacktestMetrics {
             Some(gross_profit / gross_loss)
         };
         
-        // WINS/LOSSES RATIO
         let wins_losses_ratio = if number_of_losses == 0 {
             if number_of_wins > 0 {
                 Some(f64::INFINITY)
@@ -222,23 +212,18 @@ impl BacktestMetrics {
             Some(number_of_wins as f64 / number_of_losses as f64)
         };
         
-        // PAYOUT RATIO
         let payout_ratio = match (average_win, average_loss) {
             (Some(aw), Some(al)) if al != 0.0 => Some(aw / al),
             (Some(_), Some(0.0)) => Some(f64::INFINITY),
             _ => None,
         };
         
-        // EXPECTANCY
         let proportion_of_wins = winning_percentage;
         let proportion_of_losses = 1.0 - winning_percentage;
         let expectancy = match (average_win, average_loss) {
             (Some(aw), Some(al)) => Some((proportion_of_wins * aw) - (proportion_of_losses * al)),
             _ => None,
         };
-        
-        // MAX CONSEC WINS и MAX CONSEC LOSSES
-        let (max_consec_wins, max_consec_losses) = Self::calculate_consecutive(trades);
         
         // Расчет временных метрик
         let number_of_years = Self::calculate_years(start_date, end_date);
@@ -292,24 +277,6 @@ impl BacktestMetrics {
             None
         };
         
-        // DRAWDOWN и % DRAW DOWN
-        let (drawdown, drawdown_percent) = Self::calculate_drawdown(equity_curve, initial_capital);
-        
-        // RETURN/DD RATIO
-        let return_dd_ratio = drawdown.and_then(|dd| {
-            if dd > 0.0 {
-                Some(total_profit / dd)
-            } else {
-                None
-            }
-        });
-        
-        // ANNUAL % / MAX DD %
-        let annual_percent_max_dd_ratio = match (cagr, drawdown_percent) {
-            (Some(c), Some(dd)) if dd > 0.0 => Some(c / dd),
-            _ => None,
-        };
-        
         // EXPOSURE
         let exposure = if total_bars > 0 {
             Some(bars_in_positions as f64 / total_bars as f64)
@@ -340,30 +307,29 @@ impl BacktestMetrics {
             None
         };
         
-        // DEVIATION
         let deviation = if total_trades > 0 {
-            let avg = average_trade;
-            let sum_sq_diff: f64 = trades.iter()
-                .map(|t| (t.pnl - avg).powi(2))
-                .sum();
             Some((sum_sq_diff / total_trades as f64).sqrt())
         } else {
             None
         };
         
-        // STAGNATION
-        let (stagnation_in_days, stagnation_percent) = Self::calculate_stagnation(
-            equity_curve,
-            start_date,
-            end_date,
-        );
+        let (drawdown, drawdown_percent, stagnation_in_days, stagnation_percent, sharpe_ratio, stability) = 
+            Self::calculate_equity_metrics_in_single_pass(equity_curve, initial_capital, start_date, end_date, number_of_years);
         
-        // Sharpe Ratio (требует расчета стандартного отклонения доходности)
-        let sharpe_ratio = Self::calculate_sharpe_ratio(equity_curve, number_of_years);
+        // RETURN/DD RATIO
+        let return_dd_ratio = drawdown.and_then(|dd| {
+            if dd > 0.0 {
+                Some(total_profit / dd)
+            } else {
+                None
+            }
+        });
         
-        // Stability - использует линейную регрессию для оценки прямолинейности equity curve
-        // Если equity curve - прямая восходящая линия, Stability = 1
-        let stability = Self::calculate_stability(equity_curve);
+        // ANNUAL % / MAX DD %
+        let annual_percent_max_dd_ratio = match (cagr, drawdown_percent) {
+            (Some(c), Some(dd)) if dd > 0.0 => Some(c / dd),
+            _ => None,
+        };
         
         // Z-Score и Z-Probability (требуют уточнения формулы)
         // Пока оставляем None, нужно уточнить формулу
@@ -443,26 +409,51 @@ impl BacktestMetrics {
         }
     }
     
-    /// Рассчитывает максимальное количество последовательных побед и поражений
-    fn calculate_consecutive(trades: &[StrategyTrade]) -> (usize, usize) {
+    fn calculate_trades_metrics_in_single_pass(
+        trades: &[StrategyTrade],
+    ) -> (usize, usize, f64, f64, usize, usize, f64) {
+        let mut number_of_wins = 0;
+        let mut number_of_losses = 0;
+        let mut gross_profit = 0.0;
+        let mut gross_loss = 0.0;
         let mut max_wins = 0;
         let mut max_losses = 0;
         let mut current_wins = 0;
         let mut current_losses = 0;
+        let mut sum_pnl = 0.0;
         
         for trade in trades {
-            if trade.pnl > 0.0 {
+            let pnl = trade.pnl;
+            sum_pnl += pnl;
+            
+            if pnl > 0.0 {
+                number_of_wins += 1;
+                gross_profit += pnl;
                 current_wins += 1;
                 current_losses = 0;
                 max_wins = max_wins.max(current_wins);
-            } else if trade.pnl < 0.0 {
+            } else if pnl < 0.0 {
+                number_of_losses += 1;
+                gross_loss += pnl.abs();
                 current_losses += 1;
                 current_wins = 0;
                 max_losses = max_losses.max(current_losses);
             }
         }
         
-        (max_wins, max_losses)
+        let total_trades = trades.len();
+        let average_trade = if total_trades > 0 {
+            sum_pnl / total_trades as f64
+        } else {
+            0.0
+        };
+        
+        let pnl_values: Vec<f64> = trades.iter().map(|t| t.pnl).collect();
+        let pnl_values_f32: Vec<f32> = pnl_values.iter().map(|&x| x as f32).collect();
+        let average_trade_f32 = average_trade as f32;
+        let sum_sq_diff = unsafe_ops::sum_sq_diff_f32_fast(&pnl_values_f32, average_trade_f32) as f64;
+        
+        (number_of_wins, number_of_losses, gross_profit, gross_loss, max_wins, max_losses, sum_sq_diff)
     }
     
     /// Рассчитывает количество лет между датами
@@ -498,17 +489,34 @@ impl BacktestMetrics {
         }
     }
     
-    /// Рассчитывает максимальную просадку (drawdown)
-    fn calculate_drawdown(equity_curve: &[f64], initial_capital: f64) -> (Option<f64>, Option<f64>) {
+    fn calculate_equity_metrics_in_single_pass(
+        equity_curve: &[f64],
+        initial_capital: f64,
+        start_date: Option<DateTime<Utc>>,
+        end_date: Option<DateTime<Utc>>,
+        years: f64,
+    ) -> (Option<f64>, Option<f64>, Option<usize>, Option<f64>, Option<f64>, Option<f64>) {
         if equity_curve.is_empty() {
-            return (None, None);
+            return (None, None, None, None, None, None);
         }
         
+        let n = equity_curve.len() as f64;
         let mut max_drawdown = 0.0;
         let mut max_drawdown_percent = 0.0;
         let mut peak = initial_capital.max(equity_curve[0]);
         
-        for &equity in equity_curve {
+        let mut max_stagnation_bars = 0;
+        let mut current_stagnation_bars = 0;
+        let mut stagnation_peak = equity_curve[0];
+        
+        let mut returns_sum = 0.0;
+        let mut returns_count = 0;
+        let mut prev_equity = equity_curve[0];
+        
+        let mut y_sum = 0.0;
+        let x_mean = (n - 1.0) / 2.0;
+        
+        for (i, &equity) in equity_curve.iter().enumerate() {
             if equity > peak {
                 peak = equity;
             }
@@ -525,180 +533,121 @@ impl BacktestMetrics {
             if drawdown_pct > max_drawdown_percent {
                 max_drawdown_percent = drawdown_pct;
             }
-        }
-        
-        (
-            if max_drawdown > 0.0 { Some(max_drawdown) } else { None },
-            if max_drawdown_percent > 0.0 { Some(max_drawdown_percent) } else { None },
-        )
-    }
-    
-    /// Рассчитывает период застоя (stagnation)
-    /// STAGNATION IN DAYS = The longest period of making a new high on the equity
-    /// STAGNATION IN % = STAGNATION IN DAYS / TOTAL NUMBER OF DAYS
-    fn calculate_stagnation(
-        equity_curve: &[f64],
-        start_date: Option<DateTime<Utc>>,
-        end_date: Option<DateTime<Utc>>,
-    ) -> (Option<usize>, Option<f64>) {
-        if equity_curve.is_empty() {
-            return (None, None);
-        }
-        
-        // Считаем stagnation в барах (количество баров без нового максимума)
-        let mut max_stagnation_bars = 0;
-        let mut current_stagnation_bars = 0;
-        let mut peak = equity_curve[0];
-        
-        for &equity in equity_curve {
-            if equity > peak {
-                peak = equity;
+            
+            if equity > stagnation_peak {
+                stagnation_peak = equity;
                 current_stagnation_bars = 0;
             } else {
                 current_stagnation_bars += 1;
                 max_stagnation_bars = max_stagnation_bars.max(current_stagnation_bars);
             }
+            
+            if i > 0 && prev_equity > 0.0 {
+                let ret = (equity - prev_equity) / prev_equity;
+                returns_sum += ret;
+                returns_count += 1;
+            }
+            prev_equity = equity;
+            
+            y_sum += equity;
         }
         
-        // Конвертируем бары в дни
-        // Используем реальное количество дней между датами для расчета процента
-        let total_days = Self::calculate_days(start_date, end_date);
+        let drawdown = if max_drawdown > 0.0 { Some(max_drawdown) } else { None };
+        let drawdown_percent = if max_drawdown_percent > 0.0 { Some(max_drawdown_percent) } else { None };
         
-        // Для расчета stagnation_in_days нужно конвертировать бары в дни
-        // Предполагаем равномерное распределение баров по времени
-        let total_bars = equity_curve.len() as f64;
-        let stagnation_in_days = if total_bars > 0.0 && total_days > 0.0 {
-            // Конвертируем бары в дни пропорционально
-            let days_per_bar = total_days / total_bars;
+        let total_days = Self::calculate_days(start_date, end_date);
+        let stagnation_in_days = if n > 0.0 && total_days > 0.0 {
+            let days_per_bar = total_days / n;
             Some((max_stagnation_bars as f64 * days_per_bar).round() as usize)
         } else {
             None
         };
         
-        // STAGNATION IN % = STAGNATION IN DAYS / TOTAL NUMBER OF DAYS
         let stagnation_percent = match (stagnation_in_days, total_days) {
             (Some(sid), td) if td > 0.0 => {
                 let percent = (sid as f64 / td) * 100.0;
-                // Ограничиваем 100%, так как stagnation не может быть больше общего периода
                 Some(percent.min(100.0))
             }
             _ => None,
         };
         
-        (
-            stagnation_in_days,
-            stagnation_percent,
-        )
-    }
-    
-    /// Рассчитывает Sharpe Ratio
-    /// Sharpe Ratio = (Average Return - Risk Free Rate) / Standard Deviation of Returns
-    /// Для упрощения используем Risk Free Rate = 0
-    fn calculate_sharpe_ratio(equity_curve: &[f64], years: f64) -> Option<f64> {
-        if equity_curve.len() < 2 || years <= 0.0 {
-            return None;
-        }
-        
-        // Рассчитываем доходности (returns)
-        let mut returns = Vec::new();
-        for i in 1..equity_curve.len() {
-            if equity_curve[i - 1] > 0.0 {
-                let ret = (equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1];
-                returns.push(ret);
+        let sharpe_ratio = if returns_count > 0 && years > 0.0 {
+            let avg_return = returns_sum / returns_count as f64;
+            let annualized_return = avg_return * (252.0 / years);
+            
+            let returns: Vec<f32> = (1..equity_curve.len())
+                .filter_map(|i| {
+                    let prev = equity_curve[i - 1];
+                    if prev > 0.0 {
+                        Some(((equity_curve[i] - prev) / prev) as f32)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            
+            let returns_mean = if returns.is_empty() {
+                0.0
+            } else {
+                unsafe_ops::mean_f32_fast(&returns).unwrap_or(0.0)
+            };
+            let variance_sum = unsafe_ops::sum_sq_diff_f32_fast(&returns, returns_mean) as f64;
+            
+            let variance = variance_sum / returns_count as f64;
+            let std_dev = variance.sqrt();
+            let annualized_std_dev = std_dev * (252.0_f64.sqrt() / years.sqrt());
+            
+            if annualized_std_dev > 0.0 {
+                Some(annualized_return / annualized_std_dev)
+            } else {
+                None
             }
-        }
-        
-        if returns.is_empty() {
-            return None;
-        }
-        
-        // Средняя доходность (annualized)
-        let avg_return: f64 = returns.iter().sum::<f64>() / returns.len() as f64;
-        let annualized_return = avg_return * (252.0 / years); // Предполагаем 252 торговых дня в году
-        
-        // Стандартное отклонение (annualized)
-        let variance: f64 = returns.iter()
-            .map(|r| (r - avg_return).powi(2))
-            .sum::<f64>() / returns.len() as f64;
-        let std_dev = variance.sqrt();
-        let annualized_std_dev = std_dev * (252.0_f64.sqrt() / years.sqrt());
-        
-        if annualized_std_dev > 0.0 {
-            Some(annualized_return / annualized_std_dev)
         } else {
             None
-        }
-    }
-    
-    /// Рассчитывает Stability используя линейную регрессию
-    /// Stability оценивает, насколько прямая кривая капитала (equity curve)
-    /// Если equity curve - прямая восходящая линия, Stability = 1
-    /// Использует коэффициент детерминации R² для оценки прямолинейности
-    fn calculate_stability(equity_curve: &[f64]) -> Option<f64> {
-        if equity_curve.len() < 2 {
-            return None;
-        }
+        };
         
-        let n = equity_curve.len() as f64;
-        
-        // Линейная регрессия: y = a*x + b
-        // где x - индекс (0, 1, 2, ...), y - значение equity
-        
-        // Средние значения
-        let x_mean = (n - 1.0) / 2.0; // Среднее индексов: (0 + 1 + ... + n-1) / n = (n-1)/2
-        let y_mean: f64 = equity_curve.iter().sum::<f64>() / n;
-        
-        // Вычисляем коэффициенты регрессии
-        let mut numerator = 0.0; // Σ(x - x_mean)(y - y_mean)
-        let mut denominator = 0.0; // Σ(x - x_mean)²
-        
-        for (i, &y) in equity_curve.iter().enumerate() {
-            let x = i as f64;
-            let x_diff = x - x_mean;
-            let y_diff = y - y_mean;
-            numerator += x_diff * y_diff;
-            denominator += x_diff * x_diff;
-        }
-        
-        // Если denominator = 0, все x одинаковы (невозможно для индексов)
-        if denominator == 0.0 {
-            return None;
-        }
-        
-        let slope = numerator / denominator; // Коэффициент a
-        let intercept = y_mean - slope * x_mean; // Коэффициент b
-        
-        // Вычисляем R² (коэффициент детерминации)
-        // R² = 1 - (SS_res / SS_tot)
-        // где SS_res = Σ(y - y_pred)², SS_tot = Σ(y - y_mean)²
-        
-        let mut ss_res = 0.0; // Sum of squares of residuals
-        let mut ss_tot = 0.0; // Total sum of squares
-        
-        for (i, &y) in equity_curve.iter().enumerate() {
-            let x = i as f64;
-            let y_pred = slope * x + intercept; // Предсказанное значение
-            let residual = y - y_pred;
-            ss_res += residual * residual;
+        let stability = if n >= 2.0 {
+            let y_mean = y_sum / n;
             
-            let y_diff = y - y_mean;
-            ss_tot += y_diff * y_diff;
-        }
+            let mut numerator = 0.0;
+            let mut denominator = 0.0;
+            let mut ss_tot = 0.0;
+            
+            for (i, &y) in equity_curve.iter().enumerate() {
+                let x = i as f64;
+                let x_diff = x - x_mean;
+                let y_diff = y - y_mean;
+                numerator += x_diff * y_diff;
+                denominator += x_diff * x_diff;
+                ss_tot += y_diff * y_diff;
+            }
+            
+            if denominator == 0.0 {
+                None
+            } else {
+                let slope = numerator / denominator;
+                let intercept = y_mean - slope * x_mean;
+                
+                let mut ss_res = 0.0;
+                for (i, &y) in equity_curve.iter().enumerate() {
+                    let x = i as f64;
+                    let y_pred = slope * x + intercept;
+                    let residual = y - y_pred;
+                    ss_res += residual * residual;
+                }
+                
+                if ss_tot == 0.0 {
+                    Some(1.0)
+                } else {
+                    let r_squared = 1.0 - (ss_res / ss_tot);
+                    Some(r_squared.max(0.0).min(1.0))
+                }
+            }
+        } else {
+            None
+        };
         
-        // Если SS_tot = 0, все значения y одинаковы
-        if ss_tot == 0.0 {
-            // Если все значения одинаковы, это "прямая" линия (горизонтальная)
-            return Some(1.0);
-        }
-        
-        let r_squared = 1.0 - (ss_res / ss_tot);
-        
-        // R² может быть отрицательным, если модель хуже среднего
-        // Для Stability мы хотим значение от 0 до 1, где 1 = идеальная прямая линия
-        // Ограничиваем значение диапазоном [0, 1]
-        let stability = r_squared.max(0.0).min(1.0);
-        
-        Some(stability)
+        (drawdown, drawdown_percent, stagnation_in_days, stagnation_percent, sharpe_ratio, stability)
     }
 }
 

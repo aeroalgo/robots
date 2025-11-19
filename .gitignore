@@ -160,3 +160,7 @@ coverage/
 # ========================
 *.env.*
 *.local
+# Profiling results
+profiling/
+FlameGraph/
+flamegraph*.svg

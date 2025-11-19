@@ -62,3 +62,13 @@ version = "=7.1.1"
 
 [dev-dependencies]
 tempfile = "3.10"
+
+[features]
+default = ["profiling"]
+profiling = ["pprof"]
+
+[dependencies.pprof]
+version = "0.12"
+optional = true
+default-features = false
+features = ["flamegraph", "protobuf"]

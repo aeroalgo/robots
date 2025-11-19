@@ -39,7 +39,7 @@ impl PopulationManager {
         count: usize,
     ) -> Vec<&'a GeneticIndividual> {
         let mut rng = rand::thread_rng();
-        let mut selected = Vec::new();
+        let mut selected = Vec::with_capacity(count);
         let total_fitness: f64 = population
             .individuals
             .iter()
@@ -85,8 +85,9 @@ impl PopulationManager {
         let params1 = &parent1.strategy.parameters;
         let params2 = &parent2.strategy.parameters;
 
-        let mut child1 = HashMap::new();
-        let mut child2 = HashMap::new();
+        let estimated_size = params1.len().max(params2.len());
+        let mut child1 = HashMap::with_capacity(estimated_size);
+        let mut child2 = HashMap::with_capacity(estimated_size);
 
         let all_keys: Vec<String> = params1
             .keys()

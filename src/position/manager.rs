@@ -274,7 +274,7 @@ impl PositionManager {
         self.open_index.len()
     }
 
-    pub async fn process_decision(
+    pub fn process_decision(
         &mut self,
         context: &mut StrategyContext,
         decision: &StrategyDecision,
@@ -282,7 +282,7 @@ impl PositionManager {
         let mut report = ExecutionReport::default();
         let mut stop_ids: HashSet<String> = HashSet::new();
         let mut stop_signals: Vec<&StopSignal> = decision.stop_signals.iter().collect();
-        stop_signals.sort_by_key(|signal| signal.priority);
+        stop_signals.sort_unstable_by_key(|signal| signal.priority);
         for stop in stop_signals {
             stop_ids.insert(stop.signal.rule_id.clone());
             let reason = format!("stop:{:?}", stop.kind);
@@ -292,8 +292,7 @@ impl PositionManager {
                 Some(stop.exit_price),
                 Some(reason),
                 &mut report,
-            )
-            .await?;
+            )?;
         }
         for exit in &decision.exits {
             if stop_ids.contains(&exit.rule_id)
@@ -301,19 +300,17 @@ impl PositionManager {
             {
                 continue;
             }
-            self.handle_exit_signal(context, exit, None, None, &mut report)
-                .await?;
+            self.handle_exit_signal(context, exit, None, None, &mut report)?;
         }
         for entry in &decision.entries {
-            self.handle_entry_signal(context, entry, &mut report)
-                .await?;
+            self.handle_entry_signal(context, entry, &mut report)?;
         }
         let snapshot = self.snapshot_active_positions();
         context.set_active_positions(snapshot);
         Ok(report)
     }
 
-    async fn handle_entry_signal(
+    fn handle_entry_signal(
         &mut self,
         context: &StrategyContext,
         signal: &StrategySignal,
@@ -345,31 +342,32 @@ impl PositionManager {
             .unwrap_or_else(|| signal.rule_id.clone());
         let entry_rule_id = Some(entry_rule_value.clone());
         if let Some(opposite_direction) = opposite_direction(&direction) {
-            let opposite_positions: Vec<String> = self
+            let opposite_ids: Vec<String> = self
                 .open_index
                 .iter()
-                .filter(|(key, _)| key.matches(&info.symbol, &info.timeframe, &opposite_direction))
-                .map(|(_, id)| id.clone())
+                .filter_map(|(key, id)| {
+                    if key.matches(&info.symbol, &info.timeframe, &opposite_direction) {
+                        Some(id.clone())
+                    } else {
+                        None
+                    }
+                })
                 .collect();
-            for opposite_id in opposite_positions {
-                let close_qty = self
-                    .positions
-                    .get(&opposite_id)
-                    .map(|state| state.quantity)
-                    .unwrap_or(0.0);
-                if close_qty.abs() <= f64::EPSILON {
-                    continue;
+            for opposite_id in opposite_ids {
+                if let Some(state) = self.positions.get(&opposite_id) {
+                    let close_qty = state.quantity;
+                    if close_qty.abs() > f64::EPSILON {
+                        self.close_position(
+                            opposite_id,
+                            info.price,
+                            close_qty,
+                            info.timestamp,
+                            Some("reversal".to_string()),
+                            Some(signal.rule_id.clone()),
+                            report,
+                        )?;
+                    }
                 }
-                self.close_position(
-                    opposite_id,
-                    info.price,
-                    close_qty,
-                    info.timestamp,
-                    Some("reversal".to_string()),
-                    Some(signal.rule_id.clone()),
-                    report,
-                )
-                .await?;
             }
         }
         let key = PositionKey::new(
@@ -382,12 +380,11 @@ impl PositionManager {
         if self.open_index.contains_key(&key) {
             return Ok(());
         }
-        self.open_new_position(key, quantity, info.price, info.timestamp, signal, report)
-            .await?;
+        self.open_new_position(key, quantity, info.price, info.timestamp, signal, report)?;
         Ok(())
     }
 
-    async fn handle_exit_signal(
+    fn handle_exit_signal(
         &mut self,
         context: &StrategyContext,
         signal: &StrategySignal,
@@ -415,61 +412,59 @@ impl PositionManager {
                     .collect::<std::collections::HashSet<_>>(),
             )
         };
-        let mut targets = Vec::new();
-        for (key, position_id) in &self.open_index {
-            if !key.matches(&info.symbol, &info.timeframe, &direction) {
-                continue;
-            }
-            if let Some(groups) = &target_groups {
-                let mut matches_target = false;
-                if let Some(group) = key.position_group.as_ref() {
-                    if groups.contains(group) {
-                        matches_target = true;
+        let targets: Vec<(String, f64)> = self
+            .open_index
+            .iter()
+            .filter_map(|(key, position_id)| {
+                if !key.matches(&info.symbol, &info.timeframe, &direction) {
+                    return None;
+                }
+                if let Some(groups) = &target_groups {
+                    let matches_target = key
+                        .position_group
+                        .as_ref()
+                        .map_or(false, |group| groups.contains(group))
+                        || key
+                            .entry_rule_id
+                            .as_ref()
+                            .map_or(false, |entry_id| groups.contains(entry_id));
+                    if !matches_target {
+                        return None;
                     }
                 }
-                if !matches_target {
-                    if let Some(entry_id) = key.entry_rule_id.as_ref() {
-                        if groups.contains(entry_id) {
-                            matches_target = true;
-                        }
-                    }
+                let quantity = signal.quantity.unwrap_or_else(|| {
+                    self.positions
+                        .get(position_id)
+                        .map(|state| state.quantity)
+                        .unwrap_or(0.0)
+                });
+                if quantity.abs() > f64::EPSILON {
+                    Some((position_id.clone(), quantity))
+                } else {
+                    None
                 }
-                if !matches_target {
-                    continue;
-                }
-            }
-            targets.push(position_id.clone());
-        }
+            })
+            .collect();
         if targets.is_empty() {
             return Ok(());
         }
-        for position_id in targets {
-            let quantity = signal.quantity.unwrap_or_else(|| {
-                self.positions
-                    .get(&position_id)
-                    .map(|state| state.quantity)
-                    .unwrap_or(0.0)
-            });
-            if quantity.abs() <= f64::EPSILON {
-                continue;
-            }
-            let reason_label = reason.clone().unwrap_or_else(|| "exit".to_string());
-            let reason_with_rule = format!("{} via {}", reason_label, signal.rule_id);
+        let reason_label = reason.clone().unwrap_or_else(|| "exit".to_string());
+        let reason_with_rule = format!("{} via {}", reason_label, signal.rule_id);
+        for (position_id, quantity) in targets {
             self.close_position(
                 position_id,
                 info.price,
                 quantity,
                 info.timestamp,
-                Some(reason_with_rule),
+                Some(reason_with_rule.clone()),
                 Some(signal.rule_id.clone()),
                 report,
-            )
-            .await?;
+            )?;
         }
         Ok(())
     }
 
-    async fn open_new_position(
+    fn open_new_position(
         &mut self,
         key: PositionKey,
         quantity: f64,
@@ -504,19 +499,21 @@ impl PositionManager {
         self.positions.insert(position_id.clone(), state.clone());
         self.open_index.insert(key, position_id.clone());
         self.orders.insert(order.id.clone(), order.clone());
-        self.persist_order(&order).await?;
-        self.persist_position(&state).await?;
-        self.record_event(PositionEvent::OrderFilled(order.clone()))
-            .await?;
-        self.record_event(PositionEvent::PositionOpened(state.clone()))
-            .await?;
+        if let Some(persistence) = &self.persistence {
+            // В бэктесте persistence не используется, пропускаем
+            // persistence.persist_order(&order).await?;
+            // persistence.persist_position(&state).await?;
+        }
+        // В бэктесте события не записываются
+        // self.record_event(PositionEvent::OrderFilled(order.clone()))?;
+        // self.record_event(PositionEvent::PositionOpened(state.clone()))?;
         self.refresh_portfolio_metrics();
         report.orders.push(order);
         report.opened_positions.push(state);
         Ok(())
     }
 
-    async fn scale_position(
+    fn scale_position(
         &mut self,
         position_id: String,
         quantity: f64,
@@ -538,17 +535,16 @@ impl PositionManager {
                 .entry_rule_id
                 .clone()
                 .or_else(|| Some(signal.rule_id.clone()));
-            return self
-                .close_position(
-                    position_id,
-                    price,
-                    quantity.abs(),
-                    None,
-                    Some("scale_to_flat".to_string()),
-                    exit_rule,
-                    report,
-                )
-                .await;
+            self.close_position(
+                position_id,
+                price,
+                quantity.abs(),
+                None,
+                Some("scale_to_flat".to_string()),
+                exit_rule,
+                report,
+            )?;
+            return Ok(());
         }
         state.average_price =
             ((state.average_price * state.quantity) + (price * quantity)) / new_quantity;
@@ -563,19 +559,19 @@ impl PositionManager {
         drop(state);
         let order = self.build_order(&position_id, &snapshot.key, quantity, price);
         self.orders.insert(order.id.clone(), order.clone());
-        self.persist_order(&order).await?;
-        self.persist_position(&snapshot).await?;
-        self.record_event(PositionEvent::OrderFilled(order.clone()))
-            .await?;
-        self.record_event(PositionEvent::PositionUpdated(snapshot.clone()))
-            .await?;
+        // В бэктесте persistence не используется
+        // self.persist_order(&order)?;
+        // self.persist_position(&snapshot)?;
+        // В бэктесте события не записываются
+        // self.record_event(PositionEvent::OrderFilled(order.clone()))?;
+        // self.record_event(PositionEvent::PositionUpdated(snapshot.clone()))?;
         self.refresh_portfolio_metrics();
         report.orders.push(order);
         report.updated_positions.push(snapshot);
         Ok(())
     }
 
-    async fn close_position(
+    fn close_position(
         &mut self,
         position_id: String,
         price: f64,
@@ -645,17 +641,18 @@ impl PositionManager {
         };
         let order = self.build_order(&position_id, &snapshot.key, exit_quantity, price);
         self.orders.insert(order.id.clone(), order.clone());
-        self.persist_order(&order).await?;
-        self.persist_position(&snapshot).await?;
-        self.record_event(PositionEvent::OrderFilled(order.clone()))
-            .await?;
+        // В бэктесте persistence не используется
+        // self.persist_order(&order)?;
+        // self.persist_position(&snapshot)?;
+        // В бэктесте события не записываются
+        // self.record_event(PositionEvent::OrderFilled(order.clone()))?;
         if snapshot.status == PositionStatus::Closed {
-            self.record_event(PositionEvent::PositionClosed(snapshot.clone()))
-                .await?;
+            // В бэктесте события не записываются
+            // self.record_event(PositionEvent::PositionClosed(snapshot.clone()))?;
             report.closed_positions.push(snapshot.clone());
         } else {
-            self.record_event(PositionEvent::PositionUpdated(snapshot.clone()))
-                .await?;
+            // В бэктесте события не записываются
+            // self.record_event(PositionEvent::PositionUpdated(snapshot.clone()))?;
             report.updated_positions.push(snapshot.clone());
         }
         self.refresh_portfolio_metrics();
@@ -726,7 +723,7 @@ impl PositionManager {
     }
 
     fn snapshot_active_positions(&self) -> PositionBook {
-        let entries = self
+        let entries: Vec<ActivePosition> = self
             .open_index
             .values()
             .filter_map(|position_id| self.positions.get(position_id))

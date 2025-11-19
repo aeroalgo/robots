@@ -4,7 +4,6 @@ use std::sync::Arc;
 use chrono::Utc;
 use thiserror::Error;
 
-use crate::candles::aggregator::{AggregatedQuoteFrame, TimeFrameAggregator};
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::{Symbol, TimeFrame};
 use crate::indicators::formula::{FormulaDefinition, FormulaEvaluationContext};
@@ -57,31 +56,33 @@ impl BacktestExecutor {
             ));
         }
 
-        let mut required_timeframes: std::collections::HashSet<TimeFrame> = std::collections::HashSet::new();
-        
+        let mut required_timeframes: std::collections::HashSet<TimeFrame> =
+            std::collections::HashSet::new();
+
         for binding in strategy.indicator_bindings() {
             required_timeframes.insert(binding.timeframe.clone());
         }
-        
+
         for condition in strategy.conditions() {
             required_timeframes.insert(condition.timeframe.clone());
         }
-        
+
         for requirement in strategy.timeframe_requirements() {
             required_timeframes.insert(requirement.timeframe.clone());
         }
-        
+
         let required_timeframes: Vec<TimeFrame> = required_timeframes.into_iter().collect();
 
         let mut feed = HistoricalFeed::new_empty();
-        frames = Self::generate_missing_timeframes(frames, &required_timeframes, &mut feed)?;
-        
+
         for (tf, frame) in frames {
             feed.frames.insert(tf.clone(), Arc::new(frame));
             if feed.primary_timeframe.is_none() {
                 feed.primary_timeframe = Some(tf);
             } else {
-                let current_len = feed.frames.get(&feed.primary_timeframe.clone().unwrap())
+                let current_len = feed
+                    .frames
+                    .get(&feed.primary_timeframe.clone().unwrap())
                     .map(|f| f.len())
                     .unwrap_or(0);
                 let new_len = feed.frames.get(&tf).map(|f| f.len()).unwrap_or(0);
@@ -90,13 +91,13 @@ impl BacktestExecutor {
                 }
             }
         }
-        
+
         if feed.primary_timeframe.is_none() {
             return Err(StrategyExecutionError::Feed(
                 "No timeframes available after generation".to_string(),
             ));
         }
-        
+
         let context = feed.initialize_context();
         let position_manager = PositionManager::new(strategy.id().clone());
         Ok(Self {
@@ -113,14 +114,14 @@ impl BacktestExecutor {
     fn compute_warmup_bars(&self) -> usize {
         // Находим самый длинный период и его таймфрейм
         let mut max_warmup_bars = 0usize;
-        
+
         for binding in self.strategy.indicator_bindings() {
             if let IndicatorSourceSpec::Registry { parameters, .. } = &binding.source {
                 if let Some(period) = parameters.get("period") {
                     let period_usize = period.max(1.0).round() as usize;
                     // Warmup = период * 2 на данном таймфрейме
                     let warmup_on_tf = period_usize * 2;
-                    
+
                     // Пересчитываем warmup в бары базового таймфрейма
                     if let Some(primary_tf) = self.feed.primary_timeframe.as_ref() {
                         let warmup_base = Self::convert_warmup_to_base_timeframe(
@@ -133,7 +134,7 @@ impl BacktestExecutor {
                 }
             }
         }
-        
+
         max_warmup_bars
     }
 
@@ -144,7 +145,7 @@ impl BacktestExecutor {
     ) -> usize {
         let indicator_minutes = Self::timeframe_to_minutes(indicator_tf).unwrap_or(1);
         let base_minutes = Self::timeframe_to_minutes(base_tf).unwrap_or(1);
-        
+
         if indicator_minutes >= base_minutes {
             // Старший таймфрейм: умножаем на соотношение
             let ratio = indicator_minutes / base_minutes;
@@ -169,87 +170,6 @@ impl BacktestExecutor {
         let mut executor = Self::new(Box::new(strategy), frames)?;
         executor.warmup_bars = executor.compute_warmup_bars();
         Ok(executor)
-    }
-
-    fn generate_missing_timeframes(
-        mut frames: HashMap<TimeFrame, QuoteFrame>,
-        required: &[TimeFrame],
-        feed: &mut HistoricalFeed,
-    ) -> Result<HashMap<TimeFrame, QuoteFrame>, StrategyExecutionError> {
-        let mut generated = HashMap::new();
-
-        for required_tf in required {
-            if frames.contains_key(required_tf) {
-                continue;
-            }
-
-            let source_frame = Self::find_best_source_frame(&frames, required_tf)
-                .ok_or_else(|| {
-                    StrategyExecutionError::Feed(format!(
-                        "Cannot generate timeframe {:?}: no suitable source timeframe found",
-                        required_tf
-                    ))
-                })?;
-
-            let source_tf = source_frame.timeframe().clone();
-            let aggregated = TimeFrameAggregator::aggregate(&source_frame, required_tf.clone())
-                .map_err(|e| {
-                    StrategyExecutionError::Feed(format!(
-                        "Failed to aggregate timeframe {:?}: {}",
-                        required_tf, e
-                    ))
-                })?;
-
-            let aggregated_frame = aggregated.frame;
-            let aggregated_metadata = aggregated.metadata;
-            let aggregated_source_indices = aggregated.source_indices;
-            
-            let mut frame_copy = QuoteFrame::new(
-                aggregated_frame.symbol().clone(),
-                aggregated_frame.timeframe().clone(),
-            );
-            for quote in aggregated_frame.iter() {
-                frame_copy.push(quote.clone()).map_err(|e| {
-                    StrategyExecutionError::Feed(format!("Failed to copy quote: {}", e))
-                })?;
-            }
-            
-            let aggregated_arc = Arc::new(AggregatedQuoteFrame {
-                frame: frame_copy,
-                metadata: aggregated_metadata.clone(),
-                source_indices: aggregated_source_indices.clone(),
-            });
-            
-            feed.aggregated_frames.insert(
-                required_tf.clone(),
-                (aggregated_arc, source_tf),
-            );
-
-            generated.insert(required_tf.clone(), aggregated_frame);
-        }
-
-        frames.extend(generated);
-        Ok(frames)
-    }
-
-    fn find_best_source_frame<'a>(
-        frames: &'a HashMap<TimeFrame, QuoteFrame>,
-        target: &TimeFrame,
-    ) -> Option<&'a QuoteFrame> {
-        let target_minutes = Self::timeframe_to_minutes(target)?;
-
-        frames
-            .iter()
-            .filter_map(|(tf, frame)| {
-                let source_minutes = Self::timeframe_to_minutes(tf)?;
-                if source_minutes < target_minutes && target_minutes % source_minutes == 0 {
-                    Some((source_minutes, frame))
-                } else {
-                    None
-                }
-            })
-            .max_by_key(|(minutes, _)| *minutes)
-            .map(|(_, frame)| frame)
     }
 
     fn timeframe_to_minutes(tf: &TimeFrame) -> Option<u32> {
@@ -279,7 +199,7 @@ impl BacktestExecutor {
         &mut self.position_manager
     }
 
-    pub async fn run_backtest(&mut self) -> Result<BacktestReport, StrategyExecutionError> {
+    pub fn run_backtest(&mut self) -> Result<BacktestReport, StrategyExecutionError> {
         if self.warmup_bars == 0 {
             self.warmup_bars = self.compute_warmup_bars();
         }
@@ -296,8 +216,8 @@ impl BacktestExecutor {
                 self.context.insert_timeframe(timeframe.clone(), data);
             }
         }
-        self.populate_indicators().await?;
-        self.populate_conditions().await?;
+        self.populate_indicators()?;
+        self.populate_conditions()?;
         self.analytics
             .push_equity_point(self.position_manager.portfolio_snapshot().total_equity);
         let mut processed_bars = 0usize;
@@ -310,13 +230,12 @@ impl BacktestExecutor {
                     .push_equity_point(self.position_manager.portfolio_snapshot().total_equity);
                 continue;
             }
-            
+
             // Отслеживаем бары в позициях (только после warmup)
             let has_open_positions = self.position_manager.open_position_count() > 0;
-            self.analytics.increment_bars_in_positions_if_has_positions(has_open_positions);
-            
-            self.feed.expand_aggregated_timeframes(&mut self.context, self.strategy.indicator_bindings())?;
-            
+            self.analytics
+                .increment_bars_in_positions_if_has_positions(has_open_positions);
+
             if let Some(pending) = self.deferred_decision.take() {
                 if !pending.is_empty() {
                     self.context
@@ -324,18 +243,16 @@ impl BacktestExecutor {
                         .insert("deferred_entries".to_string(), "true".to_string());
                     let result = self
                         .position_manager
-                        .process_decision(&mut self.context, &pending)
-                        .await;
+                        .process_decision(&mut self.context, &pending);
                     self.context.metadata.remove("deferred_entries");
                     let report = result.map_err(StrategyExecutionError::Position)?;
                     self.collect_report(&report);
-                    self.process_immediate_stop_checks().await?;
+                    self.process_immediate_stop_checks()?;
                 }
             }
             let decision = self
                 .strategy
                 .evaluate(&self.context)
-                .await
                 .map_err(StrategyExecutionError::Strategy)?;
             if session_state
                 .map(|state| state.is_session_end)
@@ -352,10 +269,9 @@ impl BacktestExecutor {
                 let report = self
                     .position_manager
                     .process_decision(&mut self.context, &decision)
-                    .await
                     .map_err(StrategyExecutionError::Position)?;
                 self.collect_report(&report);
-                self.process_immediate_stop_checks().await?;
+                self.process_immediate_stop_checks()?;
             }
             self.analytics
                 .push_equity_point(self.position_manager.portfolio_snapshot().total_equity);
@@ -367,35 +283,46 @@ impl BacktestExecutor {
                     .insert("deferred_entries".to_string(), "true".to_string());
                 let result = self
                     .position_manager
-                    .process_decision(&mut self.context, &pending)
-                    .await;
+                    .process_decision(&mut self.context, &pending);
                 self.context.metadata.remove("deferred_entries");
                 let report = result.map_err(StrategyExecutionError::Position)?;
                 self.collect_report(&report);
-                self.process_immediate_stop_checks().await?;
+                self.process_immediate_stop_checks()?;
             }
         }
-        let initial_capital = self.analytics.equity_curve().first()
+        let initial_capital = self
+            .analytics
+            .equity_curve()
+            .first()
             .copied()
             .unwrap_or(10000.0);
-        
-        let start_date = self.feed.primary_timeframe.as_ref()
+
+        let start_date = self
+            .feed
+            .primary_timeframe
+            .as_ref()
             .and_then(|tf| self.feed.frames.get(tf))
             .and_then(|frame| frame.first())
             .map(|quote| quote.timestamp());
-        
-        let end_date = self.feed.primary_timeframe.as_ref()
+
+        let end_date = self
+            .feed
+            .primary_timeframe
+            .as_ref()
             .and_then(|tf| self.feed.frames.get(tf))
             .and_then(|frame| frame.latest())
             .map(|quote| quote.timestamp());
-        
-        let total_bars = self.feed.primary_timeframe.as_ref()
+
+        let total_bars = self
+            .feed
+            .primary_timeframe
+            .as_ref()
             .and_then(|tf| self.feed.frames.get(tf))
             .map(|frame| frame.len())
             .unwrap_or(0);
-        
+
         let bars_in_positions = self.analytics.bars_in_positions();
-        
+
         Ok(self.analytics.build_report(
             initial_capital,
             start_date,
@@ -406,9 +333,9 @@ impl BacktestExecutor {
         ))
     }
 
-
-    async fn populate_indicators(&mut self) -> Result<(), StrategyExecutionError> {
-        let mut grouped: HashMap<TimeFrame, Vec<IndicatorBindingSpec>> = HashMap::new();
+    fn populate_indicators(&mut self) -> Result<(), StrategyExecutionError> {
+        let bindings_count = self.strategy.indicator_bindings().len();
+        let mut grouped: HashMap<TimeFrame, Vec<IndicatorBindingSpec>> = HashMap::with_capacity(bindings_count / 2 + 1);
         for binding in self.strategy.indicator_bindings() {
             grouped
                 .entry(binding.timeframe.clone())
@@ -426,18 +353,17 @@ impl BacktestExecutor {
                 })?;
                 Arc::clone(frame_ref)
             };
+
             self.ensure_timeframe_data(&timeframe, &frame);
             let ohlc = frame.to_indicator_ohlc();
             let plan = IndicatorComputationPlan::build(&bindings)?;
-            let mut computed: HashMap<String, Arc<Vec<f32>>> = HashMap::new();
-            let mut aggregated_indicators = HashMap::new();
-            
+            let mut computed: HashMap<String, Arc<Vec<f32>>> = HashMap::with_capacity(bindings.len());
+
             for binding in plan.ordered() {
                 match &binding.source {
                     IndicatorSourceSpec::Registry { name, parameters } => {
                         let values = engine
                             .compute_registry(&timeframe, name, parameters, &ohlc)
-                            .await
                             .map_err(|err| {
                                 StrategyExecutionError::Feed(format!(
                                     "indicator {} calculation failed: {}",
@@ -446,10 +372,6 @@ impl BacktestExecutor {
                             })?;
                         self.store_indicator_series(&timeframe, &binding.alias, values.clone())?;
                         computed.insert(binding.alias.clone(), values.clone());
-                        
-                        if self.feed.aggregated_frames.contains_key(&timeframe) {
-                            aggregated_indicators.insert(binding.alias.clone(), values);
-                        }
                     }
                     IndicatorSourceSpec::Formula { .. } => {
                         let definition = plan.formula(&binding.alias).ok_or_else(|| {
@@ -464,16 +386,8 @@ impl BacktestExecutor {
                             .map_err(|err| StrategyExecutionError::Feed(err.to_string()))?;
                         self.store_indicator_series(&timeframe, &binding.alias, values.clone())?;
                         computed.insert(binding.alias.clone(), values.clone());
-                        
-                        if self.feed.aggregated_frames.contains_key(&timeframe) {
-                            aggregated_indicators.insert(binding.alias.clone(), values);
-                        }
                     }
                 }
-            }
-            
-            if !aggregated_indicators.is_empty() {
-                self.feed.save_aggregated_indicators(&timeframe, aggregated_indicators);
             }
         }
         Ok(())
@@ -500,8 +414,9 @@ impl BacktestExecutor {
         Ok(())
     }
 
-    async fn populate_conditions(&mut self) -> Result<(), StrategyExecutionError> {
-        let mut grouped: HashMap<TimeFrame, Vec<String>> = HashMap::new();
+    fn populate_conditions(&mut self) -> Result<(), StrategyExecutionError> {
+        let conditions_count = self.strategy.conditions().len();
+        let mut grouped: HashMap<TimeFrame, Vec<String>> = HashMap::with_capacity(conditions_count / 2 + 1);
         for condition in self.strategy.conditions() {
             grouped
                 .entry(condition.timeframe.clone())
@@ -540,7 +455,7 @@ impl BacktestExecutor {
                     .prepare_condition_input(condition)
                     .map_err(|err| StrategyExecutionError::Strategy(err))?;
 
-                let result = condition.condition.check(input).await.map_err(|err| {
+                let result = condition.condition.check(input).map_err(|err| {
                     StrategyExecutionError::Strategy(StrategyError::ConditionFailure {
                         condition_id: condition.id.clone(),
                         source: err,
@@ -609,7 +524,7 @@ impl BacktestExecutor {
         self.analytics.absorb_execution_report(report);
     }
 
-    async fn process_immediate_stop_checks(&mut self) -> Result<(), StrategyExecutionError> {
+    fn process_immediate_stop_checks(&mut self) -> Result<(), StrategyExecutionError> {
         loop {
             let stop_signals = self
                 .strategy
@@ -623,7 +538,6 @@ impl BacktestExecutor {
             let report = self
                 .position_manager
                 .process_decision(&mut self.context, &decision)
-                .await
                 .map_err(StrategyExecutionError::Position)?;
             self.collect_report(&report);
         }
@@ -633,15 +547,14 @@ impl BacktestExecutor {
 
 struct HistoricalFeed {
     frames: HashMap<TimeFrame, Arc<QuoteFrame>>,
-    aggregated_frames: HashMap<TimeFrame, (Arc<AggregatedQuoteFrame>, TimeFrame)>,
-    aggregated_indicators: HashMap<TimeFrame, HashMap<String, Arc<Vec<f32>>>>,
     indices: HashMap<TimeFrame, usize>,
     primary_timeframe: Option<TimeFrame>,
 }
 
 impl HistoricalFeed {
     fn new(frames: HashMap<TimeFrame, QuoteFrame>) -> Self {
-        let mut arc_frames = HashMap::new();
+        let frames_len = frames.len();
+        let mut arc_frames = HashMap::with_capacity(frames_len);
         let mut primary_timeframe = None;
         let mut max_len = 0usize;
         for (timeframe, frame) in frames {
@@ -654,9 +567,7 @@ impl HistoricalFeed {
         }
         Self {
             frames: arc_frames,
-            aggregated_frames: HashMap::new(),
-            aggregated_indicators: HashMap::new(),
-            indices: HashMap::new(),
+            indices: HashMap::with_capacity(frames_len),
             primary_timeframe,
         }
     }
@@ -664,23 +575,13 @@ impl HistoricalFeed {
     fn new_empty() -> Self {
         Self {
             frames: HashMap::new(),
-            aggregated_frames: HashMap::new(),
-            aggregated_indicators: HashMap::new(),
             indices: HashMap::new(),
             primary_timeframe: None,
         }
     }
-    
-    fn save_aggregated_indicators(&mut self, timeframe: &TimeFrame, indicators: HashMap<String, Arc<Vec<f32>>>) {
-        self.aggregated_indicators.insert(timeframe.clone(), indicators);
-    }
-    
-    fn get_aggregated_indicators(&self, timeframe: &TimeFrame) -> Option<&HashMap<String, Arc<Vec<f32>>>> {
-        self.aggregated_indicators.get(timeframe)
-    }
 
     fn initialize_context(&self) -> StrategyContext {
-        let mut map = HashMap::new();
+        let mut map = HashMap::with_capacity(self.frames.len());
         for (timeframe, frame) in &self.frames {
             let data = TimeframeData::with_quote_frame(frame.as_ref(), 0);
             map.insert(timeframe.clone(), data);
@@ -691,222 +592,6 @@ impl HistoricalFeed {
     fn reset(&mut self) {
         self.indices.clear();
     }
-
-    fn is_aggregated_bar_closed(
-        aggregated: &AggregatedQuoteFrame,
-        aggregated_bar_index: usize,
-        current_primary_index: usize,
-    ) -> bool {
-        if let Some(source_indices) = aggregated.source_indices.get(&aggregated_bar_index) {
-            if source_indices.is_empty() {
-                return false;
-            }
-            if let Some(&last_source_index) = source_indices.last() {
-                return last_source_index < current_primary_index;
-            }
-        }
-        false
-    }
-
-    fn expand_aggregated_timeframes(
-        &self,
-        context: &mut StrategyContext,
-        indicator_bindings: &[IndicatorBindingSpec],
-    ) -> Result<(), StrategyExecutionError> {
-        for (aggregated_tf, (aggregated, source_tf)) in &self.aggregated_frames {
-            let source_frame = self.frames.get(source_tf)
-                .ok_or_else(|| {
-                    StrategyExecutionError::Feed(format!(
-                        "Source timeframe {:?} not found in frames",
-                        source_tf
-                    ))
-                })?;
-            
-            let expanded = aggregated
-                .expand(source_frame.as_ref())
-                .map_err(|e| {
-                    StrategyExecutionError::Feed(format!(
-                        "Failed to expand timeframe {:?}: {}",
-                        aggregated_tf, e
-                    ))
-                })?;
-
-            let primary_timeframe = self.primary_timeframe.as_ref().unwrap_or(source_tf);
-            let primary_index = context.timeframe(primary_timeframe)
-                .map(|d| d.index())
-                .unwrap_or(0);
-            
-            let ratio = aggregated.metadata.aggregation_ratio as usize;
-            
-            let aggregated_bar_index = primary_index / ratio;
-            let max_aggregated_index = aggregated.frame.len().saturating_sub(1);
-            let safe_aggregated_index = aggregated_bar_index.min(max_aggregated_index);
-            
-            let aggregated_bar_is_closed = Self::is_aggregated_bar_closed(
-                aggregated,
-                safe_aggregated_index,
-                primary_index,
-            );
-            
-            let closed_aggregated_index = if aggregated_bar_is_closed && safe_aggregated_index > 0 {
-                safe_aggregated_index
-            } else if safe_aggregated_index > 0 {
-                safe_aggregated_index - 1
-            } else {
-                0
-            };
-            
-            let expanded_index = (closed_aggregated_index * ratio).min(expanded.len().saturating_sub(1));
-            
-            let mut data = TimeframeData::with_quote_frame(&expanded, expanded_index);
-            
-            if let Some(saved_indicators) = self.get_aggregated_indicators(aggregated_tf) {
-                for binding in indicator_bindings {
-                    if binding.timeframe == *aggregated_tf {
-                        if let Some(original_values) = saved_indicators.get(&binding.alias) {
-                            if !original_values.is_empty() {
-                                let expanded_values = Self::expand_indicator_values_by_source_indices(
-                                    original_values.as_ref(),
-                                    aggregated,
-                                    &expanded,
-                                );
-                                if expanded_values.len() == expanded.len() {
-                                    data.insert_indicator_arc(binding.alias.clone(), Arc::new(expanded_values));
-                                }
-                            }
-                        }
-                    }
-                }
-            } else if let Some(existing_data) = context.timeframe(aggregated_tf).ok() {
-                for binding in indicator_bindings {
-                    if binding.timeframe == *aggregated_tf {
-                        if let Some(original_values) = existing_data.indicator_series_slice(&binding.alias) {
-                            if !original_values.is_empty() {
-                                let expanded_values = Self::expand_indicator_values_by_source_indices(
-                                    original_values,
-                                    aggregated,
-                                    &expanded,
-                                );
-                                if expanded_values.len() == expanded.len() {
-                                    data.insert_indicator_arc(binding.alias.clone(), Arc::new(expanded_values));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            
-            if let Ok(existing_data) = context.timeframe_mut(aggregated_tf) {
-                *existing_data = data;
-                existing_data.set_index(expanded_index);
-            } else {
-                context.insert_timeframe(aggregated_tf.clone(), data);
-            }
-        }
-        Ok(())
-    }
-    
-    fn expand_indicator_values(
-        original_values: &[f32],
-        ratio: usize,
-        target_len: usize,
-    ) -> Vec<f32> {
-        if original_values.is_empty() {
-            return vec![0.0; target_len];
-        }
-        
-        let mut expanded = Vec::with_capacity(target_len);
-        
-        for i in 0..target_len {
-            let original_idx = i / ratio;
-            if original_idx < original_values.len() {
-                expanded.push(original_values[original_idx]);
-            } else if !original_values.is_empty() {
-                expanded.push(original_values[original_values.len() - 1]);
-            } else {
-                expanded.push(0.0);
-            }
-        }
-        
-        expanded
-    }
-    
-    fn expand_indicator_values_by_source_indices(
-        original_values: &[f32],
-        aggregated_frame: &AggregatedQuoteFrame,
-        expanded_frame: &QuoteFrame,
-    ) -> Vec<f32> {
-        if original_values.is_empty() {
-            return vec![];
-        }
-        
-        let expanded_len = expanded_frame.len();
-        let mut expanded = vec![0.0; expanded_len];
-        
-        // Создаем маппинг: временная метка агрегированного бара -> индекс в развернутом фрейме
-        let mut timestamp_to_expanded_idx: HashMap<i64, Vec<usize>> = HashMap::new();
-        for (idx, quote) in expanded_frame.iter().enumerate() {
-            let ts = quote.timestamp_millis();
-            timestamp_to_expanded_idx.entry(ts).or_insert_with(Vec::new).push(idx);
-        }
-        
-        for agg_idx in 0..aggregated_frame.frame.len() {
-            if let Some(source_indices) = aggregated_frame.source_indices.get(&agg_idx) {
-                if source_indices.is_empty() {
-                    continue;
-                }
-                
-                let indicator_value = if agg_idx < original_values.len() {
-                    original_values[agg_idx]
-                } else if !original_values.is_empty() {
-                    original_values[original_values.len() - 1]
-                } else {
-                    0.0
-                };
-                
-                // Получаем временную метку агрегированного бара (выровненную до границы таймфрейма)
-                let aggregated_quote = aggregated_frame.frame.get(agg_idx);
-                if let Some(agg_quote) = aggregated_quote {
-                    let agg_timestamp = agg_quote.timestamp_millis();
-                    
-                    // Находим все развернутые бары, которые начинаются с этой временной метки
-                    // и последующие бары в количестве source_indices.len()
-                    if let Some(expanded_indices) = timestamp_to_expanded_idx.get(&agg_timestamp) {
-                        // Берем первый индекс с совпадающей временной меткой
-                        if let Some(&first_expanded_idx) = expanded_indices.first() {
-                            // Ставим значение индикатора на все развернутые бары,
-                            // начиная с первого, который имеет совпадающую временную метку
-                            let count = source_indices.len();
-                            for i in 0..count {
-                                let idx = first_expanded_idx + i;
-                                if idx < expanded_len {
-                                    expanded[idx] = indicator_value;
-                                }
-                            }
-                        }
-                    } else {
-                        // Если не нашли точного совпадения, используем source_indices
-                        // для определения позиций (fallback)
-                        for &source_idx in source_indices {
-                            if source_idx < expanded_len {
-                                expanded[source_idx] = indicator_value;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Заполняем пропуски предыдущим значением (forward fill)
-        for i in 1..expanded.len() {
-            if expanded[i] == 0.0 && expanded[i - 1] != 0.0 {
-                expanded[i] = expanded[i - 1];
-            }
-        }
-        
-        expanded
-    }
-
 
     fn step(&mut self, context: &mut StrategyContext) -> bool {
         let primary_timeframe = match &self.primary_timeframe {
@@ -922,10 +607,7 @@ impl HistoricalFeed {
             return false;
         }
         let current_primary_index = {
-            let entry = self
-                .indices
-                .entry(primary_timeframe.clone())
-                .or_insert(0);
+            let entry = self.indices.entry(primary_timeframe.clone()).or_insert(0);
             if *entry >= primary_len {
                 return false;
             }
@@ -958,10 +640,7 @@ impl HistoricalFeed {
             }
         }
         {
-            let entry = self
-                .indices
-                .entry(primary_timeframe.clone())
-                .or_insert(0);
+            let entry = self.indices.entry(primary_timeframe.clone()).or_insert(0);
             *entry = current_primary_index.saturating_add(1);
         }
         for (timeframe, frame) in &self.frames {
@@ -985,7 +664,7 @@ struct IndicatorComputationPlan<'a> {
 
 impl<'a> IndicatorComputationPlan<'a> {
     fn build(bindings: &'a [IndicatorBindingSpec]) -> Result<Self, StrategyExecutionError> {
-        let mut binding_map: HashMap<String, &'a IndicatorBindingSpec> = HashMap::new();
+        let mut binding_map: HashMap<String, &'a IndicatorBindingSpec> = HashMap::with_capacity(bindings.len());
         for binding in bindings {
             if binding_map.insert(binding.alias.clone(), binding).is_some() {
                 return Err(StrategyExecutionError::Feed(format!(
@@ -994,7 +673,8 @@ impl<'a> IndicatorComputationPlan<'a> {
                 )));
             }
         }
-        let mut formulas = HashMap::new();
+        let formula_count = bindings.iter().filter(|b| matches!(b.source, IndicatorSourceSpec::Formula { .. })).count();
+        let mut formulas = HashMap::with_capacity(formula_count);
         for binding in bindings {
             if let IndicatorSourceSpec::Formula { expression } = &binding.source {
                 let definition = FormulaDefinition::parse(expression)
@@ -1004,7 +684,7 @@ impl<'a> IndicatorComputationPlan<'a> {
         }
         let mut indegree: HashMap<String, usize> =
             binding_map.keys().map(|alias| (alias.clone(), 0)).collect();
-        let mut edges: HashMap<String, Vec<String>> = HashMap::new();
+        let mut edges: HashMap<String, Vec<String>> = HashMap::with_capacity(bindings.len());
         for binding in bindings {
             if let Some(definition) = formulas.get(&binding.alias) {
                 for dependency in definition.data_dependencies() {
@@ -1024,13 +704,13 @@ impl<'a> IndicatorComputationPlan<'a> {
                 }
             }
         }
-        let mut queue = VecDeque::new();
+        let mut queue = VecDeque::with_capacity(bindings.len());
         for (alias, degree) in indegree.iter() {
             if *degree == 0 {
                 queue.push_back(alias.clone());
             }
         }
-        let mut ordered = Vec::new();
+        let mut ordered = Vec::with_capacity(bindings.len());
         while let Some(alias) = queue.pop_front() {
             let binding = *binding_map
                 .get(&alias)
@@ -1076,7 +756,6 @@ mod tests {
         StrategyMetadata, StrategyParameterMap, StrategyRuleSpec, StrategySignal,
         StrategySignalType, TimeframeRequirement,
     };
-    use async_trait::async_trait;
 
     #[derive(Clone)]
     struct SimpleStrategy {
@@ -1105,7 +784,6 @@ mod tests {
         }
     }
 
-    #[async_trait]
     impl Strategy for SimpleStrategy {
         fn id(&self) -> &StrategyId {
             &self.id
@@ -1139,10 +817,7 @@ mod tests {
             &self.requirements
         }
 
-        async fn evaluate(
-            &self,
-            context: &StrategyContext,
-        ) -> Result<StrategyDecision, StrategyError> {
+        fn evaluate(&self, context: &StrategyContext) -> Result<StrategyDecision, StrategyError> {
             let data = context.timeframe(&self.timeframe)?;
             let idx = data.index();
             let series_len = data
@@ -1216,13 +891,13 @@ mod tests {
         frames.insert(timeframe.clone(), frame);
         let strategy: Box<dyn Strategy> = Box::new(SimpleStrategy::new(timeframe.clone()));
         let mut executor = BacktestExecutor::new(strategy, frames).expect("executor creation");
-        let report = executor.run_backtest().await.expect("backtest run");
+        let report = executor.run_backtest().expect("backtest run");
         assert_eq!(report.trades.len(), 1);
         let trade = &report.trades[0];
         assert!((trade.pnl - 5.0).abs() < 1e-6);
         assert_eq!(report.metrics.total_trades, 1);
-        assert!((report.metrics.total_pnl - 5.0).abs() < 1e-6);
-        assert!((report.metrics.win_rate - 1.0).abs() < 1e-6);
+        assert!((report.metrics.total_profit - 5.0).abs() < 1e-6);
+        assert!((report.metrics.winning_percentage - 1.0).abs() < 1e-6);
         assert_eq!(report.equity_curve.last().copied().unwrap_or_default(), 5.0);
     }
 }

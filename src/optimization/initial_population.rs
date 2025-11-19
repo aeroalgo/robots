@@ -44,7 +44,8 @@ impl InitialPopulationGenerator {
         &self,
         existing_candidates: Option<Vec<StrategyCandidate>>,
     ) -> Result<Population, anyhow::Error> {
-        let mut candidates = Vec::new();
+        let initial_capacity = existing_candidates.as_ref().map(|v| v.len()).unwrap_or(0);
+        let mut candidates = Vec::with_capacity(initial_capacity);
 
         if self.config.use_existing_strategies {
             if let Some(existing) = existing_candidates {
@@ -59,7 +60,7 @@ impl InitialPopulationGenerator {
             1
         };
 
-        let mut strategy_candidates = Vec::new();
+        let mut strategy_candidates = Vec::with_capacity(strategies_to_generate.max(initial_capacity));
         if candidates.is_empty() {
             let generated = self.generate_candidates(strategies_to_generate).await?;
             strategy_candidates.extend(generated);
@@ -77,7 +78,7 @@ impl InitialPopulationGenerator {
 
         let target_size =
             (self.config.population_size as f64 * self.config.decimation_coefficient) as usize;
-        let mut individuals = Vec::new();
+        let mut individuals = Vec::with_capacity(target_size);
 
         let total_strategies = strategy_candidates.len() * target_size;
         let mut current_strategy = 0;
@@ -179,7 +180,7 @@ impl InitialPopulationGenerator {
         use crate::discovery::IndicatorInfoCollector;
         use crate::strategy::types::PriceField;
 
-        let mut candidates = Vec::new();
+        let mut candidates = Vec::with_capacity(count);
         let mut engine = StrategyDiscoveryEngine::new(self.discovery_config.clone());
 
         use crate::indicators::registry::IndicatorRegistry;
@@ -226,7 +227,8 @@ impl InitialPopulationGenerator {
         use crate::strategy::types::StrategyParamValue;
 
         let mut rng = rand::thread_rng();
-        let mut params = HashMap::new();
+        let total_params: usize = candidate.indicators.iter().map(|i| i.parameters.len()).sum();
+        let mut params = HashMap::with_capacity(total_params);
 
         for indicator in &candidate.indicators {
             for param in &indicator.parameters {

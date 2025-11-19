@@ -1,5 +1,3 @@
-use async_trait::async_trait;
-
 use super::context::StrategyContext;
 use super::types::{
     IndicatorBindingSpec, PreparedCondition, StopSignal, StrategyDecision, StrategyDefinition,
@@ -7,7 +5,6 @@ use super::types::{
     TimeframeRequirement,
 };
 
-#[async_trait]
 pub trait Strategy: Send + Sync {
     fn id(&self) -> &StrategyId;
     fn metadata(&self) -> &StrategyMetadata;
@@ -17,7 +14,7 @@ pub trait Strategy: Send + Sync {
     fn entry_rules(&self) -> &[StrategyRuleSpec];
     fn exit_rules(&self) -> &[StrategyRuleSpec];
     fn timeframe_requirements(&self) -> &[TimeframeRequirement];
-    async fn evaluate(&self, context: &StrategyContext) -> Result<StrategyDecision, StrategyError>;
+    fn evaluate(&self, context: &StrategyContext) -> Result<StrategyDecision, StrategyError>;
     fn evaluate_stop_signals(
         &self,
         _context: &StrategyContext,

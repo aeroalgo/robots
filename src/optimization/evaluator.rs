@@ -32,7 +32,7 @@ impl CacheKey {
     }
 
     fn candidate_signature(candidate: &StrategyCandidate) -> String {
-        let mut parts = Vec::new();
+        let mut parts = Vec::with_capacity(4);
         parts.push(format!("indicators:{}", candidate.indicators.len()));
         parts.push(format!("nested:{}", candidate.nested_indicators.len()));
         parts.push(format!("conditions:{}", candidate.conditions.len()));
@@ -95,28 +95,18 @@ impl StrategyEvaluationRunner {
             StrategyConverter::candidate_to_definition(candidate, self.base_timeframe.clone())
                 .context("Не удалось конвертировать StrategyCandidate в StrategyDefinition")?;
 
-        let mut frames_clone = HashMap::new();
+        let mut frames_clone = HashMap::with_capacity(self.frames.len());
         for (k, v) in self.frames.iter() {
             frames_clone.insert(k.clone(), v.clone());
         }
 
-        let executor =
+        let mut executor =
             BacktestExecutor::from_definition(definition, Some(parameters.clone()), frames_clone)
                 .context("Не удалось создать BacktestExecutor")?;
 
-        let report_future = async {
-            let mut executor = executor;
-            executor.run_backtest().await
-        };
-
-        let report = if let Some(timeout_duration) = self.timeout {
-            timeout(timeout_duration, report_future)
-                .await
-                .context("Backtest превысил таймаут")?
-                .context("Ошибка выполнения backtest")?
-        } else {
-            report_future.await.context("Ошибка выполнения backtest")?
-        };
+        let report = executor
+            .run_backtest()
+            .context("Ошибка выполнения backtest")?;
 
         {
             let mut cache = self.cache.write().await;
@@ -130,7 +120,7 @@ impl StrategyEvaluationRunner {
         &self,
         evaluations: Vec<(StrategyCandidate, StrategyParameterMap)>,
     ) -> Vec<Result<BacktestReport>> {
-        let mut handles = Vec::new();
+        let mut handles = Vec::with_capacity(evaluations.len());
 
         for (candidate, parameters) in evaluations {
             let runner = Arc::new(self.clone());
@@ -146,7 +136,7 @@ impl StrategyEvaluationRunner {
             handles.push(handle);
         }
 
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(handles.len());
         for handle in handles {
             let result = handle
                 .await

@@ -77,8 +77,8 @@ impl GeneticAlgorithmV3 {
         population: &mut Population,
     ) -> Result<(), anyhow::Error> {
         let elites = self.select_elites(population);
-        let mut new_individuals = Vec::new();
         let target_size = population.individuals.len() - elites.len();
+        let mut new_individuals = Vec::with_capacity(target_size);
         let mut evaluated_count = 0;
 
         while new_individuals.len() < target_size {
@@ -439,7 +439,8 @@ impl GeneticAlgorithmV3 {
         Vec<TimeFrame>,
         Vec<(TimeFrame, Vec<crate::discovery::IndicatorInfo>)>,
     ) {
-        let mut tf_indicators: std::collections::HashMap<TimeFrame, std::collections::HashSet<String>> = std::collections::HashMap::new();
+        let total_conditions = candidate.conditions.len() + candidate.exit_conditions.len();
+        let mut tf_indicators: std::collections::HashMap<TimeFrame, std::collections::HashSet<String>> = std::collections::HashMap::with_capacity(total_conditions / 2 + 1);
         
         for condition in candidate.conditions.iter().chain(candidate.exit_conditions.iter()) {
             if let Some(tf) = condition.primary_timeframe.as_ref() {
@@ -464,9 +465,9 @@ impl GeneticAlgorithmV3 {
             }
         }
         
-        let mut result: Vec<(TimeFrame, Vec<crate::discovery::IndicatorInfo>)> = Vec::new();
+        let mut result: Vec<(TimeFrame, Vec<crate::discovery::IndicatorInfo>)> = Vec::with_capacity(tf_indicators.len());
         for (tf, aliases) in tf_indicators {
-            let mut indicators = Vec::new();
+            let mut indicators = Vec::with_capacity(aliases.len());
             for alias in aliases {
                 if let Some(ind) = candidate.indicators.iter().find(|i| i.alias == alias) {
                     indicators.push(ind.clone());
