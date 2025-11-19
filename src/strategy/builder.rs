@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
-
 use crate::condition::factory::ConditionFactory;
 use crate::condition::types::{ConditionError, SignalStrength, TrendDirection};
 use crate::indicators::formula::FormulaDefinition;
@@ -11,10 +10,11 @@ use super::context::StrategyContext;
 use super::types::{
     ConditionBindingSpec, ConditionDeclarativeSpec, ConditionEvaluation, ConditionInputSpec,
     ConditionOperator, DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec,
-    PositionDirection, PreparedCondition, PreparedStopHandler, PreparedTakeHandler, PriceField, RuleLogic, StopSignal,
-    StopSignalKind, StrategyDecision, StrategyDefinition, StrategyError, StrategyId,
-    StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyRuleSpec, StrategySignal,
-    StrategySignalType, StrategyUserInput, TimeframeRequirement, UserFormulaMetadata,
+    PositionDirection, PreparedCondition, PreparedStopHandler, PreparedTakeHandler, PriceField,
+    RuleLogic, StopSignal, StopSignalKind, StrategyDecision, StrategyDefinition, StrategyError,
+    StrategyId, StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyRuleSpec,
+    StrategySignal, StrategySignalType, StrategyUserInput, TimeframeRequirement,
+    UserFormulaMetadata,
 };
 use crate::risk::stops::{StopEvaluationContext, StopHandlerError, StopHandlerFactory};
 use crate::risk::takes::{TakeEvaluationContext, TakeHandlerError, TakeHandlerFactory};
@@ -75,51 +75,52 @@ impl DynamicStrategy {
         let mut result = HashMap::with_capacity(self.conditions.len());
         for condition in &self.conditions {
             let timeframe_data = context.timeframe(&condition.timeframe)?;
-            
-            let evaluation = if let Some(precomputed) = timeframe_data.condition_result(&condition.id) {
-                let idx = self.resolve_index(timeframe_data.index(), precomputed.signals.len());
-                ConditionEvaluation {
-                    condition_id: condition.id.clone(),
-                    satisfied: precomputed.signals.get(idx).copied().unwrap_or(false),
-                    strength: precomputed
-                        .strengths
-                        .get(idx)
-                        .copied()
-                        .unwrap_or(SignalStrength::Weak),
-                    trend: precomputed
-                        .directions
-                        .get(idx)
-                        .copied()
-                        .unwrap_or(TrendDirection::Sideways),
-                    weight: condition.weight(),
-                }
-            } else {
-                let condition_id = condition.id.clone();
-                let input = context.prepare_condition_input(condition)?;
-                let raw = condition.condition.check(input).map_err(|err| {
-                    StrategyError::ConditionFailure {
-                        condition_id: condition_id.clone(),
-                        source: err,
+
+            let evaluation =
+                if let Some(precomputed) = timeframe_data.condition_result(&condition.id) {
+                    let idx = self.resolve_index(timeframe_data.index(), precomputed.signals.len());
+                    ConditionEvaluation {
+                        condition_id: condition.id.clone(),
+                        satisfied: precomputed.signals.get(idx).copied().unwrap_or(false),
+                        strength: precomputed
+                            .strengths
+                            .get(idx)
+                            .copied()
+                            .unwrap_or(SignalStrength::Weak),
+                        trend: precomputed
+                            .directions
+                            .get(idx)
+                            .copied()
+                            .unwrap_or(TrendDirection::Sideways),
+                        weight: condition.weight(),
                     }
-                })?;
-                let idx = self.resolve_index(timeframe_data.index(), raw.signals.len());
-                ConditionEvaluation {
-                    condition_id: condition_id,
-                    satisfied: raw.signals.get(idx).copied().unwrap_or(false),
-                    strength: raw
-                        .strengths
-                        .get(idx)
-                        .copied()
-                        .unwrap_or(SignalStrength::Weak),
-                    trend: raw
-                        .directions
-                        .get(idx)
-                        .copied()
-                        .unwrap_or(TrendDirection::Sideways),
-                    weight: condition.weight(),
-                }
-            };
-            
+                } else {
+                    let condition_id = condition.id.clone();
+                    let input = context.prepare_condition_input(condition)?;
+                    let raw = condition.condition.check(input).map_err(|err| {
+                        StrategyError::ConditionFailure {
+                            condition_id: condition_id.clone(),
+                            source: err,
+                        }
+                    })?;
+                    let idx = self.resolve_index(timeframe_data.index(), raw.signals.len());
+                    ConditionEvaluation {
+                        condition_id: condition_id,
+                        satisfied: raw.signals.get(idx).copied().unwrap_or(false),
+                        strength: raw
+                            .strengths
+                            .get(idx)
+                            .copied()
+                            .unwrap_or(SignalStrength::Weak),
+                        trend: raw
+                            .directions
+                            .get(idx)
+                            .copied()
+                            .unwrap_or(TrendDirection::Sideways),
+                        weight: condition.weight(),
+                    }
+                };
+
             result.insert(condition.id.clone(), evaluation);
         }
         Ok(result)
@@ -152,7 +153,8 @@ impl DynamicStrategy {
         let mut weight_sum = 0.0f32;
         let mut weighted_score = 0.0f32;
         let mut strength_values = Vec::with_capacity(rule.conditions.len());
-        let mut trend_weights: HashMap<TrendDirection, f32> = HashMap::with_capacity(rule.conditions.len());
+        let mut trend_weights: HashMap<TrendDirection, f32> =
+            HashMap::with_capacity(rule.conditions.len());
         for condition_id in &rule.conditions {
             let evaluation = evaluations.get(condition_id).ok_or_else(|| {
                 StrategyError::UnknownConditionReference {
