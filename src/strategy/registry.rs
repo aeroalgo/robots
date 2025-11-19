@@ -49,7 +49,7 @@ impl StrategyRegistry {
     }
 
     pub fn register_strategy(&self, strategy: Arc<dyn Strategy>) {
-        let id = strategy.id().clone();
+        let id = strategy.id().to_string();
         self.instances.write().unwrap().insert(id, strategy);
     }
 
@@ -82,7 +82,7 @@ impl StrategyRegistry {
         self.instances
             .write()
             .unwrap()
-            .insert(id.clone(), arc.clone());
+            .insert(id.clone(), Arc::clone(&arc));
         Ok(arc)
     }
 

@@ -41,10 +41,10 @@ impl TimeframeData {
     }
 
     pub fn with_quote_frame(frame: &QuoteFrame, index: usize) -> Self {
-        let timeframe = frame.timeframe().clone();
-        let symbol = frame.symbol().clone();
+        let timeframe = frame.timeframe();
+        let symbol = frame.symbol();
         let mut data = Self::new(timeframe.clone());
-        data.symbol = Some(symbol);
+        data.symbol = Some(symbol.clone());
         let length = frame.len();
         data.index = if length == 0 {
             0

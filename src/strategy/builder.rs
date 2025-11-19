@@ -94,16 +94,17 @@ impl DynamicStrategy {
                     weight: condition.weight(),
                 }
             } else {
+                let condition_id = condition.id.clone();
                 let input = context.prepare_condition_input(condition)?;
                 let raw = condition.condition.check(input).map_err(|err| {
                     StrategyError::ConditionFailure {
-                        condition_id: condition.id.clone(),
+                        condition_id: condition_id.clone(),
                         source: err,
                     }
                 })?;
                 let idx = self.resolve_index(timeframe_data.index(), raw.signals.len());
                 ConditionEvaluation {
-                    condition_id: condition.id.clone(),
+                    condition_id: condition_id,
                     satisfied: raw.signals.get(idx).copied().unwrap_or(false),
                     strength: raw
                         .strengths
@@ -195,7 +196,8 @@ impl DynamicStrategy {
         let timeframe = rule
             .conditions
             .iter()
-            .find_map(|id| condition_lookup.get(id).map(|cond| cond.timeframe.clone()))
+            .find_map(|id| condition_lookup.get(id).map(|cond| &cond.timeframe))
+            .cloned()
             .unwrap_or_else(|| {
                 self.timeframe_requirements
                     .first()

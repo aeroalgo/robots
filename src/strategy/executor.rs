@@ -76,18 +76,20 @@ impl BacktestExecutor {
         let mut feed = HistoricalFeed::new_empty();
 
         for (tf, frame) in frames {
-            feed.frames.insert(tf.clone(), Arc::new(frame));
+            let tf_clone = tf.clone();
+            feed.frames.insert(tf_clone.clone(), Arc::new(frame));
             if feed.primary_timeframe.is_none() {
-                feed.primary_timeframe = Some(tf);
+                feed.primary_timeframe = Some(tf_clone);
             } else {
                 let current_len = feed
-                    .frames
-                    .get(&feed.primary_timeframe.clone().unwrap())
+                    .primary_timeframe
+                    .as_ref()
+                    .and_then(|ptf| feed.frames.get(ptf))
                     .map(|f| f.len())
                     .unwrap_or(0);
-                let new_len = feed.frames.get(&tf).map(|f| f.len()).unwrap_or(0);
+                let new_len = feed.frames.get(&tf_clone).map(|f| f.len()).unwrap_or(0);
                 if new_len > current_len {
-                    feed.primary_timeframe = Some(tf);
+                    feed.primary_timeframe = Some(tf_clone);
                 }
             }
         }
@@ -99,7 +101,7 @@ impl BacktestExecutor {
         }
 
         let context = feed.initialize_context();
-        let position_manager = PositionManager::new(strategy.id().clone());
+        let position_manager = PositionManager::new(strategy.id().to_string());
         Ok(Self {
             strategy,
             position_manager,
@@ -370,8 +372,8 @@ impl BacktestExecutor {
                                     name, err
                                 ))
                             })?;
-                        self.store_indicator_series(&timeframe, &binding.alias, values.clone())?;
-                        computed.insert(binding.alias.clone(), values.clone());
+                        self.store_indicator_series(&timeframe, &binding.alias, Arc::clone(&values))?;
+                        computed.insert(binding.alias.clone(), Arc::clone(&values));
                     }
                     IndicatorSourceSpec::Formula { .. } => {
                         let definition = plan.formula(&binding.alias).ok_or_else(|| {
@@ -384,8 +386,8 @@ impl BacktestExecutor {
                         let values = engine
                             .compute_formula(&timeframe, definition, &context)
                             .map_err(|err| StrategyExecutionError::Feed(err.to_string()))?;
-                        self.store_indicator_series(&timeframe, &binding.alias, values.clone())?;
-                        computed.insert(binding.alias.clone(), values.clone());
+                        self.store_indicator_series(&timeframe, &binding.alias, Arc::clone(&values))?;
+                        computed.insert(binding.alias.clone(), Arc::clone(&values));
                     }
                 }
             }
@@ -455,9 +457,10 @@ impl BacktestExecutor {
                     .prepare_condition_input(condition)
                     .map_err(|err| StrategyExecutionError::Strategy(err))?;
 
+                let condition_id = condition.id.clone();
                 let result = condition.condition.check(input).map_err(|err| {
                     StrategyExecutionError::Strategy(StrategyError::ConditionFailure {
-                        condition_id: condition.id.clone(),
+                        condition_id: condition_id.clone(),
                         source: err,
                     })
                 })?;
@@ -466,7 +469,7 @@ impl BacktestExecutor {
                     .context
                     .timeframe_mut(&timeframe)
                     .map_err(StrategyExecutionError::Strategy)?;
-                data.insert_condition_result(condition.id.clone(), result);
+                data.insert_condition_result(condition_id, result);
             }
         }
         Ok(())
@@ -643,11 +646,11 @@ impl HistoricalFeed {
             let entry = self.indices.entry(primary_timeframe.clone()).or_insert(0);
             *entry = current_primary_index.saturating_add(1);
         }
-        for (timeframe, frame) in &self.frames {
+        for (timeframe, _frame) in &self.frames {
             if timeframe == primary_timeframe {
                 continue;
             }
-            let len = frame.len();
+            let len = _frame.len();
             let entry = self.indices.entry(timeframe.clone()).or_insert(0);
             if *entry + 1 < len {
                 *entry += 1;
@@ -705,7 +708,7 @@ impl<'a> IndicatorComputationPlan<'a> {
             }
         }
         let mut queue = VecDeque::with_capacity(bindings.len());
-        for (alias, degree) in indegree.iter() {
+        for (alias, degree) in &indegree {
             if *degree == 0 {
                 queue.push_back(alias.clone());
             }
