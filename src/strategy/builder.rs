@@ -25,6 +25,7 @@ pub struct DynamicStrategy {
     definition: StrategyDefinition,
     indicator_bindings: Vec<IndicatorBindingSpec>,
     conditions: Vec<PreparedCondition>,
+    condition_lookup: HashMap<String, usize>,
     entry_rules: Vec<StrategyRuleSpec>,
     exit_rules: Vec<StrategyRuleSpec>,
     stop_handlers: Vec<PreparedStopHandler>,
@@ -46,11 +47,17 @@ impl DynamicStrategy {
         timeframe_requirements: Vec<TimeframeRequirement>,
         parameters: StrategyParameterMap,
     ) -> Self {
+        let condition_lookup: HashMap<String, usize> = conditions
+            .iter()
+            .enumerate()
+            .map(|(idx, condition)| (condition.id.clone(), idx))
+            .collect();
         Self {
             metadata,
             definition,
             indicator_bindings,
             conditions,
+            condition_lookup,
             entry_rules,
             exit_rules,
             stop_handlers,
@@ -74,15 +81,16 @@ impl DynamicStrategy {
     ) -> Result<HashMap<String, ConditionEvaluation>, StrategyError> {
         let mut result = HashMap::with_capacity(self.conditions.len());
         for condition in &self.conditions {
+            let condition_id = &condition.id;
             let timeframe_data = context.timeframe(&condition.timeframe)?;
             let current_index = timeframe_data.index();
             let previous_index = current_index.saturating_sub(1);
 
             let evaluation =
-                if let Some(precomputed) = timeframe_data.condition_result(&condition.id) {
+                if let Some(precomputed) = timeframe_data.condition_result(condition_id) {
                     let idx = self.resolve_index(previous_index, precomputed.signals.len());
                     ConditionEvaluation {
-                        condition_id: condition.id.clone(),
+                        condition_id: condition_id.clone(),
                         satisfied: precomputed.signals.get(idx).copied().unwrap_or(false),
                         strength: precomputed
                             .strengths
@@ -97,7 +105,6 @@ impl DynamicStrategy {
                         weight: condition.weight(),
                     }
                 } else {
-                    let condition_id = condition.id.clone();
                     let input = context.prepare_condition_input_with_index_offset(condition, 1)?;
                     let raw = condition.condition.check(input).map_err(|err| {
                         StrategyError::ConditionFailure {
@@ -107,7 +114,7 @@ impl DynamicStrategy {
                     })?;
                     let idx = self.resolve_index(previous_index, raw.signals.len());
                     ConditionEvaluation {
-                        condition_id: condition_id,
+                        condition_id: condition_id.clone(),
                         satisfied: raw.signals.get(idx).copied().unwrap_or(false),
                         strength: raw
                             .strengths
@@ -123,7 +130,7 @@ impl DynamicStrategy {
                     }
                 };
 
-            result.insert(condition.id.clone(), evaluation);
+            result.insert(condition_id.clone(), evaluation);
         }
         Ok(result)
     }
@@ -142,7 +149,6 @@ impl DynamicStrategy {
         &self,
         rule: &StrategyRuleSpec,
         evaluations: &HashMap<String, ConditionEvaluation>,
-        condition_lookup: &HashMap<&str, &PreparedCondition>,
         context: &StrategyContext,
     ) -> Result<Option<StrategySignal>, StrategyError> {
         if rule.conditions.is_empty() {
@@ -201,8 +207,9 @@ impl DynamicStrategy {
             .conditions
             .iter()
             .find_map(|id| {
-                condition_lookup
-                    .get(id.as_str())
+                self.condition_lookup
+                    .get(id)
+                    .and_then(|&idx| self.conditions.get(idx))
                     .map(|cond| &cond.timeframe)
             })
             .cloned()
@@ -213,10 +220,13 @@ impl DynamicStrategy {
                     .cloned()
                     .unwrap_or_else(|| crate::data_model::types::TimeFrame::Minutes(1))
             });
+        let rule_id = rule.id.clone();
+        let signal_type = rule.signal.clone();
+        let direction = rule.direction.clone();
         let mut signal = StrategySignal {
-            rule_id: rule.id.clone(),
-            signal_type: rule.signal.clone(),
-            direction: rule.direction.clone(),
+            rule_id,
+            signal_type,
+            direction,
             timeframe,
             strength,
             trend,
@@ -529,11 +539,6 @@ impl Strategy for DynamicStrategy {
 
     fn evaluate(&self, context: &StrategyContext) -> Result<StrategyDecision, StrategyError> {
         let evaluations = self.evaluate_conditions(context)?;
-        let condition_lookup: HashMap<&str, &PreparedCondition> = self
-            .conditions
-            .iter()
-            .map(|condition| (condition.id.as_str(), condition))
-            .collect::<HashMap<_, _>>();
         let has_active_positions = !context.active_positions().is_empty();
         let (stop_signals, take_signals) = if has_active_positions {
             (
@@ -544,27 +549,32 @@ impl Strategy for DynamicStrategy {
             (Vec::new(), Vec::new())
         };
         let mut decision = StrategyDecision::empty();
+        let mut metadata_key_buf = String::with_capacity(32);
         for stop in &stop_signals {
             decision.exits.push(stop.signal.clone());
-            decision.metadata.insert(
-                format!("stop.{}.exit_price", stop.handler_id),
-                stop.exit_price.to_string(),
-            );
+            metadata_key_buf.clear();
+            metadata_key_buf.push_str("stop.");
+            metadata_key_buf.push_str(&stop.handler_id);
+            metadata_key_buf.push_str(".exit_price");
+            decision
+                .metadata
+                .insert(metadata_key_buf.clone(), stop.exit_price.to_string());
         }
         for take in &take_signals {
             decision.exits.push(take.signal.clone());
-            decision.metadata.insert(
-                format!("take.{}.exit_price", take.handler_id),
-                take.exit_price.to_string(),
-            );
+            metadata_key_buf.clear();
+            metadata_key_buf.push_str("take.");
+            metadata_key_buf.push_str(&take.handler_id);
+            metadata_key_buf.push_str(".exit_price");
+            decision
+                .metadata
+                .insert(metadata_key_buf.clone(), take.exit_price.to_string());
         }
         let mut all_stop_signals = stop_signals;
         all_stop_signals.extend(take_signals);
         all_stop_signals.sort_by(|a, b| a.priority.cmp(&b.priority));
         for rule in &self.entry_rules {
-            if let Some(signal) =
-                self.evaluate_rule(rule, &evaluations, &condition_lookup, context)?
-            {
+            if let Some(signal) = self.evaluate_rule(rule, &evaluations, context)? {
                 match signal.signal_type {
                     StrategySignalType::Entry => decision.entries.push(signal),
                     StrategySignalType::Exit => decision.exits.push(signal),
@@ -574,9 +584,7 @@ impl Strategy for DynamicStrategy {
         }
         if has_active_positions {
             for rule in &self.exit_rules {
-                if let Some(signal) =
-                    self.evaluate_rule(rule, &evaluations, &condition_lookup, context)?
-                {
+                if let Some(signal) = self.evaluate_rule(rule, &evaluations, context)? {
                     match signal.signal_type {
                         StrategySignalType::Entry => decision.entries.push(signal),
                         StrategySignalType::Exit => decision.exits.push(signal),

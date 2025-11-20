@@ -392,6 +392,9 @@ impl PositionManager {
         reason: Option<String>,
         report: &mut ExecutionReport,
     ) -> Result<(), PositionError> {
+        if self.open_index.is_empty() {
+            return Ok(());
+        }
         let direction = match signal.direction.clone() {
             PositionDirection::Long => PositionDirection::Long,
             PositionDirection::Short => PositionDirection::Short,
@@ -582,6 +585,9 @@ impl PositionManager {
         report: &mut ExecutionReport,
     ) -> Result<(), PositionError> {
         if quantity.abs() <= f64::EPSILON {
+            return Ok(());
+        }
+        if !self.open_index.values().any(|id| id == &position_id) {
             return Ok(());
         }
         let event_time = timestamp.unwrap_or_else(Utc::now);

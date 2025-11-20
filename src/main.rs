@@ -38,7 +38,7 @@ async fn run() -> Result<()> {
 
     let symbol = Symbol::from_descriptor("AFLT.MM");
     let timeframe = TimeFrame::from_identifier("60");
-    let start = Utc::now() - chrono::Duration::days(1000);
+    let start = Utc::now() - chrono::Duration::days(5000);
     let end = Utc::now() + chrono::Duration::hours(3);
 
     let candles: Vec<_> = connector

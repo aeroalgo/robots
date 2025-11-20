@@ -38,6 +38,10 @@ pub struct BacktestExecutor {
     analytics: BacktestAnalytics,
     warmup_bars: usize,
     deferred_decision: Option<StrategyDecision>,
+    cached_session_duration: Option<chrono::Duration>,
+    cached_equity: Option<f64>,
+    last_equity_bar: usize,
+    initial_capital: f64,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -78,12 +82,14 @@ impl BacktestExecutor {
         let mut base_timeframes: Vec<TimeFrame> = Vec::new();
 
         for (tf, frame) in frames {
-            let tf_clone = tf.clone();
-            let tf_for_vec = tf_clone.clone();
-            feed.frames.insert(tf_clone.clone(), Arc::new(frame));
+            let tf_for_map = tf.clone();
+            let tf_for_vec = tf.clone();
+            let tf_for_primary = tf.clone();
+            let tf_for_len = tf.clone();
+            feed.frames.insert(tf_for_map, Arc::new(frame));
             base_timeframes.push(tf_for_vec);
             if feed.primary_timeframe.is_none() {
-                feed.primary_timeframe = Some(tf_clone);
+                feed.primary_timeframe = Some(tf_for_primary);
             } else {
                 let current_len = feed
                     .primary_timeframe
@@ -91,9 +97,9 @@ impl BacktestExecutor {
                     .and_then(|ptf| feed.frames.get(ptf))
                     .map(|f| f.len())
                     .unwrap_or(0);
-                let new_len = feed.frames.get(&tf_clone).map(|f| f.len()).unwrap_or(0);
+                let new_len = feed.frames.get(&tf_for_len).map(|f| f.len()).unwrap_or(0);
                 if new_len > current_len {
-                    feed.primary_timeframe = Some(tf_clone);
+                    feed.primary_timeframe = Some(tf_for_len);
                 }
             }
         }
@@ -190,6 +196,11 @@ impl BacktestExecutor {
 
         let context = feed.initialize_context();
         let position_manager = PositionManager::new(strategy.id().to_string());
+        let cached_session_duration = feed.primary_timeframe.as_ref().and_then(|tf| tf.duration());
+        let initial_capital = position_manager
+            .portfolio_snapshot()
+            .total_equity
+            .max(10000.0);
         Ok(Self {
             strategy,
             position_manager,
@@ -198,6 +209,10 @@ impl BacktestExecutor {
             analytics: BacktestAnalytics::new(),
             warmup_bars: 0,
             deferred_decision: None,
+            cached_session_duration,
+            cached_equity: None,
+            last_equity_bar: 0,
+            initial_capital,
         })
     }
 
@@ -298,6 +313,8 @@ impl BacktestExecutor {
         self.feed.reset();
         self.analytics.reset();
         self.deferred_decision = None;
+        self.cached_equity = None;
+        self.last_equity_bar = 0;
         for timeframe in self.feed.frames.keys() {
             if let Ok(data) = self.context.timeframe_mut(timeframe) {
                 data.set_index(0);
@@ -308,20 +325,32 @@ impl BacktestExecutor {
         }
         self.populate_indicators()?;
         self.populate_conditions()?;
-        self.analytics
-            .push_equity_point(self.position_manager.portfolio_snapshot().total_equity);
+        self.initial_capital = self
+            .position_manager
+            .portfolio_snapshot()
+            .total_equity
+            .max(10000.0);
+        self.analytics.push_equity_point(self.initial_capital);
         let mut processed_bars = 0usize;
+        let mut needs_session_check = true;
         while self.feed.step(&mut self.context) {
             processed_bars += 1;
-            let session_state = self.session_state();
-            self.update_session_metadata(session_state);
+
             if processed_bars < self.warmup_bars {
-                self.analytics
-                    .push_equity_point(self.position_manager.portfolio_snapshot().total_equity);
+                self.analytics.push_equity_point(self.initial_capital);
                 continue;
             }
 
-            // Отслеживаем бары в позициях (только после warmup)
+            if needs_session_check {
+                let session_state = self.session_state();
+                if session_state.is_some() {
+                    self.update_session_metadata(session_state);
+                    needs_session_check = false;
+                }
+            } else if processed_bars % 10 == 0 {
+                needs_session_check = true;
+            }
+
             let has_open_positions = self.position_manager.open_position_count() > 0;
             self.analytics
                 .increment_bars_in_positions_if_has_positions(has_open_positions);
@@ -337,6 +366,7 @@ impl BacktestExecutor {
                     self.context.metadata.remove("deferred_entries");
                     let report = result.map_err(StrategyExecutionError::Position)?;
                     self.collect_report(&report);
+                    self.cached_equity = None;
                     if self.position_manager.open_position_count() > 0 {
                         self.process_immediate_stop_checks()?;
                     }
@@ -346,18 +376,50 @@ impl BacktestExecutor {
                 .strategy
                 .evaluate(&self.context)
                 .map_err(StrategyExecutionError::Strategy)?;
-            if !decision.is_empty() {
+            let equity_changed = !decision.is_empty();
+            if equity_changed {
                 let report = self
                     .position_manager
                     .process_decision(&mut self.context, &decision)
                     .map_err(StrategyExecutionError::Position)?;
                 self.collect_report(&report);
+                self.cached_equity = None;
                 if self.position_manager.open_position_count() > 0 {
                     self.process_immediate_stop_checks()?;
                 }
             }
-            self.analytics
-                .push_equity_point(self.position_manager.portfolio_snapshot().total_equity);
+
+            let equity = {
+                let needs_snapshot = (has_open_positions
+                    && (equity_changed || self.cached_equity.is_none()))
+                    || (has_open_positions && processed_bars - self.last_equity_bar >= 10)
+                    || self.cached_equity.is_none();
+
+                if !needs_snapshot {
+                    self.cached_equity.unwrap()
+                } else {
+                    let total_equity = self.position_manager.portfolio_snapshot().total_equity;
+                    let current_equity = self.initial_capital + total_equity;
+
+                    let should_update_cache = if has_open_positions
+                        && (equity_changed || self.cached_equity.is_none())
+                    {
+                        self.cached_equity
+                            .map_or(true, |cached| (cached - current_equity).abs() > 0.01)
+                    } else if has_open_positions && processed_bars - self.last_equity_bar >= 10 {
+                        (self.cached_equity.unwrap() - current_equity).abs() > 0.01
+                    } else {
+                        true
+                    };
+
+                    if should_update_cache {
+                        self.cached_equity = Some(current_equity);
+                        self.last_equity_bar = processed_bars;
+                    }
+                    current_equity
+                }
+            };
+            self.analytics.push_equity_point(equity);
         }
         if let Some(pending) = self.deferred_decision.take() {
             if !pending.is_empty() {
@@ -575,7 +637,7 @@ impl BacktestExecutor {
         if frame.len() == 0 || idx >= frame.len() {
             return None;
         }
-        let duration = primary.duration()?;
+        let duration = self.cached_session_duration?;
         let current = frame.get(idx)?;
         let mut state = SessionState::default();
         if idx == 0 {
@@ -598,19 +660,28 @@ impl BacktestExecutor {
     }
 
     fn update_session_metadata(&mut self, state: Option<SessionState>) {
+        const SESSION_START: &str = "session_start";
+        const SESSION_END: &str = "session_end";
         match state {
             Some(state) => {
-                self.context.metadata.insert(
-                    "session_start".to_string(),
-                    state.is_session_start.to_string(),
-                );
-                self.context
-                    .metadata
-                    .insert("session_end".to_string(), state.is_session_end.to_string());
+                if state.is_session_start {
+                    self.context
+                        .metadata
+                        .insert(SESSION_START.to_string(), "true".to_string());
+                } else {
+                    self.context.metadata.remove(SESSION_START);
+                }
+                if state.is_session_end {
+                    self.context
+                        .metadata
+                        .insert(SESSION_END.to_string(), "true".to_string());
+                } else {
+                    self.context.metadata.remove(SESSION_END);
+                }
             }
             None => {
-                self.context.metadata.remove("session_start");
-                self.context.metadata.remove("session_end");
+                self.context.metadata.remove(SESSION_START);
+                self.context.metadata.remove(SESSION_END);
             }
         }
     }
@@ -657,11 +728,12 @@ impl HistoricalFeed {
         let mut timeframes: Vec<TimeFrame> = Vec::new();
         for (timeframe, frame) in frames {
             let len = frame.len();
+            let timeframe_for_vec = timeframe.clone();
             if len > max_len {
                 max_len = len;
-                primary_timeframe = Some(timeframe.clone());
+                primary_timeframe = Some(timeframe_for_vec.clone());
             }
-            timeframes.push(timeframe.clone());
+            timeframes.push(timeframe_for_vec);
             arc_frames.insert(timeframe, Arc::new(frame));
         }
         timeframes.sort_by(|a, b| {
@@ -843,11 +915,11 @@ impl HistoricalFeed {
             return false;
         }
         let current_primary_index = {
-            let entry = self.indices.entry(primary_timeframe.clone()).or_insert(0);
-            if *entry >= primary_len {
+            let entry = self.indices.get(primary_timeframe).copied().unwrap_or(0);
+            if entry >= primary_len {
                 return false;
             }
-            *entry
+            entry
         };
 
         let current_quote = match primary_frame.get(current_primary_index) {
@@ -865,8 +937,12 @@ impl HistoricalFeed {
             let idx = if timeframe == primary_timeframe {
                 current_primary_index.min(len - 1)
             } else {
-                let entry = self.indices.entry(timeframe.clone()).or_insert(0);
-                let current_idx = (*entry).min(len.saturating_sub(1));
+                let current_idx = self
+                    .indices
+                    .get(timeframe)
+                    .copied()
+                    .unwrap_or(0)
+                    .min(len.saturating_sub(1));
 
                 let new_idx = if Self::is_higher_timeframe(timeframe, primary_timeframe) {
                     if let Some(aligned_timestamp_millis) =
@@ -876,14 +952,23 @@ impl HistoricalFeed {
                         )
                     {
                         if let Some(timestamps) = higher_timestamps.get(timeframe) {
-                            let mut target_idx =
-                                current_idx.min(timestamps.len().saturating_sub(1));
+                            let start_idx = current_idx.min(timestamps.len().saturating_sub(1));
+                            let end_idx = timestamps.len();
 
-                            for i in (target_idx + 1)..timestamps.len() {
-                                if timestamps[i] <= aligned_timestamp_millis {
-                                    target_idx = i;
-                                } else {
+                            let mut target_idx = start_idx;
+                            let mut left = start_idx;
+                            let mut right = end_idx;
+
+                            while left < right {
+                                let mid = left + (right - left) / 2;
+                                if mid >= timestamps.len() {
                                     break;
+                                }
+                                if timestamps[mid] <= aligned_timestamp_millis {
+                                    target_idx = mid;
+                                    left = mid + 1;
+                                } else {
+                                    right = mid;
                                 }
                             }
                             target_idx.min(len.saturating_sub(1))
@@ -920,7 +1005,7 @@ impl HistoricalFeed {
                         current_idx
                     }
                 };
-                *entry = new_idx;
+                self.indices.insert(timeframe.clone(), new_idx);
                 new_idx
             };
             match context.timeframe_mut(timeframe) {
@@ -937,10 +1022,10 @@ impl HistoricalFeed {
                 }
             }
         }
-        {
-            let entry = self.indices.entry(primary_timeframe.clone()).or_insert(0);
-            *entry = current_primary_index.saturating_add(1);
-        }
+        self.indices.insert(
+            primary_timeframe.clone(),
+            current_primary_index.saturating_add(1),
+        );
         true
     }
 }

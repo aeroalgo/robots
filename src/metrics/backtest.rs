@@ -25,6 +25,7 @@ pub struct StrategyTrade {
 pub struct BacktestMetrics {
     // ===== БАЗОВЫЕ МЕТРИКИ ПРОИЗВОДИТЕЛЬНОСТИ =====
     /// TOTAL PROFIT = ENDING CAPITAL – INITIAL CAPITAL
+    /// ENDING CAPITAL = INITIAL CAPITAL + equity (где equity = realized_pnl + unrealized_pnl)
     pub total_profit: f64,
     /// Profit In Pips = TOTAL PROFIT / 1 PIP VALUE
     pub profit_in_pips: Option<f64>,

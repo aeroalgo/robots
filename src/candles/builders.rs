@@ -34,7 +34,9 @@ impl BarBuilder for RangeBarBuilder {
         &mut self,
         source_frame: &QuoteFrame,
     ) -> Result<QuoteFrame, BarBuilderError> {
-        let mut result = QuoteFrame::new(self.symbol.clone(), self.target_timeframe.clone());
+        let symbol = self.symbol.clone();
+        let timeframe = self.target_timeframe.clone();
+        let mut result = QuoteFrame::new(symbol.clone(), timeframe.clone());
         let range_size = self.range_size as Price;
 
         let mut current_bar: Option<Quote> = None;
@@ -52,8 +54,8 @@ impl BarBuilder for RangeBarBuilder {
 
             if range >= range_size {
                 let new_bar = Quote::from_parts(
-                    self.symbol.clone(),
-                    self.target_timeframe.clone(),
+                    symbol.clone(),
+                    timeframe.clone(),
                     quote.timestamp(),
                     bar.open(),
                     high,
@@ -69,8 +71,8 @@ impl BarBuilder for RangeBarBuilder {
                 current_bar = Some(quote.clone());
             } else {
                 *bar = Quote::from_parts(
-                    self.symbol.clone(),
-                    self.target_timeframe.clone(),
+                    symbol.clone(),
+                    timeframe.clone(),
                     bar.timestamp(),
                     bar.open(),
                     high,
@@ -110,7 +112,9 @@ impl BarBuilder for VolumeBarBuilder {
         &mut self,
         source_frame: &QuoteFrame,
     ) -> Result<QuoteFrame, BarBuilderError> {
-        let mut result = QuoteFrame::new(self.symbol.clone(), self.target_timeframe.clone());
+        let symbol = self.symbol.clone();
+        let timeframe = self.target_timeframe.clone();
+        let mut result = QuoteFrame::new(symbol.clone(), timeframe.clone());
         let volume_size = self.volume_size as Volume;
 
         let mut current_bar: Option<Quote> = None;
@@ -131,8 +135,8 @@ impl BarBuilder for VolumeBarBuilder {
 
             if accumulated_volume >= volume_size {
                 let new_bar = Quote::from_parts(
-                    self.symbol.clone(),
-                    self.target_timeframe.clone(),
+                    symbol.clone(),
+                    timeframe.clone(),
                     quote.timestamp(),
                     bar.open(),
                     high,
@@ -145,8 +149,8 @@ impl BarBuilder for VolumeBarBuilder {
                 accumulated_volume = quote.volume();
             } else {
                 *bar = Quote::from_parts(
-                    self.symbol.clone(),
-                    self.target_timeframe.clone(),
+                    symbol.clone(),
+                    timeframe.clone(),
                     bar.timestamp(),
                     bar.open(),
                     high,
@@ -186,7 +190,9 @@ impl BarBuilder for VolatilityBarBuilder {
         &mut self,
         source_frame: &QuoteFrame,
     ) -> Result<QuoteFrame, BarBuilderError> {
-        let mut result = QuoteFrame::new(self.symbol.clone(), self.target_timeframe.clone());
+        let symbol = self.symbol.clone();
+        let timeframe = self.target_timeframe.clone();
+        let mut result = QuoteFrame::new(symbol.clone(), timeframe.clone());
         let threshold = self.volatility_threshold as Price;
 
         let mut current_bar: Option<Quote> = None;
@@ -206,8 +212,8 @@ impl BarBuilder for VolatilityBarBuilder {
 
             if true_range >= threshold {
                 let new_bar = Quote::from_parts(
-                    self.symbol.clone(),
-                    self.target_timeframe.clone(),
+                    symbol.clone(),
+                    timeframe.clone(),
                     quote.timestamp(),
                     bar.open(),
                     high,
@@ -220,8 +226,8 @@ impl BarBuilder for VolatilityBarBuilder {
                 previous_close = Some(quote.close());
             } else {
                 *bar = Quote::from_parts(
-                    self.symbol.clone(),
-                    self.target_timeframe.clone(),
+                    symbol.clone(),
+                    timeframe.clone(),
                     bar.timestamp(),
                     bar.open(),
                     high,
@@ -262,7 +268,9 @@ impl BarBuilder for RenkoBarBuilder {
         &mut self,
         source_frame: &QuoteFrame,
     ) -> Result<QuoteFrame, BarBuilderError> {
-        let mut result = QuoteFrame::new(self.symbol.clone(), self.target_timeframe.clone());
+        let symbol = self.symbol.clone();
+        let timeframe = self.target_timeframe.clone();
+        let mut result = QuoteFrame::new(symbol.clone(), timeframe.clone());
         let brick_size = self.brick_size as Price;
 
         let mut last_brick_close: Option<Price> = None;
@@ -271,8 +279,8 @@ impl BarBuilder for RenkoBarBuilder {
             if last_brick_close.is_none() {
                 let rounded_close = (quote.close() / brick_size).round() * brick_size;
                 let new_bar = Quote::from_parts(
-                    self.symbol.clone(),
-                    self.target_timeframe.clone(),
+                    symbol.clone(),
+                    timeframe.clone(),
                     quote.timestamp(),
                     rounded_close,
                     rounded_close,
@@ -295,8 +303,8 @@ impl BarBuilder for RenkoBarBuilder {
                 for i in 1..=bricks {
                     let brick_close = last_close + (direction * brick_size * i as Price);
                     let new_bar = Quote::from_parts(
-                        self.symbol.clone(),
-                        self.target_timeframe.clone(),
+                        symbol.clone(),
+                        timeframe.clone(),
                         quote.timestamp(),
                         brick_close - (direction * brick_size),
                         brick_close.max(brick_close - (direction * brick_size)),
@@ -333,7 +341,9 @@ impl BarBuilder for HeikinAshiBarBuilder {
         &mut self,
         source_frame: &QuoteFrame,
     ) -> Result<QuoteFrame, BarBuilderError> {
-        let mut result = QuoteFrame::new(self.symbol.clone(), self.target_timeframe.clone());
+        let symbol = self.symbol.clone();
+        let timeframe = self.target_timeframe.clone();
+        let mut result = QuoteFrame::new(symbol.clone(), timeframe.clone());
         let mut previous_ha: Option<Quote> = None;
 
         for quote in source_frame.iter() {
@@ -354,8 +364,8 @@ impl BarBuilder for HeikinAshiBarBuilder {
             };
 
             let ha_bar = Quote::from_parts(
-                self.symbol.clone(),
-                self.target_timeframe.clone(),
+                symbol.clone(),
+                timeframe.clone(),
                 quote.timestamp(),
                 ha_open,
                 ha_high,

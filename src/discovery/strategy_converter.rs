@@ -23,16 +23,17 @@ impl StrategyConverter {
         let metadata = Self::create_metadata(candidate);
         let parameters = Self::extract_parameters(candidate);
         let defaults = Self::extract_defaults(candidate);
+        let base_tf = base_timeframe.clone();
 
         let indicator_bindings =
-            Self::create_indicator_bindings(candidate, base_timeframe.clone())?;
+            Self::create_indicator_bindings(candidate, base_tf.clone())?;
         let condition_bindings =
-            Self::create_condition_bindings(candidate, base_timeframe.clone())?;
+            Self::create_condition_bindings(candidate, base_tf.clone())?;
         let (stop_handlers, take_handlers) =
-            Self::create_stop_and_take_handlers(candidate, base_timeframe.clone())?;
+            Self::create_stop_and_take_handlers(candidate, base_tf.clone())?;
 
         let exit_condition_bindings =
-            Self::create_condition_bindings_for_exit(candidate, base_timeframe.clone())?;
+            Self::create_condition_bindings_for_exit(candidate, base_tf)?;
 
         let entry_rules = Self::create_entry_rules(candidate, &condition_bindings)?;
         let exit_rules = Self::create_exit_rules(candidate, &exit_condition_bindings)?;

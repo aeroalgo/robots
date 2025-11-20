@@ -111,3 +111,4 @@ echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid
 - `--call-graph fp` - альтернативный метод (frame pointer, быстрее но менее точно)
 
 
+

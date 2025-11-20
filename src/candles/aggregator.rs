@@ -40,6 +40,7 @@ impl TimeFrameAggregator {
         let estimated_bars = (source_frame.len() as f64 / ratio as f64).ceil() as usize;
         let mut aggregated_quotes = Vec::with_capacity(estimated_bars);
         let mut source_indices = HashMap::with_capacity(estimated_bars);
+        let target_timeframe_for_quotes = target_timeframe.clone();
 
         let mut current_bar_start: Option<DateTime<Utc>> = None;
         let mut current_bar_open: Option<Price> = None;
@@ -57,7 +58,7 @@ impl TimeFrameAggregator {
                 if current_bar_start.is_some() {
                     let aggregated_quote = Quote::from_parts(
                         symbol.clone(),
-                        target_timeframe.clone(),
+                        target_timeframe_for_quotes.clone(),
                         current_bar_start.unwrap(),
                         current_bar_open.unwrap(),
                         current_bar_high.unwrap(),
@@ -90,7 +91,7 @@ impl TimeFrameAggregator {
         if current_bar_start.is_some() {
             let aggregated_quote = Quote::from_parts(
                 symbol.clone(),
-                target_timeframe.clone(),
+                target_timeframe_for_quotes.clone(),
                 current_bar_start.unwrap(),
                 current_bar_open.unwrap(),
                 current_bar_high.unwrap(),
@@ -238,6 +239,7 @@ impl TimeFrameAggregator {
     ) -> Result<QuoteFrame, TimeFrameAggregationError> {
         let source_tf = &aggregated_frame.metadata.source_timeframe;
         let symbol = aggregated_frame.frame.symbol().clone();
+        let source_tf_clone = source_tf.clone();
         let ratio = aggregated_frame.metadata.aggregation_ratio as usize;
 
         let estimated_size = aggregated_frame.frame.len() * ratio;
@@ -307,7 +309,7 @@ impl TimeFrameAggregator {
 
                     let expanded_quote = Quote::from_parts(
                         symbol.clone(),
-                        source_tf.clone(),
+                        source_tf_clone.clone(),
                         expanded_timestamp,
                         quote_open,
                         quote_high,
@@ -345,7 +347,7 @@ impl TimeFrameAggregator {
 
                     let expanded_quote = Quote::from_parts(
                         symbol.clone(),
-                        source_tf.clone(),
+                        source_tf_clone.clone(),
                         current_timestamp,
                         quote_open,
                         quote_high,
@@ -434,6 +436,7 @@ impl TimeFrameAggregator {
         }
 
         let symbol_clone = source_frame.symbol().clone();
+        let target_timeframe_for_quotes = target_timeframe.clone();
         let mut result_frame = QuoteFrame::new(symbol_clone, target_timeframe.clone());
         let candle_minute_len = Duration::minutes(target_minutes as i64);
 
@@ -495,7 +498,7 @@ impl TimeFrameAggregator {
                 if collected_count >= count_old_candles_in_one_new {
                     let aggregated_quote = Quote::from_parts(
                         result_frame.symbol().clone(),
-                        target_timeframe.clone(),
+                        target_timeframe_for_quotes.clone(),
                         new_candle_start,
                         new_candle_open,
                         new_candle_high,
