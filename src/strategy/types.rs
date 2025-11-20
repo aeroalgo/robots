@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use crate::condition::types::{
     ConditionCategory, ConditionConfig, ConditionError, ConditionResultData, SignalStrength,
-    TrendDirection,
 };
 use crate::data_model::types::{Symbol, TimeFrame};
 use crate::risk::stops::StopHandler;
@@ -488,7 +487,8 @@ impl StrategyDefinition {
         defaults: StrategyParameterMap,
         optimizer_hints: BTreeMap<String, StrategyParamValue>,
     ) -> Self {
-        let timeframe_requirements = Self::timeframe_requirements_from_indicators(&indicator_bindings);
+        let timeframe_requirements =
+            Self::timeframe_requirements_from_indicators(&indicator_bindings);
         Self {
             metadata,
             parameters,
@@ -526,7 +526,9 @@ impl StrategyDefinition {
         self.formulas.iter().find(|formula| formula.id == id)
     }
 
-    fn timeframe_requirements_from_indicators(indicators: &[IndicatorBindingSpec]) -> Vec<TimeframeRequirement> {
+    fn timeframe_requirements_from_indicators(
+        indicators: &[IndicatorBindingSpec],
+    ) -> Vec<TimeframeRequirement> {
         indicators
             .iter()
             .map(|binding| TimeframeRequirement {
@@ -567,7 +569,6 @@ pub struct StrategySignal {
     pub direction: PositionDirection,
     pub timeframe: TimeFrame,
     pub strength: SignalStrength,
-    pub trend: TrendDirection,
     pub quantity: Option<f64>,
     pub entry_rule_id: Option<String>,
     pub tags: Vec<String>,
@@ -647,7 +648,6 @@ pub struct ConditionEvaluation {
     pub condition_id: String,
     pub satisfied: bool,
     pub strength: SignalStrength,
-    pub trend: TrendDirection,
     pub weight: f32,
 }
 
@@ -698,16 +698,10 @@ impl From<ConditionResultData> for ConditionEvaluation {
             .last()
             .copied()
             .unwrap_or(SignalStrength::Weak);
-        let trend = data
-            .directions
-            .last()
-            .copied()
-            .unwrap_or(TrendDirection::Sideways);
         Self {
             condition_id: String::new(),
             satisfied,
             strength,
-            trend,
             weight: 1.0,
         }
     }

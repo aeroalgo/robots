@@ -280,27 +280,31 @@ impl PositionManager {
         decision: &StrategyDecision,
     ) -> Result<ExecutionReport, PositionError> {
         let mut report = ExecutionReport::default();
-        let mut stop_ids: HashSet<String> = HashSet::new();
-        let mut stop_signals: Vec<&StopSignal> = decision.stop_signals.iter().collect();
-        stop_signals.sort_unstable_by_key(|signal| signal.priority);
-        for stop in stop_signals {
-            stop_ids.insert(stop.signal.rule_id.clone());
-            let reason = format!("stop:{:?}", stop.kind);
-            self.handle_exit_signal(
-                context,
-                &stop.signal,
-                Some(stop.exit_price),
-                Some(reason),
-                &mut report,
-            )?;
-        }
-        for exit in &decision.exits {
-            if stop_ids.contains(&exit.rule_id)
-                && exit.tags.iter().any(|tag| tag.eq_ignore_ascii_case("stop"))
-            {
-                continue;
+        let has_active_positions = !self.open_index.is_empty();
+
+        if has_active_positions {
+            let mut stop_ids: HashSet<String> = HashSet::new();
+            let mut stop_signals: Vec<&StopSignal> = decision.stop_signals.iter().collect();
+            stop_signals.sort_unstable_by_key(|signal| signal.priority);
+            for stop in stop_signals {
+                stop_ids.insert(stop.signal.rule_id.clone());
+                let reason = format!("stop:{:?}", stop.kind);
+                self.handle_exit_signal(
+                    context,
+                    &stop.signal,
+                    Some(stop.exit_price),
+                    Some(reason),
+                    &mut report,
+                )?;
             }
-            self.handle_exit_signal(context, exit, None, None, &mut report)?;
+            for exit in &decision.exits {
+                if stop_ids.contains(&exit.rule_id)
+                    && exit.tags.iter().any(|tag| tag.eq_ignore_ascii_case("stop"))
+                {
+                    continue;
+                }
+                self.handle_exit_signal(context, exit, None, None, &mut report)?;
+            }
         }
         for entry in &decision.entries {
             self.handle_entry_signal(context, entry, &mut report)?;
@@ -392,9 +396,6 @@ impl PositionManager {
         reason: Option<String>,
         report: &mut ExecutionReport,
     ) -> Result<(), PositionError> {
-        if self.open_index.is_empty() {
-            return Ok(());
-        }
         let direction = match signal.direction.clone() {
             PositionDirection::Long => PositionDirection::Long,
             PositionDirection::Short => PositionDirection::Short,
@@ -898,7 +899,7 @@ mod tests {
             direction: PositionDirection::Long,
             timeframe: timeframe.clone(),
             strength: SignalStrength::Strong,
-            trend: TrendDirection::Rising,
+            trend: None,
             quantity: Some(1.0),
             entry_rule_id: Some("enter-long".to_string()),
             tags: Vec::new(),
@@ -914,7 +915,7 @@ mod tests {
             direction: PositionDirection::Long,
             timeframe: timeframe.clone(),
             strength: SignalStrength::Strong,
-            trend: TrendDirection::Falling,
+            trend: None,
             quantity: Some(1.0),
             entry_rule_id: None,
             tags: Vec::new(),

@@ -1124,7 +1124,7 @@ impl<'a> IndicatorComputationPlan<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::condition::types::{SignalStrength, TrendDirection};
+    use crate::condition::types::SignalStrength;
     use crate::data_model::quote::Quote;
     use crate::data_model::quote_frame::QuoteFrame;
     use crate::strategy::context::StrategyContext;
@@ -1209,7 +1209,6 @@ mod tests {
                     direction: PositionDirection::Long,
                     timeframe: self.timeframe.clone(),
                     strength: SignalStrength::Strong,
-                    trend: TrendDirection::Rising,
                     quantity: Some(1.0),
                     entry_rule_id: Some("enter".to_string()),
                     tags: Vec::new(),
@@ -1224,7 +1223,6 @@ mod tests {
                     direction: PositionDirection::Long,
                     timeframe: self.timeframe.clone(),
                     strength: SignalStrength::Strong,
-                    trend: TrendDirection::Falling,
                     quantity: Some(1.0),
                     entry_rule_id: None,
                     tags: Vec::new(),

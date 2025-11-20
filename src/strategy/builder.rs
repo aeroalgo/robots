@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::condition::factory::ConditionFactory;
-use crate::condition::types::{ConditionError, SignalStrength, TrendDirection};
+use crate::condition::types::{ConditionError, SignalStrength};
 use crate::indicators::formula::FormulaDefinition;
 
 use super::base::{Strategy, StrategyDescriptor};
@@ -11,10 +11,9 @@ use super::types::{
     ConditionBindingSpec, ConditionDeclarativeSpec, ConditionEvaluation, ConditionInputSpec,
     ConditionOperator, DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec,
     PositionDirection, PreparedCondition, PreparedStopHandler, PreparedTakeHandler, PriceField,
-    RuleLogic, StopSignal, StopSignalKind, StrategyDecision, StrategyDefinition, StrategyError,
-    StrategyId, StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyRuleSpec,
-    StrategySignal, StrategySignalType, StrategyUserInput, TimeframeRequirement,
-    UserFormulaMetadata,
+    RuleLogic, StopSignal, StrategyDecision, StrategyDefinition, StrategyError, StrategyId,
+    StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyRuleSpec, StrategySignal,
+    StrategySignalType, StrategyUserInput, TimeframeRequirement, UserFormulaMetadata,
 };
 use crate::risk::stops::{StopEvaluationContext, StopHandlerError, StopHandlerFactory};
 use crate::risk::takes::{TakeEvaluationContext, TakeHandlerError, TakeHandlerFactory};
@@ -78,9 +77,9 @@ impl DynamicStrategy {
     fn evaluate_conditions(
         &self,
         context: &StrategyContext,
-    ) -> Result<HashMap<String, ConditionEvaluation>, StrategyError> {
-        let mut result = HashMap::with_capacity(self.conditions.len());
-        for condition in &self.conditions {
+    ) -> Result<Vec<Option<ConditionEvaluation>>, StrategyError> {
+        let mut result = vec![None; self.conditions.len()];
+        for (idx, condition) in self.conditions.iter().enumerate() {
             let condition_id = &condition.id;
             let timeframe_data = context.timeframe(&condition.timeframe)?;
             let current_index = timeframe_data.index();
@@ -97,11 +96,6 @@ impl DynamicStrategy {
                             .get(idx)
                             .copied()
                             .unwrap_or(SignalStrength::Weak),
-                        trend: precomputed
-                            .directions
-                            .get(idx)
-                            .copied()
-                            .unwrap_or(TrendDirection::Sideways),
                         weight: condition.weight(),
                     }
                 } else {
@@ -121,16 +115,11 @@ impl DynamicStrategy {
                             .get(idx)
                             .copied()
                             .unwrap_or(SignalStrength::Weak),
-                        trend: raw
-                            .directions
-                            .get(idx)
-                            .copied()
-                            .unwrap_or(TrendDirection::Sideways),
                         weight: condition.weight(),
                     }
                 };
 
-            result.insert(condition_id.clone(), evaluation);
+            result[idx] = Some(evaluation);
         }
         Ok(result)
     }
@@ -148,7 +137,7 @@ impl DynamicStrategy {
     fn evaluate_rule(
         &self,
         rule: &StrategyRuleSpec,
-        evaluations: &HashMap<String, ConditionEvaluation>,
+        evaluations: &[Option<ConditionEvaluation>],
         context: &StrategyContext,
     ) -> Result<Option<StrategySignal>, StrategyError> {
         if rule.conditions.is_empty() {
@@ -161,23 +150,26 @@ impl DynamicStrategy {
         let mut weight_sum = 0.0f32;
         let mut weighted_score = 0.0f32;
         let mut strength_values = Vec::with_capacity(rule.conditions.len());
-        let mut trend_weights: HashMap<TrendDirection, f32> =
-            HashMap::with_capacity(rule.conditions.len());
         for condition_id in &rule.conditions {
-            let evaluation = evaluations.get(condition_id).ok_or_else(|| {
+            let condition_idx = self.condition_lookup.get(condition_id).ok_or_else(|| {
                 StrategyError::UnknownConditionReference {
                     rule_id: rule.id.clone(),
                     condition_id: condition_id.clone(),
                 }
             })?;
+            let evaluation = evaluations
+                .get(*condition_idx)
+                .and_then(|opt| opt.as_ref())
+                .ok_or_else(|| StrategyError::UnknownConditionReference {
+                    rule_id: rule.id.clone(),
+                    condition_id: condition_id.clone(),
+                })?;
             strength_values.push(evaluation.strength);
             if evaluation.satisfied {
                 satisfied_count += 1;
                 let weight = evaluation.weight.max(0.0);
                 weight_sum += weight;
                 weighted_score += weight * (evaluation.strength as i32 as f32);
-                let entry = trend_weights.entry(evaluation.trend).or_insert(0.0);
-                *entry += weight;
             }
         }
         let satisfied = match rule.logic {
@@ -198,11 +190,6 @@ impl DynamicStrategy {
             0.0
         };
         let strength = self.determine_strength(average_score, &strength_values);
-        let trend = trend_weights
-            .into_iter()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(trend, _)| trend)
-            .unwrap_or(TrendDirection::Sideways);
         let timeframe = rule
             .conditions
             .iter()
@@ -229,7 +216,6 @@ impl DynamicStrategy {
             direction,
             timeframe,
             strength,
-            trend,
             quantity: rule.quantity,
             entry_rule_id: None,
             tags: rule.tags.clone(),
@@ -339,7 +325,6 @@ impl DynamicStrategy {
                         direction: position.direction.clone(),
                         timeframe: handler.timeframe.clone(),
                         strength: SignalStrength::VeryStrong,
-                        trend: TrendDirection::Sideways,
                         quantity: Some(position.quantity),
                         entry_rule_id: position.entry_rule_id.clone(),
                         tags: handler.tags.clone(),
@@ -436,7 +421,6 @@ impl DynamicStrategy {
                         direction: position.direction.clone(),
                         timeframe: handler.timeframe.clone(),
                         strength: SignalStrength::VeryStrong,
-                        trend: TrendDirection::Sideways,
                         quantity: Some(position.quantity),
                         entry_rule_id: position.entry_rule_id.clone(),
                         tags: handler.tags.clone(),
