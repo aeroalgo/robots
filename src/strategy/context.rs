@@ -13,14 +13,56 @@ use super::types::{
 };
 
 #[derive(Clone, Debug)]
+struct PriceData {
+    open: Option<Arc<Vec<f32>>>,
+    high: Option<Arc<Vec<f32>>>,
+    low: Option<Arc<Vec<f32>>>,
+    close: Option<Arc<Vec<f32>>>,
+    volume: Option<Arc<Vec<f32>>>,
+}
+
+impl PriceData {
+    fn new() -> Self {
+        Self {
+            open: None,
+            high: None,
+            low: None,
+            close: None,
+            volume: None,
+        }
+    }
+
+    fn get(&self, field: &PriceField) -> Option<&[f32]> {
+        match field {
+            PriceField::Open => self.open.as_deref().map(|v| v.as_slice()),
+            PriceField::High => self.high.as_deref().map(|v| v.as_slice()),
+            PriceField::Low => self.low.as_deref().map(|v| v.as_slice()),
+            PriceField::Close => self.close.as_deref().map(|v| v.as_slice()),
+            PriceField::Volume => self.volume.as_deref().map(|v| v.as_slice()),
+        }
+    }
+
+    fn set(&mut self, field: PriceField, series: Arc<Vec<f32>>) {
+        match field {
+            PriceField::Open => self.open = Some(series),
+            PriceField::High => self.high = Some(series),
+            PriceField::Low => self.low = Some(series),
+            PriceField::Close => self.close = Some(series),
+            PriceField::Volume => self.volume = Some(series),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct TimeframeData {
     timeframe: TimeFrame,
     symbol: Option<Symbol>,
     index: usize,
-    prices: HashMap<PriceField, Arc<Vec<f32>>>,
+    prices: PriceData,
     indicators: HashMap<String, Arc<Vec<f32>>>,
     custom: HashMap<String, Arc<Vec<f32>>>,
-    condition_results: HashMap<String, Arc<ConditionResultData>>,
+    condition_results: Vec<Option<Arc<ConditionResultData>>>,
+    condition_id_to_index: HashMap<String, usize>,
     ohlc: Option<Arc<OHLCData>>,
     timestamps: Option<Arc<Vec<i64>>>,
 }
@@ -31,12 +73,26 @@ impl TimeframeData {
             timeframe,
             symbol: None,
             index: 0,
-            prices: HashMap::with_capacity(4),
+            prices: PriceData::new(),
             indicators: HashMap::with_capacity(16),
             custom: HashMap::with_capacity(8),
-            condition_results: HashMap::with_capacity(8),
+            condition_results: Vec::new(),
+            condition_id_to_index: HashMap::new(),
             ohlc: None,
             timestamps: None,
+        }
+    }
+
+    pub fn ensure_condition_capacity(&mut self, capacity: usize) {
+        if self.condition_results.len() < capacity {
+            self.condition_results.resize(capacity, None);
+        }
+    }
+
+    pub fn register_condition_id(&mut self, condition_id: String, index: usize) {
+        self.condition_id_to_index.insert(condition_id, index);
+        if self.condition_results.len() <= index {
+            self.condition_results.resize(index + 1, None);
         }
     }
 
@@ -59,12 +115,12 @@ impl TimeframeData {
         let volume = ohlc.volume.clone();
         let timestamps = ohlc.timestamp.clone();
         data.ohlc = Some(Arc::new(ohlc));
-        data.prices.insert(PriceField::Open, open);
-        data.prices.insert(PriceField::High, high);
-        data.prices.insert(PriceField::Low, low);
-        data.prices.insert(PriceField::Close, close);
+        data.prices.set(PriceField::Open, open);
+        data.prices.set(PriceField::High, high);
+        data.prices.set(PriceField::Low, low);
+        data.prices.set(PriceField::Close, close);
         if let Some(volume_vec) = volume {
-            data.prices.insert(PriceField::Volume, Arc::new(volume_vec));
+            data.prices.set(PriceField::Volume, Arc::new(volume_vec));
         }
         if let Some(ts_vec) = timestamps {
             data.timestamps = Some(Arc::new(ts_vec));
@@ -93,11 +149,11 @@ impl TimeframeData {
     }
 
     pub fn insert_price_series(&mut self, field: PriceField, series: Vec<f32>) {
-        self.prices.insert(field, Arc::new(series));
+        self.prices.set(field, Arc::new(series));
     }
 
     pub fn insert_price_series_arc(&mut self, field: PriceField, series: Arc<Vec<f32>>) {
-        self.prices.insert(field, series);
+        self.prices.set(field, series);
     }
 
     pub fn insert_indicator(&mut self, alias: impl Into<String>, series: Vec<f32>) {
@@ -124,18 +180,18 @@ impl TimeframeData {
         let volume = ohlc.volume.clone();
         let timestamps = ohlc.timestamp.clone();
         self.ohlc = Some(Arc::new(ohlc));
-        self.prices.insert(PriceField::Open, open);
-        self.prices.insert(PriceField::High, high);
-        self.prices.insert(PriceField::Low, low);
-        self.prices.insert(PriceField::Close, close);
+        self.prices.set(PriceField::Open, open);
+        self.prices.set(PriceField::High, high);
+        self.prices.set(PriceField::Low, low);
+        self.prices.set(PriceField::Close, close);
         if let Some(volume_vec) = volume {
-            self.prices.insert(PriceField::Volume, Arc::new(volume_vec));
+            self.prices.set(PriceField::Volume, Arc::new(volume_vec));
         }
         self.timestamps = timestamps.map(|vec| Arc::new(vec));
     }
 
     pub fn price_series_slice(&self, field: &PriceField) -> Option<&[f32]> {
-        self.prices.get(field).map(|data| data.as_ref().as_slice())
+        self.prices.get(field)
     }
 
     pub fn indicator_series_slice(&self, alias: &str) -> Option<&[f32]> {
@@ -176,8 +232,13 @@ impl TimeframeData {
         condition_id: impl Into<String>,
         result: ConditionResultData,
     ) {
-        self.condition_results
-            .insert(condition_id.into(), Arc::new(result));
+        let condition_id = condition_id.into();
+        if let Some(&index) = self.condition_id_to_index.get(&condition_id) {
+            if self.condition_results.len() <= index {
+                self.condition_results.resize(index + 1, None);
+            }
+            self.condition_results[index] = Some(Arc::new(result));
+        }
     }
 
     pub fn insert_condition_result_arc(
@@ -185,13 +246,39 @@ impl TimeframeData {
         condition_id: impl Into<String>,
         result: Arc<ConditionResultData>,
     ) {
-        self.condition_results.insert(condition_id.into(), result);
+        let condition_id = condition_id.into();
+        if let Some(&index) = self.condition_id_to_index.get(&condition_id) {
+            if self.condition_results.len() <= index {
+                self.condition_results.resize(index + 1, None);
+            }
+            self.condition_results[index] = Some(result);
+        }
+    }
+
+    pub fn insert_condition_result_by_index(
+        &mut self,
+        index: usize,
+        result: Arc<ConditionResultData>,
+    ) {
+        if self.condition_results.len() <= index {
+            self.condition_results.resize(index + 1, None);
+        }
+        self.condition_results[index] = Some(result);
     }
 
     pub fn condition_result(&self, condition_id: &str) -> Option<&ConditionResultData> {
-        self.condition_results
+        self.condition_id_to_index
             .get(condition_id)
-            .map(|data| data.as_ref())
+            .and_then(|&index| self.condition_results.get(index))
+            .and_then(|opt| opt.as_ref())
+            .map(|arc| arc.as_ref())
+    }
+
+    pub fn condition_result_by_index(&self, index: usize) -> Option<&ConditionResultData> {
+        self.condition_results
+            .get(index)
+            .and_then(|opt| opt.as_ref())
+            .map(|arc| arc.as_ref())
     }
 }
 

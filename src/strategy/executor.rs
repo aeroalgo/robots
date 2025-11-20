@@ -4,6 +4,8 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use thiserror::Error;
 
+use crate::condition::types::ConditionResultData;
+
 use crate::candles::aggregator::TimeFrameAggregator;
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::{timestamp_from_millis, Symbol, TimeFrame};
@@ -571,16 +573,17 @@ impl BacktestExecutor {
 
     fn populate_conditions(&mut self) -> Result<(), StrategyExecutionError> {
         let conditions_count = self.strategy.conditions().len();
-        let mut grouped: HashMap<TimeFrame, Vec<String>> =
+        let mut grouped: HashMap<TimeFrame, Vec<usize>> =
             HashMap::with_capacity(conditions_count / 2 + 1);
-        for condition in self.strategy.conditions() {
+
+        for (idx, condition) in self.strategy.conditions().iter().enumerate() {
             grouped
                 .entry(condition.timeframe.clone())
                 .or_default()
-                .push(condition.id.clone());
+                .push(idx);
         }
 
-        for (timeframe, condition_ids) in grouped {
+        for (timeframe, condition_indices) in grouped {
             let frame = {
                 let frame_ref = self.feed.frames.get(&timeframe).ok_or_else(|| {
                     StrategyExecutionError::Feed(format!(
@@ -593,37 +596,51 @@ impl BacktestExecutor {
 
             self.ensure_timeframe_data(&timeframe, &frame);
 
-            for condition_id in condition_ids {
+            let mut results: Vec<(usize, Arc<ConditionResultData>)> = Vec::new();
+
+            for &condition_idx in &condition_indices {
                 let condition = self
                     .strategy
                     .conditions()
-                    .iter()
-                    .find(|c| c.id == condition_id)
+                    .get(condition_idx)
                     .ok_or_else(|| {
                         StrategyExecutionError::Feed(format!(
-                            "condition {} not found",
-                            condition_id
+                            "condition at index {} not found",
+                            condition_idx
                         ))
                     })?;
+
+                {
+                    let data = self
+                        .context
+                        .timeframe_mut(&timeframe)
+                        .map_err(StrategyExecutionError::Strategy)?;
+                    data.register_condition_id(condition.id.clone(), condition_idx);
+                }
 
                 let input = self
                     .context
                     .prepare_condition_input(condition)
                     .map_err(|err| StrategyExecutionError::Strategy(err))?;
 
-                let condition_id = &condition.id;
                 let result = condition.condition.check(input).map_err(|err| {
                     StrategyExecutionError::Strategy(StrategyError::ConditionFailure {
-                        condition_id: condition_id.clone(),
+                        condition_id: condition.id.clone(),
                         source: err,
                     })
                 })?;
 
+                results.push((condition_idx, Arc::new(result)));
+            }
+
+            {
                 let data = self
                     .context
                     .timeframe_mut(&timeframe)
                     .map_err(StrategyExecutionError::Strategy)?;
-                data.insert_condition_result(condition_id, result);
+                for (condition_idx, result) in results {
+                    data.insert_condition_result_by_index(condition_idx, result);
+                }
             }
         }
         Ok(())

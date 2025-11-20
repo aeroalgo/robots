@@ -19,14 +19,20 @@ use crate::risk::stops::{StopEvaluationContext, StopHandlerError, StopHandlerFac
 use crate::risk::takes::{TakeEvaluationContext, TakeHandlerError, TakeHandlerFactory};
 
 #[derive(Clone)]
+struct OptimizedRule {
+    rule: StrategyRuleSpec,
+    condition_indices: Vec<usize>,
+}
+
+#[derive(Clone)]
 pub struct DynamicStrategy {
     metadata: StrategyMetadata,
     definition: StrategyDefinition,
     indicator_bindings: Vec<IndicatorBindingSpec>,
     conditions: Vec<PreparedCondition>,
     condition_lookup: HashMap<String, usize>,
-    entry_rules: Vec<StrategyRuleSpec>,
-    exit_rules: Vec<StrategyRuleSpec>,
+    entry_rules: Vec<OptimizedRule>,
+    exit_rules: Vec<OptimizedRule>,
     stop_handlers: Vec<PreparedStopHandler>,
     take_handlers: Vec<PreparedTakeHandler>,
     timeframe_requirements: Vec<TimeframeRequirement>,
@@ -51,14 +57,33 @@ impl DynamicStrategy {
             .enumerate()
             .map(|(idx, condition)| (condition.id.clone(), idx))
             .collect();
+
+        let optimize_rules =
+            |rules: Vec<StrategyRuleSpec>, lookup: &HashMap<String, usize>| -> Vec<OptimizedRule> {
+                rules
+                    .into_iter()
+                    .map(|rule| {
+                        let condition_indices: Vec<usize> = rule
+                            .conditions
+                            .iter()
+                            .filter_map(|id| lookup.get(id).copied())
+                            .collect();
+                        OptimizedRule {
+                            rule,
+                            condition_indices,
+                        }
+                    })
+                    .collect()
+            };
+
         Self {
             metadata,
             definition,
             indicator_bindings,
             conditions,
-            condition_lookup,
-            entry_rules,
-            exit_rules,
+            condition_lookup: condition_lookup.clone(),
+            entry_rules: optimize_rules(entry_rules, &condition_lookup),
+            exit_rules: optimize_rules(exit_rules, &condition_lookup),
             stop_handlers,
             take_handlers,
             timeframe_requirements,
@@ -86,7 +111,7 @@ impl DynamicStrategy {
             let previous_index = current_index.saturating_sub(1);
 
             let evaluation =
-                if let Some(precomputed) = timeframe_data.condition_result(condition_id) {
+                if let Some(precomputed) = timeframe_data.condition_result_by_index(idx) {
                     let idx = self.resolve_index(previous_index, precomputed.signals.len());
                     ConditionEvaluation {
                         condition_id: condition_id.clone(),
@@ -137,10 +162,11 @@ impl DynamicStrategy {
     fn evaluate_rule(
         &self,
         rule: &StrategyRuleSpec,
+        condition_indices: &[usize],
         evaluations: &[Option<ConditionEvaluation>],
         context: &StrategyContext,
     ) -> Result<Option<StrategySignal>, StrategyError> {
-        if rule.conditions.is_empty() {
+        if condition_indices.is_empty() {
             return Err(StrategyError::DefinitionError(format!(
                 "rule {} has no conditions",
                 rule.id
@@ -149,20 +175,14 @@ impl DynamicStrategy {
         let mut satisfied_count = 0usize;
         let mut weight_sum = 0.0f32;
         let mut weighted_score = 0.0f32;
-        let mut strength_values = Vec::with_capacity(rule.conditions.len());
-        for condition_id in &rule.conditions {
-            let condition_idx = self.condition_lookup.get(condition_id).ok_or_else(|| {
-                StrategyError::UnknownConditionReference {
-                    rule_id: rule.id.clone(),
-                    condition_id: condition_id.clone(),
-                }
-            })?;
+        let mut strength_values = Vec::with_capacity(condition_indices.len());
+        for &condition_idx in condition_indices {
             let evaluation = evaluations
-                .get(*condition_idx)
+                .get(condition_idx)
                 .and_then(|opt| opt.as_ref())
                 .ok_or_else(|| StrategyError::UnknownConditionReference {
                     rule_id: rule.id.clone(),
-                    condition_id: condition_id.clone(),
+                    condition_id: String::new(),
                 })?;
             strength_values.push(evaluation.strength);
             if evaluation.satisfied {
@@ -173,7 +193,7 @@ impl DynamicStrategy {
             }
         }
         let satisfied = match rule.logic {
-            RuleLogic::All => satisfied_count == rule.conditions.len(),
+            RuleLogic::All => satisfied_count == condition_indices.len(),
             RuleLogic::Any => satisfied_count > 0,
             RuleLogic::AtLeast(required) => satisfied_count >= required,
             RuleLogic::Weighted { min_total } => weighted_score >= min_total,
@@ -190,15 +210,9 @@ impl DynamicStrategy {
             0.0
         };
         let strength = self.determine_strength(average_score, &strength_values);
-        let timeframe = rule
-            .conditions
+        let timeframe = condition_indices
             .iter()
-            .find_map(|id| {
-                self.condition_lookup
-                    .get(id)
-                    .and_then(|&idx| self.conditions.get(idx))
-                    .map(|cond| &cond.timeframe)
-            })
+            .find_map(|&idx| self.conditions.get(idx).map(|cond| &cond.timeframe))
             .cloned()
             .unwrap_or_else(|| {
                 self.timeframe_requirements
@@ -510,11 +524,29 @@ impl Strategy for DynamicStrategy {
     }
 
     fn entry_rules(&self) -> &[StrategyRuleSpec] {
-        &self.entry_rules
+        static EMPTY: &[StrategyRuleSpec] = &[];
+        if self.entry_rules.is_empty() {
+            return EMPTY;
+        }
+        unsafe {
+            std::slice::from_raw_parts(
+                self.entry_rules.as_ptr() as *const StrategyRuleSpec,
+                self.entry_rules.len(),
+            )
+        }
     }
 
     fn exit_rules(&self) -> &[StrategyRuleSpec] {
-        &self.exit_rules
+        static EMPTY: &[StrategyRuleSpec] = &[];
+        if self.exit_rules.is_empty() {
+            return EMPTY;
+        }
+        unsafe {
+            std::slice::from_raw_parts(
+                self.exit_rules.as_ptr() as *const StrategyRuleSpec,
+                self.exit_rules.len(),
+            )
+        }
     }
 
     fn timeframe_requirements(&self) -> &[TimeframeRequirement] {
@@ -557,8 +589,13 @@ impl Strategy for DynamicStrategy {
         let mut all_stop_signals = stop_signals;
         all_stop_signals.extend(take_signals);
         all_stop_signals.sort_by(|a, b| a.priority.cmp(&b.priority));
-        for rule in &self.entry_rules {
-            if let Some(signal) = self.evaluate_rule(rule, &evaluations, context)? {
+        for optimized_rule in &self.entry_rules {
+            if let Some(signal) = self.evaluate_rule(
+                &optimized_rule.rule,
+                &optimized_rule.condition_indices,
+                &evaluations,
+                context,
+            )? {
                 match signal.signal_type {
                     StrategySignalType::Entry => decision.entries.push(signal),
                     StrategySignalType::Exit => decision.exits.push(signal),
@@ -567,8 +604,13 @@ impl Strategy for DynamicStrategy {
             }
         }
         if has_active_positions {
-            for rule in &self.exit_rules {
-                if let Some(signal) = self.evaluate_rule(rule, &evaluations, context)? {
+            for optimized_rule in &self.exit_rules {
+                if let Some(signal) = self.evaluate_rule(
+                    &optimized_rule.rule,
+                    &optimized_rule.condition_indices,
+                    &evaluations,
+                    context,
+                )? {
                     match signal.signal_type {
                         StrategySignalType::Entry => decision.entries.push(signal),
                         StrategySignalType::Exit => decision.exits.push(signal),
