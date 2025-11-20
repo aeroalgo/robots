@@ -16,10 +16,12 @@ pub fn default_strategy_definitions() -> Vec<StrategyDefinition> {
 
 fn sma_crossover_definition() -> StrategyDefinition {
     let timeframe = TimeFrame::minutes(60);
+    let higher_timeframe = TimeFrame::minutes(240);
 
     let fast_alias = "fast_sma".to_string();
     let slow_alias = "slow_sma".to_string();
     let trend_alias = "trend_sma".to_string();
+    let ema_alias = "ema_240".to_string();
 
     let mut indicator_bindings = vec![
         IndicatorBindingSpec {
@@ -62,6 +64,22 @@ fn sma_crossover_definition() -> StrategyDefinition {
 
     indicator_bindings.push(spread_formula.as_indicator_binding("sma_spread", timeframe.clone()));
 
+    // Период EMA остается 50, но на таймфрейме 240 минут
+    // Warmup = 50 * 2 = 100 баров на таймфрейме 240 минут
+    // Это эквивалентно 100 * 4 = 400 барам на исходном таймфрейме 60 минут
+    indicator_bindings.push(IndicatorBindingSpec {
+        alias: ema_alias.clone(),
+        timeframe: higher_timeframe.clone(),
+        source: IndicatorSourceSpec::Registry {
+            name: "EMA".to_string(),
+            parameters: HashMap::from([("period".to_string(), 50.0)]),
+        },
+        tags: vec![
+            "trend".to_string(),
+            "higher_tf".to_string(),
+            "confirmation".to_string(),
+        ],
+    });
 
     let formulas = vec![spread_formula];
 
@@ -72,6 +90,14 @@ fn sma_crossover_definition() -> StrategyDefinition {
     let trend_dual_input = ConditionInputSpec::Dual {
         primary: DataSeriesSource::indicator(fast_alias.clone()),
         secondary: DataSeriesSource::indicator(trend_alias.clone()),
+    };
+
+    let close_above_ema_input = ConditionInputSpec::Dual {
+        primary: DataSeriesSource::price_with_timeframe(PriceField::Close, higher_timeframe.clone()),
+        secondary: DataSeriesSource::indicator_with_timeframe(
+            ema_alias.clone(),
+            higher_timeframe.clone(),
+        ),
     };
 
     let condition_bindings = vec![
@@ -131,6 +157,24 @@ fn sma_crossover_definition() -> StrategyDefinition {
             tags: vec!["exit".to_string(), "trend".to_string()],
             user_formula: None,
         },
+        ConditionBindingSpec {
+            id: "close_above_ema_240".to_string(),
+            name: "Close base TF above EMA compressed TF".to_string(),
+            timeframe: higher_timeframe.clone(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::GreaterThan,
+                &close_above_ema_input,
+            ),
+            parameters: HashMap::new(),
+            input: close_above_ema_input,
+            weight: 1.0,
+            tags: vec![
+                "entry".to_string(),
+                "higher_tf".to_string(),
+                "trend".to_string(),
+            ],
+            user_formula: None,
+        },
     ];
 
     let entry_rules = vec![
@@ -140,6 +184,7 @@ fn sma_crossover_definition() -> StrategyDefinition {
             logic: super::types::RuleLogic::All,
             conditions: vec![
                 "fast_cross_above".to_string(),
+                "close_above_ema_240".to_string(),
             ],
             signal: StrategySignalType::Entry,
             direction: PositionDirection::Long,
@@ -154,6 +199,7 @@ fn sma_crossover_definition() -> StrategyDefinition {
             logic: super::types::RuleLogic::All,
             conditions: vec![
                 "fast_cross_above_trend".to_string(),
+                "close_above_ema_240".to_string(),
             ],
             signal: StrategySignalType::Entry,
             direction: PositionDirection::Long,
@@ -199,7 +245,6 @@ fn sma_crossover_definition() -> StrategyDefinition {
     trend_stop_loss_params.insert("percentage".to_string(), StrategyParamValue::Number(0.7));
     let mut trend_take_profit_params = StrategyParameterMap::new();
     trend_take_profit_params.insert("percentage".to_string(), StrategyParamValue::Number(1.2));
-
     let stop_handlers = vec![
         StopHandlerSpec {
             id: "stop_loss_pct".to_string(),

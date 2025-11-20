@@ -230,3 +230,8 @@ pub fn timestamp_to_millis(value: DateTime<Utc>) -> TimestampMillis {
 pub fn timestamp_to_seconds(value: DateTime<Utc>) -> i64 {
     value.timestamp()
 }
+
+pub fn start_of_day(timestamp: DateTime<Utc>) -> DateTime<Utc> {
+    let naive = timestamp.date_naive().and_hms_opt(0, 0, 0).unwrap();
+    DateTime::from_utc(naive, Utc)
+}

@@ -110,3 +110,4 @@ echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid
 - `--call-graph dwarf` - использование DWARF для более точного call graph
 - `--call-graph fp` - альтернативный метод (frame pointer, быстрее но менее точно)
 
+

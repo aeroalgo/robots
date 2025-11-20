@@ -339,11 +339,13 @@ impl QuoteFrame {
     where
         I: IntoIterator<Item = OhlcvData>,
     {
-        let mut frame = QuoteFrame::with_capacity(symbol.clone(), timeframe.clone(), 0);
+        let symbol_clone = symbol.clone();
+        let timeframe_clone = timeframe.clone();
+        let mut frame = QuoteFrame::with_capacity(symbol, timeframe, 0);
         for row in data {
             if let Some(quote) = Quote::from_timestamp_millis(
-                symbol.clone(),
-                timeframe.clone(),
+                symbol_clone.clone(),
+                timeframe_clone.clone(),
                 timestamp_to_millis(row.timestamp),
                 row.open,
                 row.high,

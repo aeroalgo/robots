@@ -152,6 +152,14 @@ impl TimeframeData {
         self.ohlc.as_deref()
     }
 
+    pub fn timestamp_millis_at(&self, index: usize) -> Option<i64> {
+        self.timestamps.as_ref()?.get(index).copied()
+    }
+
+    pub fn current_timestamp_millis(&self) -> Option<i64> {
+        self.timestamp_millis_at(self.index)
+    }
+
     pub fn timestamp_at(&self, index: usize) -> Option<chrono::DateTime<chrono::Utc>> {
         let timestamps = self.timestamps.as_ref()?;
         timestamps
@@ -321,6 +329,76 @@ impl StrategyContext {
                     0
                 } else {
                     base_index - *index_offset
+                };
+                Ok(ConditionInputData::indexed(series, index))
+            }
+            ConditionInputSpec::Ohlc => {
+                let data = self.timeframe(timeframe)?;
+                let ohlc = data
+                    .ohlc_ref()
+                    .ok_or_else(|| StrategyError::MissingPriceSeries {
+                        field: PriceField::Close,
+                        timeframe: timeframe.clone(),
+                    })?;
+                Ok(ConditionInputData::ohlc(ohlc))
+            }
+        }
+    }
+
+    pub fn prepare_condition_input_with_index_offset<'a>(
+        &'a self,
+        condition: &'a PreparedCondition,
+        index_offset: usize,
+    ) -> Result<ConditionInputData<'a>, StrategyError> {
+        let timeframe = &condition.timeframe;
+        match &condition.input {
+            ConditionInputSpec::Single { source } => {
+                let series = self.resolve_series(timeframe, source)?;
+                Ok(ConditionInputData::single(series))
+            }
+            ConditionInputSpec::Dual { primary, secondary } => {
+                let primary_series = self.resolve_series(timeframe, primary)?;
+                let secondary_series = self.resolve_series(timeframe, secondary)?;
+                Ok(ConditionInputData::dual(primary_series, secondary_series))
+            }
+            ConditionInputSpec::DualWithPercent {
+                primary,
+                secondary,
+                percent,
+            } => {
+                let primary_series = self.resolve_series(timeframe, primary)?;
+                let secondary_series = self.resolve_series(timeframe, secondary)?;
+                Ok(ConditionInputData::dual_with_percent(
+                    primary_series,
+                    secondary_series,
+                    *percent,
+                ))
+            }
+            ConditionInputSpec::Range {
+                source,
+                lower,
+                upper,
+            } => {
+                let data_series = self.resolve_series(timeframe, source)?;
+                let lower_series = self.resolve_series(timeframe, lower)?;
+                let upper_series = self.resolve_series(timeframe, upper)?;
+                Ok(ConditionInputData::range(
+                    data_series,
+                    lower_series,
+                    upper_series,
+                ))
+            }
+            ConditionInputSpec::Indexed {
+                source,
+                index_offset: spec_offset,
+            } => {
+                let series = self.resolve_series(timeframe, source)?;
+                let data = self.timeframe(timeframe)?;
+                let base_index = data.index().saturating_sub(index_offset);
+                let index = if *spec_offset > base_index {
+                    0
+                } else {
+                    base_index - *spec_offset
                 };
                 Ok(ConditionInputData::indexed(series, index))
             }

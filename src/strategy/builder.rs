@@ -75,10 +75,12 @@ impl DynamicStrategy {
         let mut result = HashMap::with_capacity(self.conditions.len());
         for condition in &self.conditions {
             let timeframe_data = context.timeframe(&condition.timeframe)?;
+            let current_index = timeframe_data.index();
+            let previous_index = current_index.saturating_sub(1);
 
             let evaluation =
                 if let Some(precomputed) = timeframe_data.condition_result(&condition.id) {
-                    let idx = self.resolve_index(timeframe_data.index(), precomputed.signals.len());
+                    let idx = self.resolve_index(previous_index, precomputed.signals.len());
                     ConditionEvaluation {
                         condition_id: condition.id.clone(),
                         satisfied: precomputed.signals.get(idx).copied().unwrap_or(false),
@@ -96,14 +98,14 @@ impl DynamicStrategy {
                     }
                 } else {
                     let condition_id = condition.id.clone();
-                    let input = context.prepare_condition_input(condition)?;
+                    let input = context.prepare_condition_input_with_index_offset(condition, 1)?;
                     let raw = condition.condition.check(input).map_err(|err| {
                         StrategyError::ConditionFailure {
                             condition_id: condition_id.clone(),
                             source: err,
                         }
                     })?;
-                    let idx = self.resolve_index(timeframe_data.index(), raw.signals.len());
+                    let idx = self.resolve_index(previous_index, raw.signals.len());
                     ConditionEvaluation {
                         condition_id: condition_id,
                         satisfied: raw.signals.get(idx).copied().unwrap_or(false),
@@ -140,7 +142,7 @@ impl DynamicStrategy {
         &self,
         rule: &StrategyRuleSpec,
         evaluations: &HashMap<String, ConditionEvaluation>,
-        condition_lookup: &HashMap<String, &PreparedCondition>,
+        condition_lookup: &HashMap<&str, &PreparedCondition>,
         context: &StrategyContext,
     ) -> Result<Option<StrategySignal>, StrategyError> {
         if rule.conditions.is_empty() {
@@ -198,12 +200,17 @@ impl DynamicStrategy {
         let timeframe = rule
             .conditions
             .iter()
-            .find_map(|id| condition_lookup.get(id).map(|cond| &cond.timeframe))
+            .find_map(|id| {
+                condition_lookup
+                    .get(id.as_str())
+                    .map(|cond| &cond.timeframe)
+            })
             .cloned()
             .unwrap_or_else(|| {
                 self.timeframe_requirements
                     .first()
-                    .map(|req| req.timeframe.clone())
+                    .map(|req| &req.timeframe)
+                    .cloned()
                     .unwrap_or_else(|| crate::data_model::types::TimeFrame::Minutes(1))
             });
         let mut signal = StrategySignal {
@@ -522,13 +529,20 @@ impl Strategy for DynamicStrategy {
 
     fn evaluate(&self, context: &StrategyContext) -> Result<StrategyDecision, StrategyError> {
         let evaluations = self.evaluate_conditions(context)?;
-        let condition_lookup: HashMap<_, _> = self
+        let condition_lookup: HashMap<&str, &PreparedCondition> = self
             .conditions
             .iter()
-            .map(|condition| (condition.id.clone(), condition))
+            .map(|condition| (condition.id.as_str(), condition))
             .collect::<HashMap<_, _>>();
-        let mut stop_signals = self.evaluate_stop_handlers(context)?;
-        let mut take_signals = self.evaluate_take_handlers(context)?;
+        let has_active_positions = !context.active_positions().is_empty();
+        let (stop_signals, take_signals) = if has_active_positions {
+            (
+                self.evaluate_stop_handlers(context)?,
+                self.evaluate_take_handlers(context)?,
+            )
+        } else {
+            (Vec::new(), Vec::new())
+        };
         let mut decision = StrategyDecision::empty();
         for stop in &stop_signals {
             decision.exits.push(stop.signal.clone());
@@ -558,14 +572,16 @@ impl Strategy for DynamicStrategy {
                 }
             }
         }
-        for rule in &self.exit_rules {
-            if let Some(signal) =
-                self.evaluate_rule(rule, &evaluations, &condition_lookup, context)?
-            {
-                match signal.signal_type {
-                    StrategySignalType::Entry => decision.entries.push(signal),
-                    StrategySignalType::Exit => decision.exits.push(signal),
-                    StrategySignalType::Custom(_) => decision.custom.push(signal),
+        if has_active_positions {
+            for rule in &self.exit_rules {
+                if let Some(signal) =
+                    self.evaluate_rule(rule, &evaluations, &condition_lookup, context)?
+                {
+                    match signal.signal_type {
+                        StrategySignalType::Entry => decision.entries.push(signal),
+                        StrategySignalType::Exit => decision.exits.push(signal),
+                        StrategySignalType::Custom(_) => decision.custom.push(signal),
+                    }
                 }
             }
         }
@@ -577,11 +593,15 @@ impl Strategy for DynamicStrategy {
         &self,
         context: &StrategyContext,
     ) -> Result<Vec<StopSignal>, StrategyError> {
-        let mut stop_signals = self.evaluate_stop_handlers(context)?;
-        let mut take_signals = self.evaluate_take_handlers(context)?;
-        stop_signals.extend(take_signals);
-        stop_signals.sort_by(|a, b| a.priority.cmp(&b.priority));
-        Ok(stop_signals)
+        if context.active_positions().is_empty() {
+            return Ok(Vec::new());
+        }
+        let stop_signals = self.evaluate_stop_handlers(context)?;
+        let take_signals = self.evaluate_take_handlers(context)?;
+        let mut all_stop_signals = stop_signals;
+        all_stop_signals.extend(take_signals);
+        all_stop_signals.sort_by(|a, b| a.priority.cmp(&b.priority));
+        Ok(all_stop_signals)
     }
 
     fn clone_box(&self) -> Box<dyn Strategy> {

@@ -77,3 +77,4 @@ xdg-open profiling/flamegraph-pprof.svg
 
 См. [docs/profiling.md](../docs/profiling.md) для детальной информации о профилировании.
 
+

@@ -174,8 +174,9 @@ impl StrategyDiscoveryEngine {
 
         all_combinations.shuffle(&mut rng);
 
-        let state_arc = Arc::new(std::sync::Mutex::new(state.clone()));
-        self.state = Some(state.clone());
+        let state_clone = state.clone();
+        let state_arc = Arc::new(std::sync::Mutex::new(state_clone.clone()));
+        self.state = Some(state_clone);
 
         StrategyIterator {
             state: state_arc,

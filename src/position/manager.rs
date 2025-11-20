@@ -789,20 +789,7 @@ impl PositionManager {
             ));
         }
         let current_index = data.index().min(series.len().saturating_sub(1));
-        let use_current_bar = context
-            .metadata
-            .get("deferred_entries")
-            .map(|value| value == "true")
-            .unwrap_or(false);
-        let target_index = if use_current_bar {
-            current_index
-        } else {
-            let next_index = current_index.saturating_add(1);
-            if next_index >= series.len() {
-                return Ok(None);
-            }
-            next_index
-        };
+        let target_index = current_index;
         let price = f64::from(series[target_index]);
         let timestamp = data.timestamp_at(target_index);
         Ok(Some(MarketSnapshot {
