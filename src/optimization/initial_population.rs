@@ -325,7 +325,7 @@ impl InitialPopulationGenerator {
                             continue;
                         }
                     };
-                    params.insert(format!("{}_{}", indicator.alias, param.name), param_value);
+                    params.insert(format!("{}_{}", indicator.name, param.name), param_value);
                 }
             }
         }
@@ -355,7 +355,7 @@ impl InitialPopulationGenerator {
                         }
                     };
                     params.insert(
-                        format!("nested_{}_{}", nested.indicator.alias, param.name),
+                        format!("nested_{}_{}", nested.indicator.name, param.name),
                         param_value,
                     );
                 }
