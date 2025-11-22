@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use crate::discovery::StrategyCandidate;
-use crate::strategy::types::StrategyParameterMap;
 use crate::optimization::fitness::{FitnessThresholds, FitnessWeights};
+use crate::strategy::types::StrategyParameterMap;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct EvaluatedStrategy {
@@ -28,6 +28,7 @@ pub struct Population {
 #[derive(Clone, Debug)]
 pub struct GeneticAlgorithmConfig {
     pub population_size: usize,
+    pub lambda_size: usize,
     pub max_generations: usize,
     pub crossover_rate: f64,
     pub mutation_rate: f64,
@@ -46,12 +47,17 @@ pub struct GeneticAlgorithmConfig {
     pub detect_duplicates: bool,
     pub param_mutation_min_percent: f64,
     pub param_mutation_max_percent: f64,
+    pub enable_sds: bool,
+    pub sds_iterations: usize,
+    pub sds_agents_ratio: f64,
+    pub sds_test_threshold: f64,
 }
 
 impl Default for GeneticAlgorithmConfig {
     fn default() -> Self {
         Self {
             population_size: 100,
+            lambda_size: 100,
             max_generations: 50,
             crossover_rate: 0.7,
             mutation_rate: 0.1,
@@ -70,7 +76,10 @@ impl Default for GeneticAlgorithmConfig {
             detect_duplicates: true,
             param_mutation_min_percent: 0.03,
             param_mutation_max_percent: 0.05,
+            enable_sds: false,
+            sds_iterations: 5,
+            sds_agents_ratio: 1.0,
+            sds_test_threshold: 0.7,
         }
     }
 }
-

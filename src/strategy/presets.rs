@@ -11,7 +11,7 @@ use super::types::{
 };
 
 pub fn default_strategy_definitions() -> Vec<StrategyDefinition> {
-    vec![sma_crossover_definition()]
+    vec![sma_crossover_definition(), bollinger_bands_definition()]
 }
 
 fn sma_crossover_definition() -> StrategyDefinition {
@@ -93,7 +93,10 @@ fn sma_crossover_definition() -> StrategyDefinition {
     };
 
     let close_above_ema_input = ConditionInputSpec::Dual {
-        primary: DataSeriesSource::price_with_timeframe(PriceField::Close, higher_timeframe.clone()),
+        primary: DataSeriesSource::price_with_timeframe(
+            PriceField::Close,
+            higher_timeframe.clone(),
+        ),
         secondary: DataSeriesSource::indicator_with_timeframe(
             ema_alias.clone(),
             higher_timeframe.clone(),
@@ -314,6 +317,181 @@ fn sma_crossover_definition() -> StrategyDefinition {
         Vec::new(),
         indicator_bindings,
         formulas,
+        condition_bindings,
+        entry_rules,
+        exit_rules,
+        stop_handlers,
+        take_handlers,
+        StrategyParameterMap::new(),
+        BTreeMap::new(),
+    )
+}
+
+fn bollinger_bands_definition() -> StrategyDefinition {
+    let timeframe = TimeFrame::minutes(60);
+
+    let bb_middle_alias = "bb_middle".to_string();
+    let bb_upper_alias = "bb_upper".to_string();
+    let bb_lower_alias = "bb_lower".to_string();
+
+    let indicator_bindings = vec![
+        IndicatorBindingSpec {
+            alias: bb_middle_alias.clone(),
+            timeframe: timeframe.clone(),
+            source: IndicatorSourceSpec::Registry {
+                name: "BBMiddle".to_string(),
+                parameters: HashMap::from([
+                    ("period".to_string(), 20.0),
+                    ("deviation".to_string(), 2.0),
+                ]),
+            },
+            tags: vec!["bb".to_string(), "middle".to_string()],
+        },
+        IndicatorBindingSpec {
+            alias: bb_upper_alias.clone(),
+            timeframe: timeframe.clone(),
+            source: IndicatorSourceSpec::Registry {
+                name: "BBUpper".to_string(),
+                parameters: HashMap::from([
+                    ("period".to_string(), 20.0),
+                    ("deviation".to_string(), 2.0),
+                ]),
+            },
+            tags: vec!["bb".to_string(), "upper".to_string()],
+        },
+        IndicatorBindingSpec {
+            alias: bb_lower_alias.clone(),
+            timeframe: timeframe.clone(),
+            source: IndicatorSourceSpec::Registry {
+                name: "BBLower".to_string(),
+                parameters: HashMap::from([
+                    ("period".to_string(), 20.0),
+                    ("deviation".to_string(), 2.0),
+                ]),
+            },
+            tags: vec!["bb".to_string(), "lower".to_string()],
+        },
+    ];
+
+    let close_price_input = ConditionInputSpec::Single {
+        source: DataSeriesSource::price(PriceField::Close),
+    };
+
+    let price_above_upper = ConditionInputSpec::Dual {
+        primary: DataSeriesSource::price(PriceField::Close),
+        secondary: DataSeriesSource::indicator(bb_upper_alias.clone()),
+    };
+
+    let price_below_lower = ConditionInputSpec::Dual {
+        primary: DataSeriesSource::price(PriceField::Close),
+        secondary: DataSeriesSource::indicator(bb_lower_alias.clone()),
+    };
+
+    let condition_bindings = vec![
+        ConditionBindingSpec {
+            id: "price_above_upper".to_string(),
+            name: "Price above BB Upper".to_string(),
+            timeframe: timeframe.clone(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::GreaterThan,
+                &price_above_upper,
+            ),
+            parameters: HashMap::new(),
+            input: price_above_upper,
+            weight: 1.0,
+            tags: vec!["exit".to_string()],
+            user_formula: None,
+        },
+        ConditionBindingSpec {
+            id: "price_below_lower".to_string(),
+            name: "Price below BB Lower".to_string(),
+            timeframe: timeframe.clone(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::LessThan,
+                &price_below_lower,
+            ),
+            parameters: HashMap::new(),
+            input: price_below_lower,
+            weight: 1.0,
+            tags: vec!["entry".to_string()],
+            user_formula: None,
+        },
+    ];
+
+    let entry_rules = vec![StrategyRuleSpec {
+        id: "enter_long_bb".to_string(),
+        name: "Enter long on BB Lower touch".to_string(),
+        logic: super::types::RuleLogic::All,
+        conditions: vec!["price_below_lower".to_string()],
+        signal: StrategySignalType::Entry,
+        direction: PositionDirection::Long,
+        quantity: None,
+        tags: vec!["bb".to_string(), "entry".to_string()],
+        position_group: Some("enter_long_bb".to_string()),
+        target_entry_ids: Vec::new(),
+    }];
+
+    let exit_rules = vec![StrategyRuleSpec {
+        id: "exit_long_bb".to_string(),
+        name: "Exit long on BB Upper touch".to_string(),
+        logic: super::types::RuleLogic::All,
+        conditions: vec!["price_above_upper".to_string()],
+        signal: StrategySignalType::Exit,
+        direction: PositionDirection::Long,
+        quantity: None,
+        tags: vec!["bb".to_string(), "exit".to_string()],
+        position_group: None,
+        target_entry_ids: vec!["enter_long_bb".to_string()],
+    }];
+
+    let mut stop_loss_params = StrategyParameterMap::new();
+    stop_loss_params.insert("percentage".to_string(), StrategyParamValue::Number(1.0));
+    let mut take_profit_params = StrategyParameterMap::new();
+    take_profit_params.insert("percentage".to_string(), StrategyParamValue::Number(2.0));
+
+    let stop_handlers = vec![StopHandlerSpec {
+        id: "stop_loss_pct_bb".to_string(),
+        name: "Stop Loss Pct BB".to_string(),
+        handler_name: "StopLossPct".to_string(),
+        timeframe: timeframe.clone(),
+        price_field: PriceField::Close,
+        parameters: stop_loss_params,
+        direction: PositionDirection::Long,
+        priority: 10,
+        tags: vec!["stop".to_string(), "risk".to_string()],
+        target_entry_ids: vec!["enter_long_bb".to_string()],
+    }];
+
+    let take_handlers = vec![TakeHandlerSpec {
+        id: "take_profit_pct_bb".to_string(),
+        name: "Take Profit Pct BB".to_string(),
+        handler_name: "TakeProfitPct".to_string(),
+        timeframe: timeframe.clone(),
+        price_field: PriceField::Close,
+        parameters: take_profit_params,
+        direction: PositionDirection::Long,
+        priority: 20,
+        tags: vec!["take".to_string(), "target".to_string()],
+        target_entry_ids: vec!["enter_long_bb".to_string()],
+    }];
+
+    StrategyDefinition::new(
+        StrategyMetadata {
+            id: "BOLLINGER_BANDS_TEST".to_string(),
+            name: "Bollinger Bands Test".to_string(),
+            description: Some(
+                "Тестовая стратегия для проверки Bollinger Bands индикаторов".to_string(),
+            ),
+            version: Some("1.0.0".to_string()),
+            author: Some("System".to_string()),
+            categories: vec![super::types::StrategyCategory::MeanReversion],
+            tags: vec!["bb".to_string(), "test".to_string()],
+            created_at: None,
+            updated_at: None,
+        },
+        Vec::new(),
+        indicator_bindings,
+        Vec::new(),
         condition_bindings,
         entry_rules,
         exit_rules,

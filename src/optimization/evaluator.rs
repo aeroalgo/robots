@@ -63,6 +63,12 @@ pub struct StrategyEvaluationRunner {
 }
 
 impl StrategyEvaluationRunner {
+    pub fn available_timeframes(&self) -> Vec<TimeFrame> {
+        self.frames.keys().cloned().collect()
+    }
+}
+
+impl StrategyEvaluationRunner {
     pub fn new(frames: HashMap<TimeFrame, QuoteFrame>, base_timeframe: TimeFrame) -> Self {
         Self {
             frames: Arc::new(frames),

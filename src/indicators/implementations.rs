@@ -43,14 +43,14 @@ pub fn get_optimization_range(
     match param_type {
         ParameterType::Period => {
             // Для period: 100-200, шаг 10
-            Some(OptimizationRange::new(100.0, 200.0, 10.0))
+            Some(OptimizationRange::new(10.0, 200.0, 10.0))
         }
         ParameterType::Multiplier => {
             // Для multiplier зависит от имени параметра
             match param_name.to_lowercase().as_str() {
                 "deviation" => {
-                    // Для deviation: 0.5-3, шаг 0.2
-                    Some(OptimizationRange::new(0.5, 3.0, 0.2))
+                    // Для deviation: 0.5-4, шаг 0.1 (соответствует диапазону валидации в Bollinger Bands)
+                    Some(OptimizationRange::new(0.5, 4.0, 0.1))
                 }
                 "coeff_atr" | "atr_multiplier" | "atr_coefficient" => {
                     // Для coeff_atr: 1-10, шаг 0.2
@@ -73,8 +73,8 @@ pub fn get_optimization_range(
         ParameterType::Custom => {
             // Для custom параметров пытаемся определить по имени
             match param_name.to_lowercase().as_str() {
-                "period" | "length" => Some(OptimizationRange::new(100.0, 200.0, 10.0)),
-                "deviation" => Some(OptimizationRange::new(0.5, 3.0, 0.2)),
+                "period" | "length" => Some(OptimizationRange::new(10.0, 200.0, 10.0)),
+                "deviation" => Some(OptimizationRange::new(0.5, 4.0, 0.1)),
                 "coeff_atr" | "atr_multiplier" => Some(OptimizationRange::new(1.0, 10.0, 0.2)),
                 _ => None,
             }
@@ -275,8 +275,8 @@ impl Indicator for MINFOR {
             let window = period.min(i + 1);
             let start_idx = i + 1 - window;
             let end_idx = i + 1;
-            let min_value = unsafe_ops::min_f32_fast(&data.low[start_idx..end_idx])
-                .unwrap_or(f32::INFINITY);
+            let min_value =
+                unsafe_ops::min_f32_fast(&data.low[start_idx..end_idx]).unwrap_or(f32::INFINITY);
             min_values.push(min_value);
         }
 
@@ -1752,8 +1752,7 @@ impl Indicator for AMMA {
             let slice = &data[start..=i];
 
             let sma1 = SMA::new(period as f32)?.calculate_simple(slice)?;
-            let sma2 = SMA::new((period.saturating_mul(2)) as f32)?
-                .calculate_simple(slice)?;
+            let sma2 = SMA::new((period.saturating_mul(2)) as f32)?.calculate_simple(slice)?;
 
             let sma1_value = *sma1.last().unwrap_or(&0.0);
             let sma2_value = *sma2.last().unwrap_or(&0.0);
@@ -2178,9 +2177,10 @@ impl BBMiddle {
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
         params
-            .add_parameter(create_multiplier_parameter(
+            .add_parameter(create_multiplier_parameter_with_range(
                 "deviation",
                 deviation,
+                ParameterPresets::multiplier_range(0.5, 4.0, 0.1),
                 "Стандартное отклонение множитель",
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
@@ -2264,9 +2264,10 @@ impl BBUpper {
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
         params
-            .add_parameter(create_multiplier_parameter(
+            .add_parameter(create_multiplier_parameter_with_range(
                 "deviation",
                 deviation,
+                ParameterPresets::multiplier_range(0.5, 4.0, 0.1),
                 "Стандартное отклонение множитель",
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
@@ -2358,9 +2359,10 @@ impl BBLower {
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
         params
-            .add_parameter(create_multiplier_parameter(
+            .add_parameter(create_multiplier_parameter_with_range(
                 "deviation",
                 deviation,
+                ParameterPresets::multiplier_range(0.5, 4.0, 0.1),
                 "Стандартное отклонение множитель",
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;

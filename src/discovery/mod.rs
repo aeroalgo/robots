@@ -30,10 +30,9 @@ mod tests {
     #[test]
     fn test_timeframe_generator() {
         let base = TimeFrame::Minutes(60);
-        let combinations = TimeFrameGenerator::generate_combinations(base, 3);
+        let combinations = TimeFrameGenerator::generate_combinations(base, 3, 1440);
 
         assert!(!combinations.is_empty());
         // Должны быть комбинации из 3 таймфреймов: 60, 120, 180
     }
-
 }

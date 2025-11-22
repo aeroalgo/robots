@@ -13,6 +13,7 @@ pub fn example_strategy_generation() {
         max_optimization_params: 10,
         timeframe_count: 3,
         base_timeframe: TimeFrame::Minutes(60),
+        max_timeframe_minutes: 1440,
         allow_indicator_on_indicator: false,
         max_indicator_depth: 2,
     };
@@ -79,6 +80,7 @@ pub fn example_strategy_generation() {
     let timeframe_combinations = TimeFrameGenerator::generate_combinations(
         config.base_timeframe.clone(),
         config.timeframe_count,
+        config.max_timeframe_minutes,
     );
     for (i, tf_combo) in timeframe_combinations.iter().enumerate() {
         println!("   Комбинация {}: {:?}", i + 1, tf_combo);

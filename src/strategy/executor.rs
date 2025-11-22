@@ -196,7 +196,13 @@ impl BacktestExecutor {
             ));
         }
 
-        let context = feed.initialize_context();
+        let timeframe_order: Vec<TimeFrame> = strategy
+            .timeframe_requirements()
+            .iter()
+            .map(|req| req.timeframe.clone())
+            .collect();
+
+        let context = feed.initialize_context_ordered(&timeframe_order);
         let position_manager = PositionManager::new(strategy.id().to_string());
         let cached_session_duration = feed.primary_timeframe.as_ref().and_then(|tf| tf.duration());
         let initial_capital = position_manager
@@ -326,6 +332,7 @@ impl BacktestExecutor {
             }
         }
         self.populate_indicators()?;
+        self.populate_custom_data()?;
         self.populate_conditions()?;
         self.initial_capital = self
             .position_manager
@@ -357,23 +364,23 @@ impl BacktestExecutor {
             self.analytics
                 .increment_bars_in_positions_if_has_positions(has_open_positions);
 
-            if let Some(pending) = self.deferred_decision.take() {
-                if !pending.is_empty() {
-                    self.context
-                        .metadata
-                        .insert("deferred_entries".to_string(), "true".to_string());
-                    let result = self
-                        .position_manager
-                        .process_decision(&mut self.context, &pending);
-                    self.context.metadata.remove("deferred_entries");
-                    let report = result.map_err(StrategyExecutionError::Position)?;
-                    self.collect_report(&report);
-                    self.cached_equity = None;
-                    if self.position_manager.open_position_count() > 0 {
-                        self.process_immediate_stop_checks()?;
-                    }
-                }
-            }
+            // if let Some(pending) = self.deferred_decision.take() {
+            //     if !pending.is_empty() {
+            //         self.context
+            //             .metadata
+            //             .insert("deferred_entries".to_string(), "true".to_string());
+            //         let result = self
+            //             .position_manager
+            //             .process_decision(&mut self.context, &pending);
+            //         self.context.metadata.remove("deferred_entries");
+            //         let report = result.map_err(StrategyExecutionError::Position)?;
+            //         self.collect_report(&report);
+            //         self.cached_equity = None;
+            //         if self.position_manager.open_position_count() > 0 {
+            //             self.process_immediate_stop_checks()?;
+            //         }
+            //     }
+            // }
             let decision = self
                 .strategy
                 .evaluate(&self.context)
@@ -423,20 +430,20 @@ impl BacktestExecutor {
             };
             self.analytics.push_equity_point(equity);
         }
-        if let Some(pending) = self.deferred_decision.take() {
-            if !pending.is_empty() {
-                self.context
-                    .metadata
-                    .insert("deferred_entries".to_string(), "true".to_string());
-                let result = self
-                    .position_manager
-                    .process_decision(&mut self.context, &pending);
-                self.context.metadata.remove("deferred_entries");
-                let report = result.map_err(StrategyExecutionError::Position)?;
-                self.collect_report(&report);
-                self.process_immediate_stop_checks()?;
-            }
-        }
+        // if let Some(pending) = self.deferred_decision.take() {
+        //     if !pending.is_empty() {
+        //         self.context
+        //             .metadata
+        //             .insert("deferred_entries".to_string(), "true".to_string());
+        //         let result = self
+        //             .position_manager
+        //             .process_decision(&mut self.context, &pending);
+        //         self.context.metadata.remove("deferred_entries");
+        //         let report = result.map_err(StrategyExecutionError::Position)?;
+        //         self.collect_report(&report);
+        //         self.process_immediate_stop_checks()?;
+        //     }
+        // }
         let initial_capital = self
             .analytics
             .equity_curve()
@@ -568,6 +575,127 @@ impl BacktestExecutor {
             .timeframe_mut(timeframe)
             .map_err(StrategyExecutionError::Strategy)?;
         data.insert_indicator_arc(alias.to_string(), values);
+        Ok(())
+    }
+
+    fn populate_custom_data(&mut self) -> Result<(), StrategyExecutionError> {
+        use super::types::DataSeriesSource;
+        use std::collections::HashMap;
+
+        let mut constants_by_timeframe: HashMap<TimeFrame, HashMap<String, f32>> = HashMap::new();
+
+        for condition in self.strategy.conditions() {
+            let extract_constants = |source: &DataSeriesSource| -> Option<(String, f32)> {
+                match source {
+                    DataSeriesSource::Custom { key, .. } => {
+                        if key.starts_with("constant_") {
+                            if let Ok(value) = key.strip_prefix("constant_")?.parse::<f32>() {
+                                return Some((key.clone(), value));
+                            }
+                        }
+                        None
+                    }
+                    _ => None,
+                }
+            };
+
+            match &condition.input {
+                super::types::ConditionInputSpec::Single { source } => {
+                    if let Some((key, value)) = extract_constants(source) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                }
+                super::types::ConditionInputSpec::Dual { primary, secondary } => {
+                    if let Some((key, value)) = extract_constants(primary) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                    if let Some((key, value)) = extract_constants(secondary) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                }
+                super::types::ConditionInputSpec::DualWithPercent { primary, secondary, .. } => {
+                    if let Some((key, value)) = extract_constants(primary) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                    if let Some((key, value)) = extract_constants(secondary) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                }
+                super::types::ConditionInputSpec::Range {
+                    source,
+                    lower,
+                    upper,
+                } => {
+                    if let Some((key, value)) = extract_constants(source) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                    if let Some((key, value)) = extract_constants(lower) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                    if let Some((key, value)) = extract_constants(upper) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                }
+                super::types::ConditionInputSpec::Indexed { source, .. } => {
+                    if let Some((key, value)) = extract_constants(source) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                }
+                super::types::ConditionInputSpec::Ohlc => {}
+            }
+        }
+
+        for (timeframe, constants) in constants_by_timeframe {
+            let frame = self
+                .feed
+                .frames
+                .get(&timeframe)
+                .ok_or_else(|| {
+                    StrategyExecutionError::Feed(format!(
+                        "timeframe {:?} not available for custom data",
+                        timeframe
+                    ))
+                })?;
+
+            let frame_len = frame.len();
+            let data = self
+                .context
+                .timeframe_mut(&timeframe)
+                .map_err(StrategyExecutionError::Strategy)?;
+
+            for (key, value) in constants {
+                let constant_series: Vec<f32> = vec![value; frame_len];
+                data.insert_custom_series(key, constant_series);
+            }
+        }
+
         Ok(())
     }
 
@@ -734,6 +862,7 @@ struct HistoricalFeed {
     primary_timeframe: Option<TimeFrame>,
     timeframe_hierarchy: Vec<TimeFrame>,
     higher_timeframe_timestamps: HashMap<TimeFrame, Vec<i64>>,
+    cached_aligned_timestamps: HashMap<TimeFrame, i64>,
 }
 
 impl HistoricalFeed {
@@ -779,6 +908,7 @@ impl HistoricalFeed {
             primary_timeframe,
             timeframe_hierarchy: timeframes,
             higher_timeframe_timestamps,
+            cached_aligned_timestamps: HashMap::new(),
         }
     }
 
@@ -789,6 +919,7 @@ impl HistoricalFeed {
             primary_timeframe: None,
             timeframe_hierarchy: Vec::new(),
             higher_timeframe_timestamps: HashMap::new(),
+            cached_aligned_timestamps: HashMap::new(),
         }
     }
 
@@ -799,6 +930,15 @@ impl HistoricalFeed {
             map.insert(timeframe.clone(), data);
         }
         StrategyContext::with_timeframes(map)
+    }
+
+    fn initialize_context_ordered(&self, timeframe_order: &[TimeFrame]) -> StrategyContext {
+        let mut map = HashMap::with_capacity(self.frames.len());
+        for (timeframe, frame) in &self.frames {
+            let data = TimeframeData::with_quote_frame(frame.as_ref(), 0);
+            map.insert(timeframe.clone(), data);
+        }
+        StrategyContext::with_timeframes_ordered(timeframe_order, map)
     }
 
     fn timeframe_to_minutes(tf: &TimeFrame) -> Option<u32> {
@@ -878,6 +1018,7 @@ impl HistoricalFeed {
 
     fn reset(&mut self) {
         self.indices.clear();
+        self.cached_aligned_timestamps.clear();
     }
 
     fn find_higher_timeframe_index_binary_static(
@@ -968,40 +1109,52 @@ impl HistoricalFeed {
                             timeframe,
                         )
                     {
-                        if let Some(timestamps) = higher_timestamps.get(timeframe) {
-                            let start_idx = current_idx.min(timestamps.len().saturating_sub(1));
-                            let end_idx = timestamps.len();
+                        let cached_aligned = self.cached_aligned_timestamps.get(timeframe).copied();
 
-                            let mut target_idx = start_idx;
-                            let mut left = start_idx;
-                            let mut right = end_idx;
-
-                            while left < right {
-                                let mid = left + (right - left) / 2;
-                                if mid >= timestamps.len() {
-                                    break;
-                                }
-                                if timestamps[mid] <= aligned_timestamp_millis {
-                                    target_idx = mid;
-                                    left = mid + 1;
-                                } else {
-                                    right = mid;
-                                }
-                            }
-                            target_idx.min(len.saturating_sub(1))
+                        if cached_aligned == Some(aligned_timestamp_millis) {
+                            current_idx
                         } else {
-                            let mut target_idx = current_idx;
-                            while target_idx + 1 < len {
-                                if let Some(quote) = frame.get(target_idx + 1) {
-                                    if quote.timestamp_millis() <= aligned_timestamp_millis {
-                                        target_idx += 1;
+                            let target_idx = if let Some(timestamps) =
+                                higher_timestamps.get(timeframe)
+                            {
+                                let start_idx = current_idx.min(timestamps.len().saturating_sub(1));
+                                let end_idx = timestamps.len();
+
+                                let mut target_idx = start_idx;
+                                let mut left = start_idx;
+                                let mut right = end_idx;
+
+                                while left < right {
+                                    let mid = left + (right - left) / 2;
+                                    if mid >= timestamps.len() {
+                                        break;
+                                    }
+                                    if timestamps[mid] <= aligned_timestamp_millis {
+                                        target_idx = mid;
+                                        left = mid + 1;
+                                    } else {
+                                        right = mid;
+                                    }
+                                }
+                                target_idx.min(len.saturating_sub(1))
+                            } else {
+                                let mut target_idx = current_idx;
+                                while target_idx + 1 < len {
+                                    if let Some(quote) = frame.get(target_idx + 1) {
+                                        if quote.timestamp_millis() <= aligned_timestamp_millis {
+                                            target_idx += 1;
+                                        } else {
+                                            break;
+                                        }
                                     } else {
                                         break;
                                     }
-                                } else {
-                                    break;
                                 }
-                            }
+                                target_idx
+                            };
+
+                            self.cached_aligned_timestamps
+                                .insert(timeframe.clone(), aligned_timestamp_millis);
                             target_idx
                         }
                     } else {

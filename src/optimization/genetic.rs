@@ -4,6 +4,7 @@ use crate::discovery::StopHandlerConfig;
 use crate::discovery::{StrategyCandidate, StrategyDiscoveryEngine};
 use crate::optimization::evaluator::StrategyEvaluationRunner;
 use crate::optimization::population::PopulationManager;
+use crate::optimization::sds::StochasticDiffusionSearch;
 use crate::optimization::types::{
     EvaluatedStrategy, GeneticAlgorithmConfig, GeneticIndividual, Population,
 };
@@ -77,11 +78,12 @@ impl GeneticAlgorithmV3 {
         population: &mut Population,
     ) -> Result<(), anyhow::Error> {
         let elites = self.select_elites(population);
-        let target_size = population.individuals.len() - elites.len();
-        let mut new_individuals = Vec::with_capacity(target_size);
+        let lambda = self.config.lambda_size;
+        let mu = population.individuals.len();
+        let mut offspring = Vec::with_capacity(lambda);
         let mut evaluated_count = 0;
 
-        while new_individuals.len() < target_size {
+        while offspring.len() < lambda {
             let parents = self.population_manager.select_parents(population, 2);
             if parents.len() < 2 {
                 break;
@@ -131,10 +133,10 @@ impl GeneticAlgorithmV3 {
                     .mutate(&mut child2_params, &child2_candidate, &self.config);
 
                 evaluated_count += 1;
-                let progress = (evaluated_count as f64 / target_size as f64) * 100.0;
+                let progress = (evaluated_count as f64 / lambda as f64) * 100.0;
                 println!(
                     "      [{}/{}] ({:.1}%) Оценка новой особи...",
-                    evaluated_count, target_size, progress
+                    evaluated_count, lambda, progress
                 );
 
                 let child1 = self
@@ -145,14 +147,14 @@ impl GeneticAlgorithmV3 {
                         population.island_id,
                     )
                     .await?;
-                new_individuals.push(child1);
+                offspring.push(child1);
 
-                if new_individuals.len() < target_size {
+                if offspring.len() < lambda {
                     evaluated_count += 1;
-                    let progress = (evaluated_count as f64 / target_size as f64) * 100.0;
+                    let progress = (evaluated_count as f64 / lambda as f64) * 100.0;
                     println!(
                         "      [{}/{}] ({:.1}%) Оценка новой особи...",
-                        evaluated_count, target_size, progress
+                        evaluated_count, lambda, progress
                     );
 
                     let child2 = self
@@ -163,13 +165,39 @@ impl GeneticAlgorithmV3 {
                             population.island_id,
                         )
                         .await?;
-                    new_individuals.push(child2);
+                    offspring.push(child2);
                 }
             }
         }
 
-        self.population_manager
-            .replace_weakest(population, new_individuals);
+        let mut combined_population = population.individuals.clone();
+        combined_population.extend(offspring);
+        
+        if self.config.enable_sds {
+            let mut temp_population = Population {
+                individuals: combined_population.clone(),
+                generation: population.generation,
+                island_id: population.island_id,
+            };
+            
+            let sds = StochasticDiffusionSearch::new(self.config.clone());
+            println!("      [SDS] Применение стохастического диффузионного поиска...");
+            sds.apply_diffusion(&mut temp_population, &self.evaluator).await?;
+            
+            combined_population = temp_population.individuals;
+            println!("      [SDS] Диффузионный поиск завершен");
+        }
+        
+        combined_population.sort_by(|a, b| {
+            let fitness_a = a.strategy.fitness.unwrap_or(0.0);
+            let fitness_b = b.strategy.fitness.unwrap_or(0.0);
+            fitness_b
+                .partial_cmp(&fitness_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        
+        population.individuals = combined_population.into_iter().take(mu).collect();
+        
         self.population_manager.apply_elitism(population, elites);
         population.generation += 1;
 
@@ -543,6 +571,7 @@ impl GeneticAlgorithmV3 {
                     price_fields,
                     operators,
                     stop_handler_configs,
+                    None,
                 );
                 if let Some(new_candidate) = iter.next() {
                     if !new_candidate.conditions.is_empty() {
@@ -574,6 +603,7 @@ impl GeneticAlgorithmV3 {
                     price_fields,
                     operators,
                     stop_handler_configs,
+                    None,
                 );
                 if let Some(new_candidate) = iter.next() {
                     if !new_candidate.exit_conditions.is_empty() {
@@ -604,6 +634,7 @@ impl GeneticAlgorithmV3 {
                     price_fields,
                     operators,
                     stop_handler_configs,
+                    None,
                 );
                 if let Some(new_candidate) = iter.next() {
                     if !new_candidate.stop_handlers.is_empty() {
@@ -639,6 +670,7 @@ impl GeneticAlgorithmV3 {
                         price_fields,
                         operators,
                         stop_handler_configs,
+                        None,
                     );
                     if let Some(new_candidate) = iter.next() {
                         if !new_candidate.take_handlers.is_empty() {

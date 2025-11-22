@@ -25,25 +25,25 @@ impl StrategyConverter {
         let defaults = Self::extract_defaults(candidate);
         let base_tf = base_timeframe.clone();
 
-        let indicator_bindings =
-            Self::create_indicator_bindings(candidate, base_tf.clone())?;
-        let condition_bindings =
-            Self::create_condition_bindings(candidate, base_tf.clone())?;
+        let indicator_bindings = Self::create_indicator_bindings(candidate, base_tf.clone())?;
+        let condition_bindings = Self::create_condition_bindings(candidate, base_tf.clone())?;
         let (stop_handlers, take_handlers) =
             Self::create_stop_and_take_handlers(candidate, base_tf.clone())?;
 
-        let exit_condition_bindings =
-            Self::create_condition_bindings_for_exit(candidate, base_tf)?;
+        let exit_condition_bindings = Self::create_condition_bindings_for_exit(candidate, base_tf)?;
 
         let entry_rules = Self::create_entry_rules(candidate, &condition_bindings)?;
         let exit_rules = Self::create_exit_rules(candidate, &exit_condition_bindings)?;
+
+        let mut all_condition_bindings = condition_bindings;
+        all_condition_bindings.extend(exit_condition_bindings);
 
         Ok(StrategyDefinition::new(
             metadata,
             parameters,
             indicator_bindings,
             vec![], // formulas
-            condition_bindings,
+            all_condition_bindings,
             entry_rules,
             exit_rules,
             stop_handlers,
@@ -473,7 +473,7 @@ impl StrategyConverter {
                 timeframe: base_timeframe.clone(),
                 price_field: crate::strategy::types::PriceField::Close,
                 parameters,
-                direction: PositionDirection::Both,
+                direction: PositionDirection::Long,
                 priority: stop_handler.priority,
                 tags: vec!["stop_loss".to_string()],
                 target_entry_ids: vec![],
@@ -495,7 +495,7 @@ impl StrategyConverter {
                 timeframe: base_timeframe.clone(),
                 price_field: crate::strategy::types::PriceField::Close,
                 parameters,
-                direction: PositionDirection::Both,
+                direction: PositionDirection::Long,
                 priority: take_handler.priority,
                 tags: vec!["take_profit".to_string()],
                 target_entry_ids: vec![],
@@ -521,7 +521,7 @@ impl StrategyConverter {
             logic: RuleLogic::All,
             conditions: condition_ids,
             signal: StrategySignalType::Entry,
-            direction: PositionDirection::Both,
+            direction: PositionDirection::Long,
             quantity: None,
             tags: vec!["auto-generated".to_string()],
             position_group: None,
@@ -585,7 +585,7 @@ impl StrategyConverter {
                 logic: RuleLogic::All,
                 conditions: condition_ids,
                 signal: StrategySignalType::Exit,
-                direction: PositionDirection::Both,
+                direction: PositionDirection::Long,
                 quantity: None,
                 tags: vec!["auto-generated".to_string(), "exit-conditions".to_string()],
                 position_group: None,

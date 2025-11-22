@@ -59,7 +59,8 @@ pub struct TimeframeData {
     symbol: Option<Symbol>,
     index: usize,
     prices: PriceData,
-    indicators: HashMap<String, Arc<Vec<f32>>>,
+    indicators: Vec<Arc<Vec<f32>>>,
+    indicator_alias_order: Vec<String>,
     custom: HashMap<String, Arc<Vec<f32>>>,
     condition_results: Vec<Option<Arc<ConditionResultData>>>,
     condition_id_to_index: HashMap<String, usize>,
@@ -74,7 +75,8 @@ impl TimeframeData {
             symbol: None,
             index: 0,
             prices: PriceData::new(),
-            indicators: HashMap::with_capacity(16),
+            indicators: Vec::with_capacity(16),
+            indicator_alias_order: Vec::with_capacity(16),
             custom: HashMap::with_capacity(8),
             condition_results: Vec::new(),
             condition_id_to_index: HashMap::new(),
@@ -157,11 +159,31 @@ impl TimeframeData {
     }
 
     pub fn insert_indicator(&mut self, alias: impl Into<String>, series: Vec<f32>) {
-        self.indicators.insert(alias.into(), Arc::new(series));
+        self.insert_indicator_arc(alias, Arc::new(series));
     }
 
     pub fn insert_indicator_arc(&mut self, alias: impl Into<String>, series: Arc<Vec<f32>>) {
-        self.indicators.insert(alias.into(), series);
+        let alias = alias.into();
+        if let Some(index) = self.indicator_alias_order.iter().position(|a| a == &alias) {
+            self.indicators[index] = series;
+        } else {
+            self.indicator_alias_order.push(alias);
+            self.indicators.push(series);
+        }
+    }
+
+    pub fn indicator_by_index(&self, index: usize) -> Option<&[f32]> {
+        self.indicators
+            .get(index)
+            .map(|data| data.as_ref().as_slice())
+    }
+
+    fn find_indicator_index(&self, alias: &str) -> Option<usize> {
+        self.indicator_alias_order.iter().position(|a| a == alias)
+    }
+
+    pub fn indicator_index(&self, alias: &str) -> Option<usize> {
+        self.find_indicator_index(alias)
     }
 
     pub fn insert_custom_series(&mut self, key: impl Into<String>, series: Vec<f32>) {
@@ -195,9 +217,15 @@ impl TimeframeData {
     }
 
     pub fn indicator_series_slice(&self, alias: &str) -> Option<&[f32]> {
-        self.indicators
-            .get(alias)
+        self.find_indicator_index(alias)
+            .and_then(|index| self.indicators.get(index))
             .map(|data| data.as_ref().as_slice())
+    }
+
+    pub fn indicator_value_at(&self, alias: &str, candle_index: usize) -> Option<f32> {
+        self.find_indicator_index(alias)
+            .and_then(|index| self.indicators.get(index))
+            .and_then(|data| data.get(candle_index).copied())
     }
 
     pub fn custom_series_slice(&self, key: &str) -> Option<&[f32]> {
@@ -284,7 +312,8 @@ impl TimeframeData {
 
 #[derive(Clone, Debug)]
 pub struct StrategyContext {
-    timeframes: HashMap<TimeFrame, TimeframeData>,
+    timeframes: Vec<TimeframeData>,
+    timeframe_order: Vec<TimeFrame>,
     pub user_settings: StrategyUserSettings,
     pub metadata: HashMap<String, String>,
     pub runtime_parameters: StrategyParameterMap,
@@ -294,7 +323,8 @@ pub struct StrategyContext {
 impl StrategyContext {
     pub fn new() -> Self {
         Self {
-            timeframes: HashMap::with_capacity(4),
+            timeframes: Vec::with_capacity(4),
+            timeframe_order: Vec::with_capacity(4),
             user_settings: HashMap::with_capacity(8),
             metadata: HashMap::with_capacity(8),
             runtime_parameters: HashMap::with_capacity(16),
@@ -304,8 +334,17 @@ impl StrategyContext {
 
     pub fn with_timeframes(timeframes: HashMap<TimeFrame, TimeframeData>) -> Self {
         let timeframes_len = timeframes.len();
+        let mut timeframe_vec = Vec::with_capacity(timeframes_len);
+        let mut timeframe_order = Vec::with_capacity(timeframes_len);
+
+        for (timeframe, data) in timeframes {
+            timeframe_order.push(timeframe.clone());
+            timeframe_vec.push(data);
+        }
+
         Self {
-            timeframes,
+            timeframes: timeframe_vec,
+            timeframe_order,
             user_settings: HashMap::with_capacity(8),
             metadata: HashMap::with_capacity(8),
             runtime_parameters: HashMap::with_capacity(16),
@@ -313,13 +352,47 @@ impl StrategyContext {
         }
     }
 
+    pub fn with_timeframes_ordered(
+        timeframe_order: &[TimeFrame],
+        timeframes: HashMap<TimeFrame, TimeframeData>,
+    ) -> Self {
+        let mut timeframe_vec = Vec::with_capacity(timeframe_order.len());
+        let mut order = Vec::with_capacity(timeframe_order.len());
+
+        for timeframe in timeframe_order {
+            if let Some(data) = timeframes.get(timeframe) {
+                order.push(timeframe.clone());
+                timeframe_vec.push(data.clone());
+            }
+        }
+
+        let timeframes_len = timeframe_vec.len();
+        Self {
+            timeframes: timeframe_vec,
+            timeframe_order: order,
+            user_settings: HashMap::with_capacity(8),
+            metadata: HashMap::with_capacity(8),
+            runtime_parameters: HashMap::with_capacity(16),
+            active_positions: HashMap::with_capacity(timeframes_len.max(8)),
+        }
+    }
+
+    fn find_timeframe_index(&self, timeframe: &TimeFrame) -> Option<usize> {
+        self.timeframe_order.iter().position(|tf| tf == timeframe)
+    }
+
     pub fn insert_timeframe(&mut self, timeframe: TimeFrame, data: TimeframeData) {
-        self.timeframes.insert(timeframe, data);
+        if let Some(index) = self.find_timeframe_index(&timeframe) {
+            self.timeframes[index] = data;
+        } else {
+            self.timeframe_order.push(timeframe.clone());
+            self.timeframes.push(data);
+        }
     }
 
     pub fn timeframe(&self, timeframe: &TimeFrame) -> Result<&TimeframeData, StrategyError> {
-        self.timeframes
-            .get(timeframe)
+        self.find_timeframe_index(timeframe)
+            .and_then(|index| self.timeframes.get(index))
             .ok_or_else(|| StrategyError::MissingTimeframe(timeframe.clone()))
     }
 
@@ -327,9 +400,37 @@ impl StrategyContext {
         &mut self,
         timeframe: &TimeFrame,
     ) -> Result<&mut TimeframeData, StrategyError> {
+        let index = self
+            .find_timeframe_index(timeframe)
+            .ok_or_else(|| StrategyError::MissingTimeframe(timeframe.clone()))?;
         self.timeframes
-            .get_mut(timeframe)
+            .get_mut(index)
             .ok_or_else(|| StrategyError::MissingTimeframe(timeframe.clone()))
+    }
+
+    pub fn timeframe_by_index(&self, index: usize) -> Result<&TimeframeData, StrategyError> {
+        self.timeframes.get(index).ok_or_else(|| {
+            StrategyError::MissingTimeframe(
+                self.timeframe_order
+                    .get(index)
+                    .cloned()
+                    .unwrap_or(TimeFrame::Minutes(1)),
+            )
+        })
+    }
+
+    pub fn timeframe_by_index_mut(
+        &mut self,
+        index: usize,
+    ) -> Result<&mut TimeframeData, StrategyError> {
+        self.timeframes.get_mut(index).ok_or_else(|| {
+            StrategyError::MissingTimeframe(
+                self.timeframe_order
+                    .get(index)
+                    .cloned()
+                    .unwrap_or(TimeFrame::Minutes(1)),
+            )
+        })
     }
 
     fn resolve_series<'a>(

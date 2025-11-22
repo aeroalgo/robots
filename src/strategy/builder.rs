@@ -675,7 +675,19 @@ impl StrategyBuilder {
     }
 
     pub fn build(self) -> Result<DynamicStrategy, StrategyError> {
-        let indicator_bindings = self.definition.indicator_bindings.clone();
+        let mut indicator_bindings = self.definition.indicator_bindings.clone();
+        for binding in &mut indicator_bindings {
+            if let IndicatorSourceSpec::Registry { parameters, .. } = &mut binding.source {
+                let alias = &binding.alias;
+                for (key, value) in &self.parameter_overrides {
+                    if let Some(param_name) = key.strip_prefix(&format!("{}_", alias)) {
+                        if let StrategyParamValue::Number(num_value) = value {
+                            parameters.insert(param_name.to_string(), *num_value as f32);
+                        }
+                    }
+                }
+            }
+        }
         let mut prepared_conditions = Vec::with_capacity(self.definition.condition_bindings.len());
         for binding in &self.definition.condition_bindings {
             let factory_name = binding.factory_name();

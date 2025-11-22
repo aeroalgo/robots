@@ -96,83 +96,57 @@ impl StrategyDiscoveryEngine {
         price_fields: &[PriceField],
         operators: &[ConditionOperator],
         stop_handler_configs: &[StopHandlerConfig],
+        available_timeframes: Option<&[TimeFrame]>,
     ) -> StrategyIterator {
+        println!(
+            "      [generate_strategies_random] Начало случайной генерации стратегий на лету..."
+        );
         let state = self
             .state
             .get_or_insert_with(|| GenerationState::new(rand::thread_rng().gen()));
 
         use rand::SeedableRng;
-        let mut rng = rand::rngs::StdRng::seed_from_u64(state.random_seed);
+        let rng = rand::rngs::StdRng::seed_from_u64(state.random_seed);
 
-        let timeframe_combinations = TimeFrameGenerator::generate_combinations(
-            self.config.base_timeframe.clone(),
-            self.config.timeframe_count,
-        );
-
-        let indicator_combinations: Vec<(Vec<IndicatorInfo>, Vec<NestedIndicator>)> =
-            if self.config.allow_indicator_on_indicator {
-                IndicatorCombinationGenerator::generate_with_indicator_inputs(
-                    available_indicators,
-                    self.config.max_optimization_params,
-                    false,
-                    self.config.max_indicator_depth,
-                )
-                .into_iter()
-                .map(|ic| (ic.base_indicators, ic.nested_indicators))
-                .collect()
-            } else {
-                IndicatorCombinationGenerator::generate_combinations(
-                    available_indicators,
-                    self.config.max_optimization_params,
-                    false,
-                )
-                .into_iter()
-                .map(|indicators| (indicators, Vec::new()))
-                .collect()
-            };
-
-        let all_timeframes: Vec<TimeFrame> = timeframe_combinations
-            .iter()
-            .flat_map(|tfs| tfs.iter())
-            .cloned()
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect();
-        let timeframes_for_conditions = if all_timeframes.is_empty() {
-            None
+        println!("      [generate_strategies_random] Подготовка доступных таймфреймов...");
+        let available_timeframes = if let Some(timeframes) = available_timeframes {
+            let tf_vec: Vec<TimeFrame> = timeframes.iter().cloned().collect();
+            println!(
+                "      [generate_strategies_random] Используются переданные таймфреймы: {}",
+                tf_vec.len()
+            );
+            tf_vec
         } else {
-            Some(all_timeframes.as_slice())
+            let base_minutes = match &self.config.base_timeframe {
+                TimeFrame::Minutes(m) => *m,
+                _ => 60,
+            };
+            let mut timeframes = vec![self.config.base_timeframe.clone()];
+            let mut multiplier = 2;
+            loop {
+                let minutes = base_minutes * multiplier;
+                if minutes > self.config.max_timeframe_minutes {
+                    break;
+                }
+                timeframes.push(TimeFrame::Minutes(minutes));
+                multiplier += 1;
+            }
+            println!(
+                "      [generate_strategies_random] Сгенерировано таймфреймов: {}",
+                timeframes.len()
+            );
+            timeframes
         };
 
-        let all_conditions = ConditionCombinationGenerator::generate_all_conditions_with_constants(
-            available_indicators,
-            price_fields,
-            operators,
-            self.config.allow_indicator_on_indicator,
-            timeframes_for_conditions,
+        println!("      [generate_strategies_random] Извлечение стоп-обработчиков...");
+        let (stop_losses, take_profits) = Self::extract_stop_handlers(stop_handler_configs);
+        println!(
+            "      [generate_strategies_random] Стоп-лоссов: {}, Тейк-профитов: {}",
+            stop_losses.len(),
+            take_profits.len()
         );
 
-        let (stop_losses, take_profits) = Self::extract_stop_handlers(stop_handler_configs);
-
-        let mut all_combinations = Vec::new();
-        for timeframes in &timeframe_combinations {
-            for (base_indicators, nested_indicators) in &indicator_combinations {
-                let hash = GenerationState::combination_hash(
-                    timeframes,
-                    base_indicators,
-                    nested_indicators,
-                );
-                if !state.processed_combinations.contains(&hash) {
-                    all_combinations.push((
-                        timeframes.clone(),
-                        base_indicators.clone(),
-                        nested_indicators.clone(),
-                    ));
-                }
-            }
-        }
-
-        all_combinations.shuffle(&mut rng);
+        println!("      [generate_strategies_random] Генерация стратегий будет происходить случайным образом на лету...");
 
         let state_clone = state.clone();
         let state_arc = Arc::new(std::sync::Mutex::new(state_clone.clone()));
@@ -180,15 +154,16 @@ impl StrategyDiscoveryEngine {
 
         StrategyIterator {
             state: state_arc,
-            combinations: all_combinations,
-            all_conditions: Arc::new(all_conditions),
-            stop_losses: Arc::new(stop_losses),
-            take_profits: Arc::new(take_profits),
+            available_indicators: available_indicators.to_vec(),
+            price_fields: price_fields.to_vec(),
+            operators: operators.to_vec(),
+            available_timeframes,
+            stop_losses,
+            take_profits,
             config: self.config.clone(),
-            current_combo_index: 0,
-            current_candidates: Vec::new(),
-            current_candidate_index: 0,
             rng,
+            max_attempts: 10000,
+            attempts: 0,
         }
     }
 
@@ -206,6 +181,7 @@ impl StrategyDiscoveryEngine {
         let timeframe_combinations = TimeFrameGenerator::generate_combinations(
             self.config.base_timeframe.clone(),
             self.config.timeframe_count,
+            self.config.max_timeframe_minutes,
         );
 
         // Генерируем комбинации индикаторов (не учитываем стопы, т.к. они теперь отдельно)
@@ -352,8 +328,9 @@ impl StrategyDiscoveryEngine {
                 for entry_conditions in &entry_condition_combinations {
                     for stop_handlers in &stop_combinations {
                         // Вариант 1: Entry условия + стопы (без exit условий)
-                        let (stop_handlers_split, take_handlers_split) = StrategyCandidate::split_handlers(stop_handlers);
-                        
+                        let (stop_handlers_split, take_handlers_split) =
+                            StrategyCandidate::split_handlers(stop_handlers);
+
                         let candidate = StrategyCandidate {
                             indicators: base_indicators.clone(),
                             nested_indicators: nested_indicators.clone(),
@@ -398,7 +375,8 @@ impl StrategyDiscoveryEngine {
                                 })
                                 .sum();
 
-                            let (stop_handlers_split, take_handlers_split) = StrategyCandidate::split_handlers(stop_handlers);
+                            let (stop_handlers_split, take_handlers_split) =
+                                StrategyCandidate::split_handlers(stop_handlers);
                             let stop_params_split: usize = stop_handlers_split
                                 .iter()
                                 .map(|s| {
@@ -417,8 +395,12 @@ impl StrategyDiscoveryEngine {
                                         .count()
                                 })
                                 .sum();
-                            
-                            if indicator_params + entry_params + exit_params + stop_params_split + take_params_split
+
+                            if indicator_params
+                                + entry_params
+                                + exit_params
+                                + stop_params_split
+                                + take_params_split
                                 <= self.config.max_optimization_params
                             {
                                 let candidate = StrategyCandidate {
@@ -692,10 +674,15 @@ pub struct StrategyCandidate {
 
 impl StrategyCandidate {
     /// Разделяет список обработчиков на stop_handlers и take_handlers
-    pub fn split_handlers(handlers: &[StopHandlerInfo]) -> (Vec<StopHandlerInfo>, Vec<StopHandlerInfo>) {
-        handlers.iter().cloned().partition(|h| h.stop_type == "stop_loss")
+    pub fn split_handlers(
+        handlers: &[StopHandlerInfo],
+    ) -> (Vec<StopHandlerInfo>, Vec<StopHandlerInfo>) {
+        handlers
+            .iter()
+            .cloned()
+            .partition(|h| h.stop_type == "stop_loss")
     }
-    
+
     /// Вычисляет общее количество параметров оптимизации для этой стратегии
     pub fn total_optimization_params(&self) -> usize {
         // Параметры базовых индикаторов
@@ -779,7 +766,7 @@ impl StrategyCandidate {
         let has_take_handlers = !self.take_handlers.is_empty();
         let has_any_exit = has_exit_conditions || has_stop_handlers || has_take_handlers;
         let only_take = !has_exit_conditions && !has_stop_handlers && has_take_handlers;
-        
+
         self.total_optimization_params() <= self.config.max_optimization_params
             && self.timeframes.len() <= self.config.timeframe_count
             && has_any_exit
@@ -835,384 +822,43 @@ impl StrategyCandidate {
 }
 
 /// Итератор для рандомной генерации стратегий
+/// Генерирует стратегии случайным образом на лету, без предгенерации всех комбинаций
 pub struct StrategyIterator {
     state: Arc<std::sync::Mutex<GenerationState>>,
-    combinations: Vec<(Vec<TimeFrame>, Vec<IndicatorInfo>, Vec<NestedIndicator>)>,
-    all_conditions: Arc<Vec<ConditionInfo>>,
-    stop_losses: Arc<Vec<StopHandlerInfo>>,
-    take_profits: Arc<Vec<StopHandlerInfo>>,
+    available_indicators: Vec<IndicatorInfo>,
+    price_fields: Vec<PriceField>,
+    operators: Vec<ConditionOperator>,
+    available_timeframes: Vec<TimeFrame>,
+    stop_losses: Vec<StopHandlerInfo>,
+    take_profits: Vec<StopHandlerInfo>,
     config: StrategyDiscoveryConfig,
-    current_combo_index: usize,
-    current_candidates: Vec<StrategyCandidate>,
-    current_candidate_index: usize,
     rng: rand::rngs::StdRng,
+    max_attempts: usize,
+    attempts: usize,
 }
 
 impl Iterator for StrategyIterator {
     type Item = StrategyCandidate;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // Генерируем стратегии случайным образом на лету
+        // Повторяем до тех пор, пока не сгенерируется валидная стратегия
         loop {
-            if self.current_candidate_index < self.current_candidates.len() {
-                let candidate = self.current_candidates[self.current_candidate_index].clone();
-                self.current_candidate_index += 1;
+            self.attempts += 1;
 
-                if let Ok(mut state) = self.state.lock() {
-                    state.total_generated += 1;
-                }
-
-                return Some(candidate);
-            }
-
-            if self.current_combo_index >= self.combinations.len() {
+            if self.attempts > self.max_attempts {
                 return None;
             }
 
-            let (timeframes, base_indicators, nested_indicators) =
-                self.combinations[self.current_combo_index].clone();
-            self.current_combo_index += 1;
-
-            if let Ok(mut state) = self.state.lock() {
-                let hash = GenerationState::combination_hash(
-                    &timeframes,
-                    &base_indicators,
-                    &nested_indicators,
-                );
-                state.processed_combinations.insert(hash);
+            if let Some(candidate) = self.generate_random_strategy() {
+                if let Ok(mut state) = self.state.lock() {
+                    state.total_generated += 1;
+                }
+                self.attempts = 0; // Сбрасываем счетчик при успехе
+                return Some(candidate);
             }
 
-            let available_aliases: HashSet<String> = {
-                let mut aliases = base_indicators
-                    .iter()
-                    .map(|ind| ind.alias.clone())
-                    .collect::<HashSet<String>>();
-                aliases.extend(
-                    nested_indicators
-                        .iter()
-                        .map(|nested| nested.indicator.alias.clone()),
-                );
-                aliases
-            };
-
-            let filtered_conditions: Vec<ConditionInfo> = self
-                .all_conditions
-                .iter()
-                .filter(|condition| {
-                    StrategyDiscoveryEngine::condition_uses_available_indicators(
-                        condition,
-                        &available_aliases,
-                    )
-                })
-                .cloned()
-                .collect();
-
-            let base_indicator_params: usize = base_indicators
-                .iter()
-                .map(|ind| ind.parameters.iter().filter(|p| p.optimizable).count())
-                .sum();
-
-            let nested_indicator_params: usize = nested_indicators
-                .iter()
-                .map(|nested| {
-                    nested
-                        .indicator
-                        .parameters
-                        .iter()
-                        .filter(|p| p.optimizable)
-                        .count()
-                })
-                .sum();
-
-            let indicator_params = base_indicator_params + nested_indicator_params;
-
-            let max_stop_loss_params: usize = self
-                .stop_losses
-                .iter()
-                .map(|stop| {
-                    stop.optimization_params
-                        .iter()
-                        .filter(|p| p.optimizable)
-                        .count()
-                })
-                .max()
-                .unwrap_or(0);
-
-            let max_take_profit_params: usize = self
-                .take_profits
-                .iter()
-                .map(|take| {
-                    take.optimization_params
-                        .iter()
-                        .filter(|p| p.optimizable)
-                        .count()
-                })
-                .max()
-                .unwrap_or(0);
-
-            let max_stop_params = max_stop_loss_params + max_take_profit_params;
-
-            let remaining_params_for_conditions = self
-                .config
-                .max_optimization_params
-                .saturating_sub(indicator_params + max_stop_params);
-
-            let mut entry_condition_combinations =
-                StrategyDiscoveryEngine::generate_condition_combinations_with_limit(
-                    &filtered_conditions,
-                    remaining_params_for_conditions,
-                );
-            entry_condition_combinations.shuffle(&mut self.rng);
-
-            let mut exit_condition_combinations =
-                StrategyDiscoveryEngine::generate_condition_combinations_with_limit(
-                    &filtered_conditions,
-                    remaining_params_for_conditions,
-                );
-            exit_condition_combinations.shuffle(&mut self.rng);
-
-            let mut candidates = Vec::new();
-
-            for entry_conditions in &entry_condition_combinations {
-                let entry_params: usize = entry_conditions
-                    .iter()
-                    .map(|c| {
-                        c.optimization_params
-                            .iter()
-                            .filter(|p| p.optimizable)
-                            .count()
-                    })
-                    .sum();
-
-                // Генерируем все возможные комбинации exit rules
-                // Exit rules состоят из трех компонентов: exit_conditions, stop_loss, take_profit
-                // Генерируем все комбинации (2^3 = 8 вариантов)
-
-                // 1. Только exit условия
-                for exit_conditions in &exit_condition_combinations {
-                    let exit_params: usize = exit_conditions
-                        .iter()
-                        .map(|c| {
-                            c.optimization_params
-                                .iter()
-                                .filter(|p| p.optimizable)
-                                .count()
-                        })
-                        .sum();
-
-                    if indicator_params + entry_params + exit_params
-                        <= self.config.max_optimization_params
-                    {
-                        let candidate = StrategyCandidate {
-                            indicators: base_indicators.clone(),
-                            nested_indicators: nested_indicators.clone(),
-                            conditions: entry_conditions.clone(),
-                            exit_conditions: exit_conditions.clone(),
-                            stop_handlers: vec![],
-                            take_handlers: vec![],
-                            timeframes: timeframes.clone(),
-                            config: self.config.clone(),
-                        };
-                        if candidate.is_valid() {
-                            candidates.push(candidate);
-                        }
-                    }
-                }
-
-                // 2. Только stop loss
-                for stop_loss in self.stop_losses.iter() {
-                    let stop_params: usize = stop_loss
-                        .optimization_params
-                        .iter()
-                        .filter(|p| p.optimizable)
-                        .count();
-
-                    if indicator_params + entry_params + stop_params
-                        <= self.config.max_optimization_params
-                    {
-                        let candidate = StrategyCandidate {
-                            indicators: base_indicators.clone(),
-                            nested_indicators: nested_indicators.clone(),
-                            conditions: entry_conditions.clone(),
-                            exit_conditions: vec![],
-                            stop_handlers: vec![stop_loss.clone()],
-                            take_handlers: vec![],
-                            timeframes: timeframes.clone(),
-                            config: self.config.clone(),
-                        };
-                        if candidate.is_valid() {
-                            candidates.push(candidate);
-                        }
-                    }
-                }
-
-                // 3. Exit условия + stop loss
-                for exit_conditions in &exit_condition_combinations {
-                    let exit_params: usize = exit_conditions
-                        .iter()
-                        .map(|c| {
-                            c.optimization_params
-                                .iter()
-                                .filter(|p| p.optimizable)
-                                .count()
-                        })
-                        .sum();
-
-                    for stop_loss in self.stop_losses.iter() {
-                        let stop_params: usize = stop_loss
-                            .optimization_params
-                            .iter()
-                            .filter(|p| p.optimizable)
-                            .count();
-
-                        if indicator_params + entry_params + exit_params + stop_params
-                            <= self.config.max_optimization_params
-                        {
-                            let candidate = StrategyCandidate {
-                                indicators: base_indicators.clone(),
-                                nested_indicators: nested_indicators.clone(),
-                                conditions: entry_conditions.clone(),
-                                exit_conditions: exit_conditions.clone(),
-                                stop_handlers: vec![stop_loss.clone()],
-                                take_handlers: vec![],
-                                timeframes: timeframes.clone(),
-                                config: self.config.clone(),
-                            };
-                            if candidate.is_valid() {
-                                candidates.push(candidate);
-                            }
-                        }
-                    }
-                }
-
-                // 4. Exit условия + take profit
-                for exit_conditions in &exit_condition_combinations {
-                    let exit_params: usize = exit_conditions
-                        .iter()
-                        .map(|c| {
-                            c.optimization_params
-                                .iter()
-                                .filter(|p| p.optimizable)
-                                .count()
-                        })
-                        .sum();
-
-                    for take_profit in self.take_profits.iter() {
-                        let take_params: usize = take_profit
-                            .optimization_params
-                            .iter()
-                            .filter(|p| p.optimizable)
-                            .count();
-
-                        if indicator_params + entry_params + exit_params + take_params
-                            <= self.config.max_optimization_params
-                        {
-                            let candidate = StrategyCandidate {
-                                indicators: base_indicators.clone(),
-                                nested_indicators: nested_indicators.clone(),
-                                conditions: entry_conditions.clone(),
-                                exit_conditions: exit_conditions.clone(),
-                                stop_handlers: vec![],
-                                take_handlers: vec![take_profit.clone()],
-                                timeframes: timeframes.clone(),
-                                config: self.config.clone(),
-                            };
-                            if candidate.is_valid() {
-                                candidates.push(candidate);
-                            }
-                        }
-                    }
-                }
-
-                // 5. Stop loss + take profit
-                for stop_loss in self.stop_losses.iter() {
-                    let stop_params: usize = stop_loss
-                        .optimization_params
-                        .iter()
-                        .filter(|p| p.optimizable)
-                        .count();
-
-                    for take_profit in self.take_profits.iter() {
-                        let take_params: usize = take_profit
-                            .optimization_params
-                            .iter()
-                            .filter(|p| p.optimizable)
-                            .count();
-
-                        if indicator_params + entry_params + stop_params + take_params
-                            <= self.config.max_optimization_params
-                        {
-                            let candidate = StrategyCandidate {
-                                indicators: base_indicators.clone(),
-                                nested_indicators: nested_indicators.clone(),
-                                conditions: entry_conditions.clone(),
-                                exit_conditions: vec![],
-                                stop_handlers: vec![stop_loss.clone()],
-                                take_handlers: vec![take_profit.clone()],
-                                timeframes: timeframes.clone(),
-                                config: self.config.clone(),
-                            };
-                            if candidate.is_valid() {
-                                candidates.push(candidate);
-                            }
-                        }
-                    }
-                }
-
-                // 6. Exit условия + stop loss + take profit
-                for exit_conditions in &exit_condition_combinations {
-                    let exit_params: usize = exit_conditions
-                        .iter()
-                        .map(|c| {
-                            c.optimization_params
-                                .iter()
-                                .filter(|p| p.optimizable)
-                                .count()
-                        })
-                        .sum();
-
-                    for stop_loss in self.stop_losses.iter() {
-                        let stop_params: usize = stop_loss
-                            .optimization_params
-                            .iter()
-                            .filter(|p| p.optimizable)
-                            .count();
-
-                        for take_profit in self.take_profits.iter() {
-                            let take_params: usize = take_profit
-                                .optimization_params
-                                .iter()
-                                .filter(|p| p.optimizable)
-                                .count();
-
-                            if indicator_params
-                                + entry_params
-                                + exit_params
-                                + stop_params
-                                + take_params
-                                <= self.config.max_optimization_params
-                            {
-                                let candidate = StrategyCandidate {
-                                    indicators: base_indicators.clone(),
-                                    nested_indicators: nested_indicators.clone(),
-                                    conditions: entry_conditions.clone(),
-                                    exit_conditions: exit_conditions.clone(),
-                                    stop_handlers: vec![stop_loss.clone()],
-                                    take_handlers: vec![take_profit.clone()],
-                                    timeframes: timeframes.clone(),
-                                    config: self.config.clone(),
-                                };
-                                if candidate.is_valid() {
-                                    candidates.push(candidate);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            candidates.shuffle(&mut self.rng);
-            self.current_candidates = candidates;
-            self.current_candidate_index = 0;
+            // Если не удалось сгенерировать валидную стратегию, повторяем
         }
     }
 }
@@ -1221,5 +867,337 @@ impl StrategyIterator {
     /// Получает текущее состояние генерации
     pub fn get_state(&self) -> Option<GenerationState> {
         self.state.lock().ok().map(|s| s.clone())
+    }
+
+    /// Генерирует одну случайную стратегию на лету поэтапно
+    fn generate_random_strategy(&mut self) -> Option<StrategyCandidate> {
+        use rand::Rng;
+
+        // ЭТАП 1: БАЗОВАЯ СТРАТЕГИЯ (обязательно)
+        // 1.1. Базовый таймфрейм
+        let mut timeframes = vec![self.config.base_timeframe.clone()];
+
+        // 1.2. Один индикатор
+        if self.available_indicators.is_empty() {
+            return None;
+        }
+        let first_indicator = self.available_indicators.choose(&mut self.rng).cloned()?;
+        let mut selected_indicators = vec![first_indicator.clone()];
+        let mut nested_indicators = Vec::new();
+
+        // 1.3. Одно условие для этого индикатора
+        let base_conditions =
+            self.generate_conditions_for_indicators(&selected_indicators, &timeframes)?;
+        if base_conditions.is_empty() {
+            return None;
+        }
+        let first_condition = base_conditions.choose(&mut self.rng).cloned()?;
+        let mut entry_conditions = vec![first_condition];
+        let mut exit_conditions = Vec::new();
+
+        // 1.4. Один стоп обработчик (обязательно)
+        if self.stop_losses.is_empty() {
+            return None;
+        }
+        let stop_handler = self.stop_losses.choose(&mut self.rng).cloned()?;
+        let mut stop_handlers = vec![stop_handler];
+        let mut take_handlers = Vec::new();
+
+        // ЭТАП 2+: ПОЭТАПНОЕ ДОБАВЛЕНИЕ ЭЛЕМЕНТОВ
+        loop {
+            let current_params = self.calculate_total_params(
+                &selected_indicators,
+                &nested_indicators,
+                &entry_conditions,
+                &exit_conditions,
+                &stop_handlers,
+                &take_handlers,
+            );
+
+            if current_params >= self.config.max_optimization_params {
+                break;
+            }
+
+            // Вероятность продолжить добавление элементов
+            if !self.rng.gen_bool(0.6) {
+                break;
+            }
+
+            let mut added_something = false;
+
+            // 2.1. Дополнительный таймфрейм (вероятность 0.4)
+            if timeframes.len() < self.config.timeframe_count
+                && timeframes.len() < self.available_timeframes.len()
+                && self.rng.gen_bool(0.4)
+            {
+                let available_tfs: Vec<_> = self
+                    .available_timeframes
+                    .iter()
+                    .filter(|tf| !timeframes.contains(tf))
+                    .collect();
+                if let Some(new_tf) = available_tfs.choose(&mut self.rng) {
+                    timeframes.push((*new_tf).clone());
+                    added_something = true;
+                }
+            }
+
+            // 2.2. Индикатор (вероятность 0.5)
+            if self.rng.gen_bool(0.5) {
+                let available: Vec<_> = self
+                    .available_indicators
+                    .iter()
+                    .filter(|ind| !selected_indicators.iter().any(|si| si.alias == ind.alias))
+                    .collect();
+                if let Some(new_indicator) = available.choose(&mut self.rng) {
+                    selected_indicators.push((*new_indicator).clone());
+                    added_something = true;
+
+                    // ОБЯЗАТЕЛЬНО: добавляем условие для нового индикатора
+                    let new_conditions =
+                        self.generate_conditions_for_indicators(&selected_indicators, &timeframes)?;
+
+                    // Если это осциллятор, предпочитаем условия с константами
+                    let is_oscillator = new_indicator.indicator_type == "oscillator";
+                    let preferred_condition = if is_oscillator {
+                        new_conditions
+                            .iter()
+                            .find(|c| {
+                                c.condition_type == "indicator_constant"
+                                    && self.condition_uses_indicator(c, &new_indicator.alias)
+                            })
+                            .or_else(|| {
+                                new_conditions.iter().find(|c| {
+                                    self.condition_uses_indicator(c, &new_indicator.alias)
+                                })
+                            })
+                    } else {
+                        new_conditions
+                            .iter()
+                            .find(|c| self.condition_uses_indicator(c, &new_indicator.alias))
+                    };
+
+                    if let Some(new_condition) =
+                        preferred_condition.or_else(|| new_conditions.choose(&mut self.rng))
+                    {
+                        entry_conditions.push(new_condition.clone());
+                    }
+                }
+            }
+
+            // 2.3. Exit rule (вероятность 0.4)
+            if self.rng.gen_bool(0.4) {
+                let available_exit =
+                    self.generate_conditions_for_indicators(&selected_indicators, &timeframes)?;
+                if let Some(exit_condition) = available_exit.choose(&mut self.rng) {
+                    exit_conditions.push(exit_condition.clone());
+                    added_something = true;
+                }
+            }
+
+            // 2.4. Take profit (вероятность 0.3)
+            if !self.take_profits.is_empty() && self.rng.gen_bool(0.3) {
+                if let Some(take) = self.take_profits.choose(&mut self.rng) {
+                    take_handlers.push(take.clone());
+                    added_something = true;
+                }
+            }
+
+            // 2.5. Индикатор по индикатору (вероятность 0.3, если разрешено)
+            if self.config.allow_indicator_on_indicator
+                && self.rng.gen_bool(0.3)
+                && !selected_indicators.is_empty()
+            {
+                // Выбираем базовый индикатор для построения нового
+                let base_indicator = selected_indicators.choose(&mut self.rng)?;
+                if base_indicator.can_use_indicator_input {
+                    // Ищем индикаторы, которые могут строиться по индикаторам
+                    let available_nested: Vec<_> = self
+                        .available_indicators
+                        .iter()
+                        .filter(|ind| ind.can_use_indicator_input)
+                        .filter(|ind| !selected_indicators.iter().any(|si| si.alias == ind.alias))
+                        .collect();
+                    if let Some(nested_ind) = available_nested.choose(&mut self.rng) {
+                        nested_indicators.push(NestedIndicator {
+                            indicator: (*nested_ind).clone(),
+                            input_indicator_alias: base_indicator.alias.clone(),
+                            depth: 1,
+                        });
+                        added_something = true;
+
+                        // ОБЯЗАТЕЛЬНО: добавляем условие для вложенного индикатора
+                        let all_indicators: Vec<_> = selected_indicators
+                            .iter()
+                            .chain(nested_indicators.iter().map(|n| &n.indicator))
+                            .collect();
+                        let nested_conditions = self.generate_conditions_for_indicators(
+                            &all_indicators
+                                .iter()
+                                .map(|i| (*i).clone())
+                                .collect::<Vec<_>>(),
+                            &timeframes,
+                        )?;
+
+                        // Если это осциллятор, предпочитаем условия с константами
+                        let is_oscillator = nested_ind.indicator_type == "oscillator";
+                        let preferred_condition = if is_oscillator {
+                            nested_conditions
+                                .iter()
+                                .find(|c| {
+                                    c.condition_type == "indicator_constant"
+                                        && self.condition_uses_indicator(c, &nested_ind.alias)
+                                })
+                                .or_else(|| {
+                                    nested_conditions.iter().find(|c| {
+                                        self.condition_uses_indicator(c, &nested_ind.alias)
+                                    })
+                                })
+                        } else {
+                            nested_conditions
+                                .iter()
+                                .find(|c| self.condition_uses_indicator(c, &nested_ind.alias))
+                        };
+
+                        if let Some(nested_condition) =
+                            preferred_condition.or_else(|| nested_conditions.choose(&mut self.rng))
+                        {
+                            entry_conditions.push(nested_condition.clone());
+                        }
+                    }
+                }
+            }
+
+            // Если ничего не добавили, выходим
+            if !added_something {
+                break;
+            }
+        }
+
+        // Создаем кандидата стратегии
+        let candidate = StrategyCandidate {
+            indicators: selected_indicators,
+            nested_indicators,
+            conditions: entry_conditions,
+            exit_conditions,
+            stop_handlers,
+            take_handlers,
+            timeframes,
+            config: self.config.clone(),
+        };
+
+        // Проверяем валидность и ограничения
+        if candidate.is_valid()
+            && candidate.total_optimization_params() <= self.config.max_optimization_params
+        {
+            Some(candidate)
+        } else {
+            None
+        }
+    }
+
+    /// Генерирует условия для указанных индикаторов
+    fn generate_conditions_for_indicators(
+        &self,
+        indicators: &[IndicatorInfo],
+        timeframes: &[TimeFrame],
+    ) -> Option<Vec<ConditionInfo>> {
+        let timeframes_slice = if timeframes.is_empty() {
+            None
+        } else {
+            Some(timeframes)
+        };
+        let conditions = ConditionCombinationGenerator::generate_all_conditions_with_constants(
+            indicators,
+            &self.price_fields,
+            &self.operators,
+            self.config.allow_indicator_on_indicator,
+            timeframes_slice,
+        );
+        if conditions.is_empty() {
+            None
+        } else {
+            Some(conditions)
+        }
+    }
+
+    /// Проверяет, использует ли условие указанный индикатор
+    fn condition_uses_indicator(&self, condition: &ConditionInfo, indicator_alias: &str) -> bool {
+        if let Some(alias) =
+            StrategyDiscoveryEngine::extract_indicator_alias_from_condition_id(&condition.id)
+        {
+            alias == indicator_alias
+        } else {
+            false
+        }
+    }
+
+    /// Вычисляет общее количество параметров оптимизации
+    fn calculate_total_params(
+        &self,
+        indicators: &[IndicatorInfo],
+        nested_indicators: &[NestedIndicator],
+        entry_conditions: &[ConditionInfo],
+        exit_conditions: &[ConditionInfo],
+        stop_handlers: &[StopHandlerInfo],
+        take_handlers: &[StopHandlerInfo],
+    ) -> usize {
+        let indicator_params: usize = indicators
+            .iter()
+            .map(|ind| ind.parameters.iter().filter(|p| p.optimizable).count())
+            .sum();
+
+        let nested_params: usize = nested_indicators
+            .iter()
+            .map(|nested| {
+                nested
+                    .indicator
+                    .parameters
+                    .iter()
+                    .filter(|p| p.optimizable)
+                    .count()
+            })
+            .sum();
+
+        let entry_params: usize = entry_conditions
+            .iter()
+            .map(|c| {
+                c.optimization_params
+                    .iter()
+                    .filter(|p| p.optimizable)
+                    .count()
+            })
+            .sum();
+
+        let exit_params: usize = exit_conditions
+            .iter()
+            .map(|c| {
+                c.optimization_params
+                    .iter()
+                    .filter(|p| p.optimizable)
+                    .count()
+            })
+            .sum();
+
+        let stop_params: usize = stop_handlers
+            .iter()
+            .map(|s| {
+                s.optimization_params
+                    .iter()
+                    .filter(|p| p.optimizable)
+                    .count()
+            })
+            .sum();
+
+        let take_params: usize = take_handlers
+            .iter()
+            .map(|s| {
+                s.optimization_params
+                    .iter()
+                    .filter(|p| p.optimizable)
+                    .count()
+            })
+            .sum();
+
+        indicator_params + nested_params + entry_params + exit_params + stop_params + take_params
     }
 }

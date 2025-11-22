@@ -54,13 +54,15 @@ impl InitialPopulationGenerator {
         }
 
         let strategies_to_generate = if candidates.is_empty() {
-            (self.config.population_size as f64 / self.config.decimation_coefficient).ceil()
-                as usize
+            // Генерируем больше структур стратегий для большего разнообразия
+            // Используем population_size вместо деления на decimation_coefficient
+            self.config.population_size
         } else {
             1
         };
 
-        let mut strategy_candidates = Vec::with_capacity(strategies_to_generate.max(initial_capacity));
+        let mut strategy_candidates =
+            Vec::with_capacity(strategies_to_generate.max(initial_capacity));
         if candidates.is_empty() {
             let generated = self.generate_candidates(strategies_to_generate).await?;
             strategy_candidates.extend(generated);
@@ -76,14 +78,20 @@ impl InitialPopulationGenerator {
             });
         }
 
-        let target_size =
-            (self.config.population_size as f64 * self.config.decimation_coefficient) as usize;
+        // Количество вариантов параметров для каждого кандидата стратегии
+        // Используем population_size для баланса: 30 кандидатов × 30 вариантов = 900 тестов
+        let target_size = self.config.population_size;
         let mut individuals = Vec::with_capacity(target_size);
 
         let total_strategies = strategy_candidates.len() * target_size;
         let mut current_strategy = 0;
 
-        println!("   Всего стратегий для тестирования: {}", total_strategies);
+        println!("   [Генерация популяции] Сгенерировано кандидатов стратегий: {}", strategy_candidates.len());
+        println!("   [Генерация популяции] Вариантов параметров для каждого кандидата: {}", target_size);
+        println!("   [Генерация популяции] Всего стратегий для тестирования: {} ({} кандидатов × {} вариантов параметров)", 
+                 total_strategies, 
+                 strategy_candidates.len(), 
+                 target_size);
 
         for (candidate_idx, candidate) in strategy_candidates.iter().enumerate() {
             for param_variant in 0..target_size {
@@ -100,10 +108,25 @@ impl InitialPopulationGenerator {
                 );
 
                 let random_params = self.generate_random_parameters(candidate);
-                let report = self
+                let report = match self
                     .evaluator
                     .evaluate_strategy(candidate, random_params.clone())
-                    .await?;
+                    .await
+                {
+                    Ok(report) => report,
+                    Err(e) => {
+                        eprintln!(
+                            "      ❌ Ошибка выполнения backtest для стратегии #{} (вариант #{})",
+                            candidate_idx + 1,
+                            param_variant + 1
+                        );
+                        eprintln!("      Детали ошибки: {:?}", e);
+                        if let Some(source) = e.source() {
+                            eprintln!("      Источник ошибки: {:?}", source);
+                        }
+                        continue;
+                    }
+                };
 
                 if self.config.filter_initial_population {
                     if !FitnessFunction::passes_thresholds(&report, &self.config.fitness_thresholds)
@@ -177,17 +200,43 @@ impl InitialPopulationGenerator {
         &self,
         count: usize,
     ) -> Result<Vec<StrategyCandidate>, anyhow::Error> {
+        println!(
+            "   [Генерация кандидатов] Начало генерации {} кандидатов стратегий...",
+            count
+        );
+
         use crate::discovery::IndicatorInfoCollector;
         use crate::strategy::types::PriceField;
 
         let mut candidates = Vec::with_capacity(count);
+        println!("   [Генерация кандидатов] Создание StrategyDiscoveryEngine...");
         let mut engine = StrategyDiscoveryEngine::new(self.discovery_config.clone());
 
         use crate::indicators::registry::IndicatorRegistry;
+        use crate::risk::registry::StopHandlerRegistry;
         use crate::strategy::types::ConditionOperator;
 
+        println!("   [Генерация кандидатов] Создание IndicatorRegistry...");
         let registry = IndicatorRegistry::new();
+        println!("   [Генерация кандидатов] Сбор информации об индикаторах...");
         let available_indicators_vec = IndicatorInfoCollector::collect_from_registry(&registry);
+        println!(
+            "   [Генерация кандидатов] Найдено индикаторов: {}",
+            available_indicators_vec.len()
+        );
+
+        println!("   [Генерация кандидатов] Создание StopHandlerRegistry...");
+        let stop_handler_registry = StopHandlerRegistry::new();
+        let stop_handler_configs = stop_handler_registry.get_all_configs();
+        let stop_loss_configs = stop_handler_registry.get_stop_loss_configs();
+        let take_profit_configs = stop_handler_registry.get_take_profit_configs();
+        println!(
+            "   [Генерация кандидатов] Найдено стоп-обработчиков: {} (Стоп-лоссов: {}, Тейк-профитов: {})",
+            stop_handler_configs.len(),
+            stop_loss_configs.len(),
+            take_profit_configs.len()
+        );
+
         let price_fields = vec![
             PriceField::Close,
             PriceField::Open,
@@ -201,23 +250,43 @@ impl InitialPopulationGenerator {
             ConditionOperator::CrossesAbove,
             ConditionOperator::CrossesBelow,
         ];
-        let stop_handler_configs = vec![];
 
+        println!(
+            "   [Генерация кандидатов] Генерация комбинаций стратегий (это может занять время)..."
+        );
+        let available_timeframes = self.evaluator.available_timeframes();
         let mut iterator = engine.generate_strategies_random(
             &available_indicators_vec,
             &price_fields,
             &operators,
             &stop_handler_configs,
+            Some(&available_timeframes),
         );
+        println!("   [Генерация кандидатов] Итератор создан, начинаем извлечение кандидатов...");
 
-        for _ in 0..count {
+        for i in 0..count {
             if let Some(candidate) = iterator.next() {
                 candidates.push(candidate);
+                if (i + 1) % 5 == 0 || i == 0 {
+                    println!(
+                        "   [Генерация кандидатов] Сгенерировано {}/{} кандидатов",
+                        i + 1,
+                        count
+                    );
+                }
             } else {
+                println!(
+                    "   [Генерация кандидатов] Итератор исчерпан на {}/{}",
+                    i, count
+                );
                 break;
             }
         }
 
+        println!(
+            "   [Генерация кандидатов] Завершено: создано {} кандидатов стратегий",
+            candidates.len()
+        );
         Ok(candidates)
     }
 
@@ -227,7 +296,11 @@ impl InitialPopulationGenerator {
         use crate::strategy::types::StrategyParamValue;
 
         let mut rng = rand::thread_rng();
-        let total_params: usize = candidate.indicators.iter().map(|i| i.parameters.len()).sum();
+        let total_params: usize = candidate
+            .indicators
+            .iter()
+            .map(|i| i.parameters.len())
+            .sum();
         let mut params = HashMap::with_capacity(total_params);
 
         for indicator in &candidate.indicators {
@@ -252,7 +325,7 @@ impl InitialPopulationGenerator {
                             continue;
                         }
                     };
-                    params.insert(format!("{}_{}", indicator.name, param.name), param_value);
+                    params.insert(format!("{}_{}", indicator.alias, param.name), param_value);
                 }
             }
         }
@@ -282,7 +355,7 @@ impl InitialPopulationGenerator {
                         }
                     };
                     params.insert(
-                        format!("nested_{}_{}", nested.indicator.name, param.name),
+                        format!("nested_{}_{}", nested.indicator.alias, param.name),
                         param_value,
                     );
                 }

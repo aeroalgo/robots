@@ -25,6 +25,7 @@ pub async fn example_genetic_optimization() -> Result<()> {
     println!("⚙️  Создание конфигурации генетического алгоритма...");
     let config = GeneticAlgorithmConfig {
         population_size: 50,
+        lambda_size: 50,
         max_generations: 10,
         crossover_rate: 0.7,
         mutation_rate: 0.1,
@@ -57,9 +58,16 @@ pub async fn example_genetic_optimization() -> Result<()> {
         restart_on_stagnation: true,
         fresh_blood_rate: 0.1,
         detect_duplicates: true,
+        param_mutation_min_percent: 0.03,
+        param_mutation_max_percent: 0.05,
+        enable_sds: false,
+        sds_iterations: 5,
+        sds_agents_ratio: 1.0,
+        sds_test_threshold: 0.7,
     };
 
-    println!("   Размер популяции: {}", config.population_size);
+    println!("   Размер популяции (μ): {}", config.population_size);
+    println!("   Количество потомков (λ): {}", config.lambda_size);
     println!("   Максимум поколений: {}", config.max_generations);
     println!("   Количество островов: {}", config.islands_count);
     println!(
@@ -73,9 +81,17 @@ pub async fn example_genetic_optimization() -> Result<()> {
         config.crossover_rate * 100.0
     );
     println!(
-        "   Вероятность мутации: {:.1}%\n",
+        "   Вероятность мутации: {:.1}%",
         config.mutation_rate * 100.0
     );
+    if config.enable_sds {
+        println!("   Стохастический диффузионный поиск: включен");
+        println!("   Итераций SDS: {}", config.sds_iterations);
+        println!("   Порог тестирования SDS: {:.2}", config.sds_test_threshold);
+    } else {
+        println!("   Стохастический диффузионный поиск: выключен");
+    }
+    println!();
 
     println!("🧬 Генерация начальной популяции...");
     let generator =

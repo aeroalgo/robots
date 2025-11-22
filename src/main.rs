@@ -311,7 +311,7 @@ async fn run() -> Result<()> {
     print_compressed_candles(&executor, &source_frame).await?;
 
     println!("\n=== ГЕНЕТИЧЕСКАЯ ОПТИМИЗАЦИЯ ===");
-    // run_genetic_optimization(&symbol, &timeframe, candles).await?;
+    run_genetic_optimization(&symbol, &timeframe, candles).await?;
 
     Ok(())
 }
@@ -644,6 +644,7 @@ async fn run_genetic_optimization(
     println!("⚙️  Создание конфигурации генетического алгоритма...");
     let config = GeneticAlgorithmConfig {
         population_size: 30,
+        lambda_size: 30,
         max_generations: 5,
         crossover_rate: 0.7,
         mutation_rate: 0.1,
@@ -678,9 +679,14 @@ async fn run_genetic_optimization(
         detect_duplicates: true,
         param_mutation_min_percent: 0.03,
         param_mutation_max_percent: 0.05,
+        enable_sds: false,
+        sds_iterations: 5,
+        sds_agents_ratio: 1.0,
+        sds_test_threshold: 0.7,
     };
 
-    println!("   Размер популяции: {}", config.population_size);
+    println!("   Размер популяции (μ): {}", config.population_size);
+    println!("   Количество потомков (λ): {}", config.lambda_size);
     println!("   Максимум поколений: {}", config.max_generations);
     println!("   Количество островов: {}", config.islands_count);
     println!("   Элитизм: {} особей", config.elitism_count);
@@ -689,13 +695,38 @@ async fn run_genetic_optimization(
         config.crossover_rate * 100.0
     );
     println!(
-        "   Вероятность мутации: {:.1}%\n",
+        "   Вероятность мутации: {:.1}%",
         config.mutation_rate * 100.0
     );
+    if config.enable_sds {
+        println!("   Стохастический диффузионный поиск: включен");
+        println!("   Итераций SDS: {}", config.sds_iterations);
+        println!(
+            "   Порог тестирования SDS: {:.2}",
+            config.sds_test_threshold
+        );
+    } else {
+        println!("   Стохастический диффузионный поиск: выключен");
+    }
+    println!();
+
+    println!("🧬 Создание конфигурации discovery...");
+    let discovery_config = StrategyDiscoveryConfig {
+        max_optimization_params: 8,
+        timeframe_count: 2,
+        base_timeframe: base_timeframe.clone(),
+        max_timeframe_minutes: 240,
+        allow_indicator_on_indicator: true,
+        max_indicator_depth: 1,
+    };
 
     println!("🧬 Генерация начальной популяции...");
-    let generator =
-        InitialPopulationGenerator::new(config.clone(), frames.clone(), base_timeframe.clone());
+    let generator = InitialPopulationGenerator::with_discovery_config(
+        config.clone(),
+        frames.clone(),
+        base_timeframe.clone(),
+        discovery_config.clone(),
+    );
 
     let initial_population = generator.generate(None).await?;
     println!(
@@ -715,13 +746,6 @@ async fn run_genetic_optimization(
     println!("   Создано {} островов\n", island_manager.islands_count());
 
     println!("🧬 Создание генетического алгоритма...");
-    let discovery_config = StrategyDiscoveryConfig {
-        max_optimization_params: 8,
-        timeframe_count: 2,
-        base_timeframe: base_timeframe.clone(),
-        allow_indicator_on_indicator: true,
-        max_indicator_depth: 1,
-    };
     let mut genetic_algorithm = GeneticAlgorithmV3::new(
         config.clone(),
         frames.clone(),

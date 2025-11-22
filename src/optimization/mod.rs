@@ -8,6 +8,7 @@ pub mod initial_population;
 pub mod evolution;
 pub mod fresh_blood;
 pub mod per_structure_optimizer;
+pub mod sds;
 pub mod types;
 
 pub use evaluator::StrategyEvaluationRunner;
@@ -20,6 +21,7 @@ pub use initial_population::InitialPopulationGenerator;
 pub use evolution::EvolutionManager;
 pub use fresh_blood::FreshBloodSystem;
 pub use per_structure_optimizer::{OptimizedStrategyResult, PerStructureOptimizer};
+pub use sds::StochasticDiffusionSearch;
 pub use types::*;
 
 pub mod strategy_saver;

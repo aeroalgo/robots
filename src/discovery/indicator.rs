@@ -121,8 +121,27 @@ impl IndicatorCombinationGenerator {
             return result;
         }
 
-        // Генерируем все комбинации базовых индикаторов
-        for combo_len in 1..=base_indicators.len().min(max_params) {
+        let stop_params = 2;
+        let params_for_indicators = max_params.saturating_sub(stop_params);
+        let avg_params_per_indicator = 2;
+        let max_indicators_in_combo = (params_for_indicators / avg_params_per_indicator).max(1).min(4);
+        println!(
+            "         [generate_nested_combinations] Базовых индикаторов: {}, Генерируем комбинации до {} индикаторов в комбинации (max_params={}, резерв для стопов/тейков={}, остается для индикаторов={}, среднее параметров на индикатор={})",
+            base_indicators.len(),
+            max_indicators_in_combo,
+            max_params,
+            stop_params,
+            params_for_indicators,
+            avg_params_per_indicator
+        );
+        
+        let mut total_base_combinations = 0;
+        for combo_len in 1..=base_indicators.len().min(max_indicators_in_combo).min(max_params) {
+            println!(
+                "         [generate_nested_combinations] Генерация комбинаций длины {} из {} индикаторов...",
+                combo_len,
+                base_indicators.len()
+            );
             let base_combinations = Self::generate_combinations_of_length(
                 &base_indicators
                     .iter()
@@ -131,6 +150,12 @@ impl IndicatorCombinationGenerator {
                 combo_len,
                 max_params,
             );
+            println!(
+                "         [generate_nested_combinations] Сгенерировано комбинаций длины {}: {}",
+                combo_len,
+                base_combinations.len()
+            );
+            total_base_combinations += base_combinations.len();
 
             for base_combo in base_combinations {
                 // Для каждой комбинации базовых индикаторов генерируем вложенные
@@ -159,6 +184,11 @@ impl IndicatorCombinationGenerator {
                 }
             }
         }
+        
+        println!(
+            "         [generate_nested_combinations] Всего базовых комбинаций: {}",
+            total_base_combinations
+        );
 
         result
     }
