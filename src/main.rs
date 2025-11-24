@@ -643,9 +643,9 @@ async fn run_genetic_optimization(
 
     println!("⚙️  Создание конфигурации генетического алгоритма...");
     let config = GeneticAlgorithmConfig {
-        population_size: 30,
+        population_size: 70,
         lambda_size: 30,
-        max_generations: 5,
+        max_generations: 80,
         crossover_rate: 0.7,
         mutation_rate: 0.1,
         elitism_count: 3,
@@ -653,12 +653,12 @@ async fn run_genetic_optimization(
         migration_interval: 3,
         migration_rate: 0.05,
         fitness_thresholds: FitnessThresholds {
-            min_sharpe_ratio: Some(0.5),
+            min_sharpe_ratio: None,
             max_drawdown_pct: None,
-            min_win_rate: Some(0.40),
-            min_profit_factor: Some(1.1),
+            min_win_rate: None,
+            min_profit_factor: Some(1.0),
             min_total_profit: None,
-            min_trades_count: Some(70),
+            min_trades_count: Some(300),
             min_cagr: None,
             max_max_drawdown: None,
         },
@@ -672,17 +672,20 @@ async fn run_genetic_optimization(
         },
         use_existing_strategies: false,
         decimation_coefficient: 2.0,
+        param_variants_per_candidate: 10,
         filter_initial_population: true,
         restart_on_finish: false,
         restart_on_stagnation: true,
         fresh_blood_rate: 0.1,
+        fresh_blood_interval: 3,
         detect_duplicates: true,
-        param_mutation_min_percent: 0.03,
-        param_mutation_max_percent: 0.05,
+        param_mutation_min_percent: 0.05,
+        param_mutation_max_percent: 0.10,
         enable_sds: false,
         sds_iterations: 5,
         sds_agents_ratio: 1.0,
         sds_test_threshold: 0.7,
+        candidate_builder_config: None,
     };
 
     println!("   Размер популяции (μ): {}", config.population_size);
@@ -690,6 +693,20 @@ async fn run_genetic_optimization(
     println!("   Максимум поколений: {}", config.max_generations);
     println!("   Количество островов: {}", config.islands_count);
     println!("   Элитизм: {} особей", config.elitism_count);
+    println!(
+        "   Коэффициент децимации: {:.1}",
+        config.decimation_coefficient
+    );
+    println!(
+        "   Вариантов параметров на кандидата: {}",
+        config.param_variants_per_candidate
+    );
+    println!(
+        "   Будет сгенерировано кандидатов: {} ({} × {:.1})",
+        (config.population_size as f64 * config.decimation_coefficient) as usize,
+        config.population_size,
+        config.decimation_coefficient
+    );
     println!(
         "   Вероятность скрещивания: {:.1}%",
         config.crossover_rate * 100.0
@@ -720,7 +737,7 @@ async fn run_genetic_optimization(
         max_indicator_depth: 1,
     };
 
-    println!("🧬 Генерация начальной популяции...");
+    println!("🧬 Генерация начальных популяций для островов...");
     let generator = InitialPopulationGenerator::with_discovery_config(
         config.clone(),
         frames.clone(),
@@ -728,19 +745,28 @@ async fn run_genetic_optimization(
         discovery_config.clone(),
     );
 
-    let initial_population = generator.generate(None).await?;
-    println!(
-        "   Сгенерировано {} особей\n",
-        initial_population.individuals.len()
-    );
+    let mut initial_populations = Vec::with_capacity(config.islands_count);
 
-    println!("🏝️  Создание островов...");
-    let mut initial_populations = vec![initial_population.clone()];
-    for i in 1..config.islands_count {
-        let mut pop = initial_population.clone();
-        pop.island_id = Some(i);
-        initial_populations.push(pop);
+    for island_id in 0..config.islands_count {
+        println!("\n🏝️  Генерация популяции для острова {}...", island_id);
+        let mut population = generator.generate(None).await?;
+        population.island_id = Some(island_id);
+        println!(
+            "   Остров {}: сгенерировано {} особей",
+            island_id,
+            population.individuals.len()
+        );
+        initial_populations.push(population);
     }
+
+    let total_individuals: usize = initial_populations
+        .iter()
+        .map(|p| p.individuals.len())
+        .sum();
+    println!(
+        "\n   ✅ Всего создано {} особей на {} островах (по {} особей на остров)",
+        total_individuals, config.islands_count, config.population_size
+    );
 
     let mut island_manager = IslandManager::new(config.clone(), initial_populations);
     println!("   Создано {} островов\n", island_manager.islands_count());
@@ -817,7 +843,7 @@ async fn run_genetic_optimization(
             println!("   Миграция завершена");
         }
 
-        if generation > 0 && generation % 3 == 0 {
+        if generation > 0 && generation % config.fresh_blood_interval == 0 {
             println!("\n🩸 Инъекция свежей крови...");
             let islands = island_manager.get_all_islands_mut();
             for island in islands.iter_mut() {

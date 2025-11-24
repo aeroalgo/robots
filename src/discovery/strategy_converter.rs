@@ -1,4 +1,5 @@
 use chrono::Utc;
+use rand::Rng;
 use std::collections::{BTreeMap, HashMap};
 
 use crate::data_model::types::TimeFrame;
@@ -27,13 +28,26 @@ impl StrategyConverter {
 
         let indicator_bindings = Self::create_indicator_bindings(candidate, base_tf.clone())?;
         let condition_bindings = Self::create_condition_bindings(candidate, base_tf.clone())?;
-        let (stop_handlers, take_handlers) =
+        let (mut stop_handlers, mut take_handlers) =
             Self::create_stop_and_take_handlers(candidate, base_tf.clone())?;
 
         let exit_condition_bindings = Self::create_condition_bindings_for_exit(candidate, base_tf)?;
 
         let entry_rules = Self::create_entry_rules(candidate, &condition_bindings)?;
         let exit_rules = Self::create_exit_rules(candidate, &exit_condition_bindings)?;
+
+        // Устанавливаем target_entry_ids для stop и take handlers на ID entry rules
+        let entry_rule_ids: Vec<String> = entry_rules.iter().map(|r| r.id.clone()).collect();
+        for stop_handler in &mut stop_handlers {
+            if stop_handler.target_entry_ids.is_empty() {
+                stop_handler.target_entry_ids = entry_rule_ids.clone();
+            }
+        }
+        for take_handler in &mut take_handlers {
+            if take_handler.target_entry_ids.is_empty() {
+                take_handler.target_entry_ids = entry_rule_ids.clone();
+            }
+        }
 
         let mut all_condition_bindings = condition_bindings;
         all_condition_bindings.extend(exit_condition_bindings);
@@ -276,7 +290,7 @@ impl StrategyConverter {
         let mut bindings = Vec::new();
 
         for indicator in &candidate.indicators {
-            let params = Self::extract_indicator_params(indicator);
+            let params = Self::extract_indicator_params(indicator)?;
             bindings.push(IndicatorBindingSpec {
                 alias: indicator.alias.clone(),
                 timeframe: base_timeframe.clone(),
@@ -289,7 +303,7 @@ impl StrategyConverter {
         }
 
         for nested in &candidate.nested_indicators {
-            let params = Self::extract_indicator_params(&nested.indicator);
+            let params = Self::extract_indicator_params(&nested.indicator)?;
             bindings.push(IndicatorBindingSpec {
                 alias: nested.indicator.alias.clone(),
                 timeframe: base_timeframe.clone(),
@@ -304,19 +318,28 @@ impl StrategyConverter {
         Ok(bindings)
     }
 
-    fn extract_indicator_params(indicator: &IndicatorInfo) -> HashMap<String, f32> {
+    fn extract_indicator_params(indicator: &IndicatorInfo) -> Result<HashMap<String, f32>, StrategyConversionError> {
+        use crate::indicators::parameters::ParameterPresets;
+        let mut rng = rand::thread_rng();
         let mut params = HashMap::new();
+        
         for param in &indicator.parameters {
-            let default_value = match param.param_type {
-                crate::indicators::types::ParameterType::Period => 20.0,
-                crate::indicators::types::ParameterType::Multiplier => 2.0,
-                crate::indicators::types::ParameterType::Threshold => 0.5,
-                crate::indicators::types::ParameterType::Coefficient => 1.0,
-                crate::indicators::types::ParameterType::Custom => 0.0,
-            };
-            params.insert(param.name.clone(), default_value);
+            let range = ParameterPresets::get_range_for_parameter(
+                &indicator.name,
+                &param.name,
+                &param.param_type,
+            ).ok_or_else(|| StrategyConversionError::MissingParameterRange {
+                indicator_name: indicator.name.clone(),
+                parameter_name: param.name.clone(),
+                parameter_type: format!("{:?}", param.param_type),
+            })?;
+            
+            let steps = ((range.end - range.start) / range.step) as usize;
+            let step_index = rng.gen_range(0..=steps);
+            let value = range.start + (step_index as f32 * range.step);
+            params.insert(param.name.clone(), value);
         }
-        params
+        Ok(params)
     }
 
     fn create_condition_bindings(
@@ -370,8 +393,13 @@ impl StrategyConverter {
                             reason: "Cannot extract indicator alias".to_string(),
                         },
                     )?;
-                let price_field = Self::extract_price_field_from_condition_id(&condition.id)
-                    .unwrap_or_else(|| crate::strategy::types::PriceField::Close);
+                let price_field = if let Some(ref pf_str) = condition.price_field {
+                    Self::parse_price_field_from_string(pf_str)
+                        .unwrap_or_else(|| crate::strategy::types::PriceField::Close)
+                } else {
+                    Self::extract_price_field_from_condition_id(&condition.id)
+                        .unwrap_or_else(|| crate::strategy::types::PriceField::Close)
+                };
 
                 // Используем таймфреймы из ConditionInfo, если они указаны
                 let primary_source = if let Some(ref tf) = condition.primary_timeframe {
@@ -386,10 +414,25 @@ impl StrategyConverter {
                     DataSeriesSource::price(price_field)
                 };
 
-                Ok(ConditionInputSpec::Dual {
-                    primary: primary_source,
-                    secondary: secondary_source,
-                })
+                // Проверяем, есть ли процент в optimization_params для создания DualWithPercent
+                let percent_param = condition.optimization_params.iter()
+                    .find(|p| p.name == "percent" || p.name == "percentage");
+                
+                if let Some(_percent_param) = percent_param {
+                    // Используем constant_value из ConditionInfo для процента, если оно есть
+                    // Иначе используем значение по умолчанию 1.0%
+                    let percent_value = condition.constant_value.unwrap_or(1.0) as f32;
+                    Ok(ConditionInputSpec::DualWithPercent {
+                        primary: primary_source,
+                        secondary: secondary_source,
+                        percent: percent_value,
+                    })
+                } else {
+                    Ok(ConditionInputSpec::Dual {
+                        primary: primary_source,
+                        secondary: secondary_source,
+                    })
+                }
             }
             "indicator_indicator" => {
                 let aliases = Self::extract_indicator_aliases_from_condition_id(&condition.id)
@@ -418,9 +461,45 @@ impl StrategyConverter {
                     DataSeriesSource::indicator(aliases[1].clone())
                 };
 
-                Ok(ConditionInputSpec::Dual {
-                    primary: primary_source,
-                    secondary: secondary_source,
+                // Проверяем, есть ли процент в optimization_params для создания DualWithPercent
+                let percent_param = condition.optimization_params.iter()
+                    .find(|p| p.name == "percent" || p.name == "percentage");
+                
+                if let Some(_percent_param) = percent_param {
+                    // Используем constant_value из ConditionInfo для процента, если оно есть
+                    // Иначе используем значение по умолчанию 1.0%
+                    let percent_value = condition.constant_value.unwrap_or(1.0) as f32;
+                    Ok(ConditionInputSpec::DualWithPercent {
+                        primary: primary_source,
+                        secondary: secondary_source,
+                        percent: percent_value,
+                    })
+                } else {
+                    Ok(ConditionInputSpec::Dual {
+                        primary: primary_source,
+                        secondary: secondary_source,
+                    })
+                }
+            }
+            "trend_condition" => {
+                let indicator_alias =
+                    Self::extract_indicator_alias_from_condition_id(&condition.id).ok_or_else(
+                        || StrategyConversionError::InvalidConditionFormat {
+                            condition_id: condition.id.clone(),
+                            reason: "Cannot extract indicator alias".to_string(),
+                        },
+                    )?;
+
+                // Используем таймфрейм из ConditionInfo для индикатора, если он указан
+                let primary_source = if let Some(ref tf) = condition.primary_timeframe {
+                    DataSeriesSource::indicator_with_timeframe(indicator_alias, tf.clone())
+                } else {
+                    DataSeriesSource::indicator(indicator_alias)
+                };
+
+                // Для трендовых условий используется Single input
+                Ok(ConditionInputSpec::Single {
+                    source: primary_source,
                 })
             }
             "indicator_constant" => {
@@ -601,7 +680,7 @@ impl StrategyConverter {
     }
 
     fn make_parameter_name(prefix: &str, param_name: &str) -> String {
-        format!("{}__{}", prefix, param_name)
+        format!("{}_{}", prefix, param_name)
     }
 
     fn param_value_to_strategy_param_from_enum(
@@ -626,7 +705,22 @@ impl StrategyConverter {
     }
 
     fn extract_indicator_alias_from_condition_id(condition_id: &str) -> Option<String> {
-        if condition_id.starts_with("ind_price_") {
+        // Новый формат: entry_{alias}_{random} или exit_{alias}_{random}
+        if condition_id.starts_with("entry_") {
+            let rest = condition_id.strip_prefix("entry_")?;
+            let parts: Vec<&str> = rest.split('_').collect();
+            if !parts.is_empty() {
+                return Some(parts[0].to_string());
+            }
+        } else if condition_id.starts_with("exit_") {
+            let rest = condition_id.strip_prefix("exit_")?;
+            let parts: Vec<&str> = rest.split('_').collect();
+            if !parts.is_empty() {
+                return Some(parts[0].to_string());
+            }
+        }
+        // Старый формат: ind_price_{alias}_... или ind_const_{alias}_...
+        else if condition_id.starts_with("ind_price_") {
             let parts: Vec<&str> = condition_id.split('_').collect();
             if parts.len() >= 3 {
                 return Some(parts[2].to_string());
@@ -641,13 +735,40 @@ impl StrategyConverter {
     }
 
     fn extract_indicator_aliases_from_condition_id(condition_id: &str) -> Option<Vec<String>> {
-        if condition_id.starts_with("ind_ind_") {
+        // Новый формат: entry_{alias1}_{alias2}_{random} или exit_{alias1}_{alias2}_{random}
+        if condition_id.starts_with("entry_") || condition_id.starts_with("exit_") {
+            let rest = if condition_id.starts_with("entry_") {
+                condition_id.strip_prefix("entry_")?
+            } else {
+                condition_id.strip_prefix("exit_")?
+            };
+            let parts: Vec<&str> = rest.split('_').collect();
+            // Должно быть минимум 2 части (alias1, alias2) и возможно random число
+            if parts.len() >= 2 {
+                return Some(vec![parts[0].to_string(), parts[1].to_string()]);
+            }
+        }
+        // Старый формат: ind_ind_{alias1}_{alias2}_...
+        else if condition_id.starts_with("ind_ind_") {
             let parts: Vec<&str> = condition_id.split('_').collect();
             if parts.len() >= 4 {
                 return Some(vec![parts[2].to_string(), parts[3].to_string()]);
             }
         }
         None
+    }
+
+    fn parse_price_field_from_string(
+        price_field_str: &str,
+    ) -> Option<crate::strategy::types::PriceField> {
+        match price_field_str {
+            "Open" => Some(crate::strategy::types::PriceField::Open),
+            "High" => Some(crate::strategy::types::PriceField::High),
+            "Low" => Some(crate::strategy::types::PriceField::Low),
+            "Close" => Some(crate::strategy::types::PriceField::Close),
+            "Volume" => Some(crate::strategy::types::PriceField::Volume),
+            _ => None,
+        }
     }
 
     fn extract_price_field_from_condition_id(
@@ -682,4 +803,10 @@ pub enum StrategyConversionError {
     },
     #[error("Unsupported condition type: {condition_type}")]
     UnsupportedConditionType { condition_type: String },
+    #[error("Missing parameter range for indicator {indicator_name}, parameter {parameter_name} (type: {parameter_type})")]
+    MissingParameterRange {
+        indicator_name: String,
+        parameter_name: String,
+        parameter_type: String,
+    },
 }

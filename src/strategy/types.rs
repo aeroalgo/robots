@@ -375,17 +375,47 @@ pub struct ConditionBindingSpec {
 
 impl ConditionBindingSpec {
     pub fn factory_name(&self) -> &'static str {
+        // Проверяем, является ли это трендовым условием (есть параметр "period" и Single input)
+        let is_trend_condition = self.parameters.contains_key("period")
+            && matches!(self.input, ConditionInputSpec::Single { .. });
+
         match self.declarative.operator {
-            ConditionOperator::GreaterThan => match self.input {
-                ConditionInputSpec::DualWithPercent { .. } => "GREATERPERCENT",
-                _ => "ABOVE",
-            },
-            ConditionOperator::LessThan => match self.input {
-                ConditionInputSpec::DualWithPercent { .. } => "LOWERPERCENT",
-                _ => "BELOW",
-            },
-            ConditionOperator::CrossesAbove => "CROSSESABOVE",
-            ConditionOperator::CrossesBelow => "CROSSESBELOW",
+            ConditionOperator::GreaterThan => {
+                if is_trend_condition {
+                    "RISINGTREND"
+                } else {
+                    match self.input {
+                        ConditionInputSpec::DualWithPercent { .. } => "GREATERPERCENT",
+                        _ => "ABOVE",
+                    }
+                }
+            }
+            ConditionOperator::LessThan => {
+                if is_trend_condition {
+                    "FALLINGTREND"
+                } else {
+                    match self.input {
+                        ConditionInputSpec::DualWithPercent { .. } => "LOWERPERCENT",
+                        _ => "BELOW",
+                    }
+                }
+            }
+            ConditionOperator::CrossesAbove => {
+                // Для трендовых условий CrossesAbove не поддерживается, преобразуем в RisingTrend
+                if is_trend_condition {
+                    "RISINGTREND"
+                } else {
+                    "CROSSESABOVE"
+                }
+            }
+            ConditionOperator::CrossesBelow => {
+                // Для трендовых условий CrossesBelow не поддерживается, преобразуем в FallingTrend
+                if is_trend_condition {
+                    "FALLINGTREND"
+                } else {
+                    "CROSSESBELOW"
+                }
+            }
             ConditionOperator::Between => "BETWEEN",
         }
     }

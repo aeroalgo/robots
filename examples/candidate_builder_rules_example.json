@@ -1,0 +1,110 @@
+{
+  "probabilities": {
+    "indicators": {
+      "add_base_indicator": 0.8,
+      "add_trend_indicator": 0.6,
+      "add_oscillator_indicator": 0.5,
+      "add_volume_indicator": 0.3,
+      "add_volatility_indicator": 0.4,
+      "add_channel_indicator": 0.5
+    },
+    "conditions": {
+      "add_entry_condition": 0.9,
+      "add_exit_condition": 0.4,
+      "use_indicator_price_condition": 0.7,
+      "use_indicator_indicator_condition": 0.5,
+      "use_indicator_constant_condition": 0.3,
+      "use_crosses_operator": 0.4
+    },
+    "stop_handlers": {
+      "add_stop_loss": 0.9
+    },
+    "take_handlers": {
+      "add_take_profit": 0.7
+    },
+    "timeframes": {
+      "use_base_timeframe": 1.0,
+      "use_higher_timeframe": 0.3,
+      "use_multiple_timeframes": 0.2
+    },
+    "nested_indicators": {
+      "add_nested_indicator": 0.3,
+      "max_nesting_depth": 2
+    }
+  },
+  "constraints": {
+    "min_indicators": 1,
+    "max_indicators": 5,
+    "min_entry_conditions": 1,
+    "max_entry_conditions": 3,
+    "min_exit_conditions": 0,
+    "max_exit_conditions": 2,
+    "min_stop_handlers": 1,
+    "max_stop_handlers": 2,
+    "min_take_handlers": 0,
+    "max_take_handlers": 2,
+    "min_timeframes": 1,
+    "max_timeframes": 3
+  },
+  "selection": {
+    "prefer_trend_indicators": 0.6,
+    "prefer_oscillators": 0.5,
+    "prefer_volume_indicators": 0.3,
+    "prefer_simple_conditions": 0.7,
+    "prefer_crosses_conditions": 0.4,
+    "price_fields": ["Close"]
+  },
+  "rules": {
+    "dependencies": [
+      {
+        "trigger": {
+          "type": "StopHandler",
+          "name": "StopLossPct"
+        },
+        "required": {
+          "type": "TakeHandler",
+          "name": "TakeProfitPct"
+        },
+        "strict": true
+      }
+    ],
+    "exclusions": [
+      {
+        "element": {
+          "type": "StopHandler",
+          "name": "ATRTrailStop"
+        },
+        "excluded": {
+          "type": "TakeHandler",
+          "name": "TakeProfitPct"
+        }
+      }
+    ],
+    "conditions": [
+      {
+        "condition": {
+          "type": "And",
+          "conditions": [
+            {
+              "type": "StopHandler",
+              "name": "StopLossPct"
+            },
+            {
+              "type": "TakeHandler",
+              "name": "TakeProfitPct"
+            }
+          ]
+        },
+        "action": {
+          "type": "Require",
+          "element": {
+            "type": "Indicator",
+            "name": "ATR"
+          },
+          "strict": false
+        }
+      }
+    ]
+  }
+}
+

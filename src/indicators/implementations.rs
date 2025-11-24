@@ -9,7 +9,6 @@ use crate::indicators::{
         IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet, ParameterType,
     },
 };
-use std::collections::HashMap;
 
 /// Диапазон оптимизации параметра
 #[derive(Debug, Clone)]
@@ -39,101 +38,32 @@ pub fn get_optimization_range(
     param_name: &str,
     param_type: &ParameterType,
 ) -> Option<OptimizationRange> {
-    // Универсальные диапазоны по типу параметра
-    match param_type {
-        ParameterType::Period => {
-            // Для period: 100-200, шаг 10
-            Some(OptimizationRange::new(10.0, 200.0, 10.0))
-        }
-        ParameterType::Multiplier => {
-            // Для multiplier зависит от имени параметра
-            match param_name.to_lowercase().as_str() {
-                "deviation" => {
-                    // Для deviation: 0.5-4, шаг 0.1 (соответствует диапазону валидации в Bollinger Bands)
-                    Some(OptimizationRange::new(0.5, 4.0, 0.1))
-                }
-                "coeff_atr" | "atr_multiplier" | "atr_coefficient" => {
-                    // Для coeff_atr: 1-10, шаг 0.2
-                    Some(OptimizationRange::new(1.0, 10.0, 0.2))
-                }
-                _ => {
-                    // По умолчанию для multiplier: 0.5-5, шаг 0.2
-                    Some(OptimizationRange::new(0.5, 5.0, 0.2))
-                }
+    ParameterPresets::get_range_for_parameter(indicator_name, param_name, param_type).map(|range| {
+        let step = match param_type {
+            ParameterType::Period => 10.0,
+            ParameterType::Multiplier
+                if matches!(
+                    param_name.to_lowercase().as_str(),
+                    "coeff_atr" | "atr_multiplier" | "atr_coefficient"
+                ) =>
+            {
+                0.2
             }
-        }
-        ParameterType::Threshold => {
-            // Для threshold зависит от индикатора (осцилляторы)
-            get_oscillator_threshold_range(indicator_name, param_name)
-        }
-        ParameterType::Coefficient => {
-            // Для coefficient: 0.1-1.0, шаг 0.1
-            Some(OptimizationRange::new(0.1, 1.0, 0.1))
-        }
-        ParameterType::Custom => {
-            // Для custom параметров пытаемся определить по имени
-            match param_name.to_lowercase().as_str() {
-                "period" | "length" => Some(OptimizationRange::new(10.0, 200.0, 10.0)),
-                "deviation" => Some(OptimizationRange::new(0.5, 4.0, 0.1)),
-                "coeff_atr" | "atr_multiplier" => Some(OptimizationRange::new(1.0, 10.0, 0.2)),
-                _ => None,
-            }
-        }
-    }
+            ParameterType::Multiplier => 0.2,
+            _ => range.step,
+        };
+        OptimizationRange::new(range.start, range.end, step)
+    })
 }
 
 /// Возвращает диапазон оптимизации для пороговых значений осцилляторов
+/// Использует централизованную систему ParameterPresets
 pub fn get_oscillator_threshold_range(
     indicator_name: &str,
     param_name: &str,
 ) -> Option<OptimizationRange> {
-    match indicator_name.to_uppercase().as_str() {
-        "RSI" => {
-            // RSI работает в диапазоне 0-100
-            // Обычно используется 30/70, но можно оптимизировать 20-80
-            Some(OptimizationRange::new(20.0, 80.0, 5.0))
-        }
-        "STOCHASTIC" => {
-            // Stochastic работает в диапазоне 0-100
-            // Обычно используется 20/80
-            Some(OptimizationRange::new(10.0, 90.0, 5.0))
-        }
-        "WILLIAMSR" | "WILLIAMS_R" | "%R" => {
-            // Williams %R работает в диапазоне -100 до 0
-            // Обычно используется -20/-80
-            Some(OptimizationRange::new(-90.0, -10.0, 5.0))
-        }
-        "CCI" => {
-            // CCI может быть от -200 до +200
-            // Обычно используется ±100
-            Some(OptimizationRange::new(-200.0, 200.0, 20.0))
-        }
-        "MACD" => {
-            // MACD signal line threshold обычно около 0
-            Some(OptimizationRange::new(-5.0, 5.0, 0.5))
-        }
-        "MOMENTUM" => {
-            // Momentum может быть любым числом
-            Some(OptimizationRange::new(-100.0, 100.0, 10.0))
-        }
-        _ => {
-            // Для неизвестных осцилляторов пытаемся определить по имени параметра
-            match param_name.to_lowercase().as_str() {
-                "overbought" | "upper" | "high" => {
-                    // Верхний порог, обычно 70-90 для 0-100 диапазона
-                    Some(OptimizationRange::new(60.0, 95.0, 5.0))
-                }
-                "oversold" | "lower" | "low" => {
-                    // Нижний порог, обычно 10-30 для 0-100 диапазона
-                    Some(OptimizationRange::new(5.0, 40.0, 5.0))
-                }
-                _ => {
-                    // По умолчанию для threshold: 0-100, шаг 5
-                    Some(OptimizationRange::new(0.0, 100.0, 5.0))
-                }
-            }
-        }
-    }
+    ParameterPresets::get_range_for_parameter(indicator_name, param_name, &ParameterType::Threshold)
+        .map(|range| OptimizationRange::new(range.start, range.end, range.step))
 }
 
 fn adjust_period(period: usize, len: usize) -> Option<usize> {
@@ -165,6 +95,17 @@ impl MAXFOR {
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
 
         Ok(Self { parameters: params })
+    }
+
+    /// Создать MAXFOR без валидации параметров (для внутреннего использования)
+    pub fn new_unchecked(period: f32) -> Self {
+        let mut params = ParameterSet::new();
+        params.add_parameter_unchecked(create_period_parameter(
+            "period",
+            period,
+            "Период для расчета MAXFOR",
+        ));
+        Self { parameters: params }
     }
 }
 
@@ -235,6 +176,17 @@ impl MINFOR {
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
 
         Ok(Self { parameters: params })
+    }
+
+    /// Создать MINFOR без валидации параметров (для внутреннего использования)
+    pub fn new_unchecked(period: f32) -> Self {
+        let mut params = ParameterSet::new();
+        params.add_parameter_unchecked(create_period_parameter(
+            "period",
+            period,
+            "Период для расчета MINFOR",
+        ));
+        Self { parameters: params }
     }
 }
 
@@ -448,10 +400,9 @@ impl SuperTrend {
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
         params
-            .add_parameter(create_multiplier_parameter_with_range(
+            .add_parameter(create_multiplier_parameter(
                 "coeff_atr",
                 coeff_atr,
-                ParameterPresets::atr_multiplier(),
                 "Коэффициент ATR для SuperTrend",
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
@@ -538,7 +489,7 @@ impl Indicator for SuperTrend {
             return Ok(Vec::new());
         };
 
-        let watr_indicator = WATR::new(period as f32)?;
+        let watr_indicator = WATR::new_unchecked(period as f32);
         let atr_values = watr_indicator.calculate_ohlc(data)?;
 
         let median_prices = self.calculate_median_price(data);
@@ -732,6 +683,13 @@ impl TrueRange {
         })
     }
 
+    /// Создать TrueRange без валидации (для внутреннего использования)
+    pub fn new_unchecked() -> Self {
+        Self {
+            parameters: ParameterSet::new(),
+        }
+    }
+
     fn series(data: &OHLCData) -> Vec<f32> {
         let mut result = Vec::with_capacity(data.len());
         for idx in 0..data.len() {
@@ -809,6 +767,17 @@ impl WATR {
 
         Ok(Self { parameters: params })
     }
+
+    /// Создать WATR без валидации параметров (для внутреннего использования)
+    pub fn new_unchecked(period: f32) -> Self {
+        let mut params = ParameterSet::new();
+        params.add_parameter_unchecked(create_period_parameter(
+            "period",
+            period,
+            "Период для расчета WATR",
+        ));
+        Self { parameters: params }
+    }
 }
 
 impl Indicator for WATR {
@@ -843,9 +812,9 @@ impl Indicator for WATR {
             return Ok(Vec::new());
         };
 
-        let tr_indicator = TrueRange::new()?;
+        let tr_indicator = TrueRange::new_unchecked();
         let true_ranges = tr_indicator.calculate_ohlc(data)?;
-        let wma_indicator = WMA::new(period as f32)?;
+        let wma_indicator = WMA::new_unchecked(period as f32);
         wma_indicator.calculate_simple(&true_ranges)
     }
 
@@ -909,8 +878,8 @@ impl Indicator for VTRAND {
         let period = self.parameters.get_value("period").unwrap() as usize;
 
         // Создаем временные индикаторы для расчета
-        let max_indicator = MAXFOR::new(period as f32)?;
-        let min_indicator = MINFOR::new(period as f32)?;
+        let max_indicator = MAXFOR::new_unchecked(period as f32);
+        let min_indicator = MINFOR::new_unchecked(period as f32);
 
         let max_result = max_indicator.calculate_ohlc(data)?;
         let min_result = min_indicator.calculate_ohlc(data)?;
@@ -951,6 +920,17 @@ impl SMA {
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
 
         Ok(Self { parameters: params })
+    }
+
+    /// Создать SMA без валидации параметров (для внутреннего использования)
+    pub fn new_unchecked(period: f32) -> Self {
+        let mut params = ParameterSet::new();
+        params.add_parameter_unchecked(create_period_parameter(
+            "period",
+            period,
+            "Период для расчета SMA",
+        ));
+        Self { parameters: params }
     }
 }
 
@@ -1049,6 +1029,17 @@ impl EMA {
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
 
         Ok(Self { parameters: params })
+    }
+
+    /// Создать EMA без валидации параметров (для внутреннего использования)
+    pub fn new_unchecked(period: f32) -> Self {
+        let mut params = ParameterSet::new();
+        params.add_parameter_unchecked(create_period_parameter(
+            "period",
+            period,
+            "Период для расчета EMA",
+        ));
+        Self { parameters: params }
     }
 }
 
@@ -1202,8 +1193,8 @@ impl Indicator for RSI {
             }
         }
 
-        let ema_gains = EMA::new(period as f32)?.calculate_simple(&gains)?;
-        let ema_losses = EMA::new(period as f32)?.calculate_simple(&losses)?;
+        let ema_gains = EMA::new_unchecked(period as f32).calculate_simple(&gains)?;
+        let ema_losses = EMA::new_unchecked(period as f32).calculate_simple(&losses)?;
 
         let mut rsi_values = vec![0.0; len];
 
@@ -1271,6 +1262,17 @@ impl WMA {
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
 
         Ok(Self { parameters: params })
+    }
+
+    /// Создать WMA без валидации параметров (для внутреннего использования)
+    pub fn new_unchecked(period: f32) -> Self {
+        let mut params = ParameterSet::new();
+        params.add_parameter_unchecked(create_period_parameter(
+            "period",
+            period,
+            "Период для расчета WMA",
+        ));
+        Self { parameters: params }
     }
 }
 
@@ -1751,8 +1753,9 @@ impl Indicator for AMMA {
             let start = i + 1 - current_window;
             let slice = &data[start..=i];
 
-            let sma1 = SMA::new(period as f32)?.calculate_simple(slice)?;
-            let sma2 = SMA::new((period.saturating_mul(2)) as f32)?.calculate_simple(slice)?;
+            let sma1 = SMA::new_unchecked(period as f32).calculate_simple(slice)?;
+            let sma2 =
+                SMA::new_unchecked((period.saturating_mul(2)) as f32).calculate_simple(slice)?;
 
             let sma1_value = *sma1.last().unwrap_or(&0.0);
             let sma2_value = *sma2.last().unwrap_or(&0.0);
@@ -2177,10 +2180,9 @@ impl BBMiddle {
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
         params
-            .add_parameter(create_multiplier_parameter_with_range(
+            .add_parameter(create_multiplier_parameter(
                 "deviation",
                 deviation,
-                ParameterPresets::multiplier_range(0.5, 4.0, 0.1),
                 "Стандартное отклонение множитель",
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
@@ -2264,10 +2266,9 @@ impl BBUpper {
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
         params
-            .add_parameter(create_multiplier_parameter_with_range(
+            .add_parameter(create_multiplier_parameter(
                 "deviation",
                 deviation,
-                ParameterPresets::multiplier_range(0.5, 4.0, 0.1),
                 "Стандартное отклонение множитель",
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
@@ -2359,10 +2360,9 @@ impl BBLower {
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;
         params
-            .add_parameter(create_multiplier_parameter_with_range(
+            .add_parameter(create_multiplier_parameter(
                 "deviation",
                 deviation,
-                ParameterPresets::multiplier_range(0.5, 4.0, 0.1),
                 "Стандартное отклонение множитель",
             ))
             .map_err(|e| IndicatorError::InvalidParameter(e))?;

@@ -286,14 +286,54 @@ impl PopulationManager {
         let range_size = (range.end - range.start) as f64;
         let mutation_percent = rng.gen_range(min_percent..=max_percent);
         let mutation_amount = range_size * mutation_percent;
-        let mutation = rng.gen_range(-mutation_amount..=mutation_amount);
 
         match value {
             StrategyParamValue::Number(n) => {
-                *n = (*n + mutation).max(range.start as f64).min(range.end as f64);
+                let current = *n;
+                let range_start = range.start as f64;
+                let range_end = range.end as f64;
+                
+                let distance_to_start = current - range_start;
+                let distance_to_end = range_end - current;
+                
+                let max_mutation_up = distance_to_end.min(mutation_amount);
+                let max_mutation_down = distance_to_start.min(mutation_amount);
+                
+                let mutation = if max_mutation_up > 0.0 && max_mutation_down > 0.0 {
+                    rng.gen_range(-max_mutation_down..=max_mutation_up)
+                } else if max_mutation_up > 0.0 {
+                    rng.gen_range(0.0..=max_mutation_up)
+                } else if max_mutation_down > 0.0 {
+                    rng.gen_range(-max_mutation_down..=0.0)
+                } else {
+                    0.0
+                };
+                
+                *n = (current + mutation).max(range_start).min(range_end);
             }
             StrategyParamValue::Integer(i) => {
-                *i = ((*i as f64 + mutation) as i64).max(range.start as i64).min(range.end as i64);
+                let current = *i as f64;
+                let range_start = range.start as f64;
+                let range_end = range.end as f64;
+                
+                let distance_to_start = current - range_start;
+                let distance_to_end = range_end - current;
+                
+                let max_mutation_up = distance_to_end.min(mutation_amount);
+                let max_mutation_down = distance_to_start.min(mutation_amount);
+                
+                let mutation = if max_mutation_up > 0.0 && max_mutation_down > 0.0 {
+                    rng.gen_range(-max_mutation_down..=max_mutation_up)
+                } else if max_mutation_up > 0.0 {
+                    rng.gen_range(0.0..=max_mutation_up)
+                } else if max_mutation_down > 0.0 {
+                    rng.gen_range(-max_mutation_down..=0.0)
+                } else {
+                    0.0
+                };
+                
+                let new_value = (current + mutation).max(range_start).min(range_end);
+                *i = new_value as i64;
             }
             StrategyParamValue::Flag(b) => {
                 *b = !*b;
@@ -338,23 +378,4 @@ impl PopulationManager {
         }
     }
 
-    pub fn replace_weakest(
-        &self,
-        population: &mut Population,
-        new_individuals: Vec<GeneticIndividual>,
-    ) {
-        population.individuals.sort_by(|a, b| {
-            let fitness_a = a.strategy.fitness.unwrap_or(0.0);
-            let fitness_b = b.strategy.fitness.unwrap_or(0.0);
-            fitness_a
-                .partial_cmp(&fitness_b)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        for (i, new_ind) in new_individuals.into_iter().enumerate() {
-            if i < population.individuals.len() {
-                population.individuals[i] = new_ind;
-            }
-        }
-    }
 }

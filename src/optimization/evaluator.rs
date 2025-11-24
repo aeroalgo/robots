@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::RwLock;
-use tokio::time::timeout;
 
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
@@ -58,7 +56,6 @@ impl CacheKey {
 pub struct StrategyEvaluationRunner {
     frames: Arc<HashMap<TimeFrame, QuoteFrame>>,
     base_timeframe: TimeFrame,
-    timeout: Option<Duration>,
     cache: Arc<RwLock<HashMap<CacheKey, BacktestReport>>>,
 }
 
@@ -73,15 +70,10 @@ impl StrategyEvaluationRunner {
         Self {
             frames: Arc::new(frames),
             base_timeframe,
-            timeout: Some(Duration::from_secs(300)),
             cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
-        self.timeout = timeout;
-        self
-    }
 
     pub async fn evaluate_strategy(
         &self,
@@ -100,6 +92,7 @@ impl StrategyEvaluationRunner {
         let definition =
             StrategyConverter::candidate_to_definition(candidate, self.base_timeframe.clone())
                 .context("Не удалось конвертировать StrategyCandidate в StrategyDefinition")?;
+
 
         let mut frames_clone = HashMap::with_capacity(self.frames.len());
         for (k, v) in self.frames.iter() {
@@ -122,49 +115,7 @@ impl StrategyEvaluationRunner {
         Ok(report)
     }
 
-    pub async fn evaluate_batch(
-        &self,
-        evaluations: Vec<(StrategyCandidate, StrategyParameterMap)>,
-    ) -> Vec<Result<BacktestReport>> {
-        let mut handles = Vec::with_capacity(evaluations.len());
 
-        for (candidate, parameters) in evaluations {
-            let runner = Arc::new(self.clone());
-            let candidate = Arc::new(candidate);
-            let parameters = Arc::new(parameters);
-
-            let handle = tokio::spawn(async move {
-                runner
-                    .evaluate_strategy(&candidate, (*parameters).clone())
-                    .await
-            });
-
-            handles.push(handle);
-        }
-
-        let mut results = Vec::with_capacity(handles.len());
-        for handle in handles {
-            let result = handle
-                .await
-                .unwrap_or_else(|e| Err(anyhow::anyhow!("Ошибка выполнения задачи: {}", e)));
-            results.push(result);
-        }
-
-        results
-    }
-
-    pub fn clear_cache(&self) {
-        let cache = self.cache.clone();
-        tokio::spawn(async move {
-            let mut cache = cache.write().await;
-            cache.clear();
-        });
-    }
-
-    pub async fn cache_size(&self) -> usize {
-        let cache = self.cache.read().await;
-        cache.len()
-    }
 }
 
 impl Clone for StrategyEvaluationRunner {
@@ -172,7 +123,6 @@ impl Clone for StrategyEvaluationRunner {
         Self {
             frames: Arc::clone(&self.frames),
             base_timeframe: self.base_timeframe.clone(),
-            timeout: self.timeout,
             cache: Arc::clone(&self.cache),
         }
     }

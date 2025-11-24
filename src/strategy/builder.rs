@@ -589,22 +589,31 @@ impl Strategy for DynamicStrategy {
         let mut all_stop_signals = stop_signals;
         all_stop_signals.extend(take_signals);
         all_stop_signals.sort_by(|a, b| a.priority.cmp(&b.priority));
-        for optimized_rule in &self.entry_rules {
-            if let Some(signal) = self.evaluate_rule(
-                &optimized_rule.rule,
-                &optimized_rule.condition_indices,
-                &evaluations,
-                context,
-            )? {
-                match signal.signal_type {
-                    StrategySignalType::Entry => decision.entries.push(signal),
-                    StrategySignalType::Exit => decision.exits.push(signal),
-                    StrategySignalType::Custom(_) => decision.custom.push(signal),
+
+        let mut has_exit_rule_signals = false;
+
+        if has_active_positions {
+            for optimized_rule in &self.exit_rules {
+                if let Some(signal) = self.evaluate_rule(
+                    &optimized_rule.rule,
+                    &optimized_rule.condition_indices,
+                    &evaluations,
+                    context,
+                )? {
+                    match signal.signal_type {
+                        StrategySignalType::Entry => decision.entries.push(signal),
+                        StrategySignalType::Exit => {
+                            decision.exits.push(signal);
+                            has_exit_rule_signals = true;
+                        }
+                        StrategySignalType::Custom(_) => decision.custom.push(signal),
+                    }
                 }
             }
         }
-        if has_active_positions {
-            for optimized_rule in &self.exit_rules {
+
+        if !has_exit_rule_signals {
+            for optimized_rule in &self.entry_rules {
                 if let Some(signal) = self.evaluate_rule(
                     &optimized_rule.rule,
                     &optimized_rule.condition_indices,
@@ -619,6 +628,7 @@ impl Strategy for DynamicStrategy {
                 }
             }
         }
+
         decision.stop_signals = all_stop_signals;
         Ok(decision)
     }
@@ -675,14 +685,49 @@ impl StrategyBuilder {
     }
 
     pub fn build(self) -> Result<DynamicStrategy, StrategyError> {
+        use crate::indicators::parameters::ParameterPresets;
+        use crate::indicators::types::ParameterType;
         let mut indicator_bindings = self.definition.indicator_bindings.clone();
         for binding in &mut indicator_bindings {
-            if let IndicatorSourceSpec::Registry { parameters, .. } = &mut binding.source {
+            if let IndicatorSourceSpec::Registry { name, parameters } = &mut binding.source {
                 let alias = &binding.alias;
+                let prefix = format!("{}_", alias);
                 for (key, value) in &self.parameter_overrides {
-                    if let Some(param_name) = key.strip_prefix(&format!("{}_", alias)) {
-                        if let StrategyParamValue::Number(num_value) = value {
-                            parameters.insert(param_name.to_string(), *num_value as f32);
+                    if let Some(param_name) = key.strip_prefix(&prefix) {
+                        let param_value = if let StrategyParamValue::Number(num_value) = value {
+                            *num_value as f32
+                        } else if let StrategyParamValue::Integer(int_value) = value {
+                            *int_value as f32
+                        } else {
+                            continue;
+                        };
+
+                        let param_name_lower = param_name.to_lowercase();
+                        let param_type = if param_name_lower.contains("period")
+                            || param_name_lower.contains("length")
+                        {
+                            ParameterType::Period
+                        } else if param_name_lower == "deviation" {
+                            ParameterType::Multiplier
+                        } else if param_name_lower.contains("multiplier")
+                            || param_name_lower.contains("coeff")
+                        {
+                            ParameterType::Multiplier
+                        } else if param_name_lower.contains("threshold")
+                            || param_name_lower.contains("level")
+                        {
+                            ParameterType::Threshold
+                        } else {
+                            ParameterType::Custom
+                        };
+
+                        if let Some(range) =
+                            ParameterPresets::get_range_for_parameter(name, param_name, &param_type)
+                        {
+                            let clamped_value = param_value.max(range.start).min(range.end);
+                            parameters.insert(param_name.to_string(), clamped_value);
+                        } else {
+                            parameters.insert(param_name.to_string(), param_value);
                         }
                     }
                 }
@@ -726,8 +771,19 @@ impl StrategyBuilder {
         }
         let mut prepared_stop_handlers = Vec::with_capacity(self.definition.stop_handlers.len());
         for handler in &self.definition.stop_handlers {
-            let mut normalized_params = HashMap::with_capacity(handler.parameters.len());
-            for (key, value) in &handler.parameters {
+            // Применяем параметры из parameter_overrides к stop handlers
+            // Формат: "stop_{handler.name}_{param.name}"
+            let mut handler_params = handler.parameters.clone();
+            let handler_prefix = format!("stop_{}_", handler.name);
+            for (key, value) in &self.parameter_overrides {
+                if let Some(param_name) = key.strip_prefix(&handler_prefix) {
+                    handler_params.insert(param_name.to_string(), value.clone());
+                }
+            }
+
+            // Нормализуем ключи параметров (в нижний регистр) для StopHandlerFactory
+            let mut normalized_params = HashMap::with_capacity(handler_params.len());
+            for (key, value) in &handler_params {
                 normalized_params.insert(key.to_ascii_lowercase(), value.clone());
             }
             let instance = StopHandlerFactory::create(&handler.handler_name, &normalized_params)
@@ -747,8 +803,19 @@ impl StrategyBuilder {
 
         let mut prepared_take_handlers = Vec::with_capacity(self.definition.take_handlers.len());
         for handler in &self.definition.take_handlers {
-            let mut normalized_params = HashMap::with_capacity(handler.parameters.len());
-            for (key, value) in &handler.parameters {
+            // Применяем параметры из parameter_overrides к take handlers
+            // Формат: "take_{handler.name}_{param.name}"
+            let mut handler_params = handler.parameters.clone();
+            let handler_prefix = format!("take_{}_", handler.name);
+            for (key, value) in &self.parameter_overrides {
+                if let Some(param_name) = key.strip_prefix(&handler_prefix) {
+                    handler_params.insert(param_name.to_string(), value.clone());
+                }
+            }
+
+            // Нормализуем ключи параметров (в нижний регистр) для TakeHandlerFactory
+            let mut normalized_params = HashMap::with_capacity(handler_params.len());
+            for (key, value) in &handler_params {
                 normalized_params.insert(key.to_ascii_lowercase(), value.clone());
             }
             let instance = TakeHandlerFactory::create(&handler.handler_name, &normalized_params)

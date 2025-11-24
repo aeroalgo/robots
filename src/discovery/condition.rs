@@ -55,6 +55,7 @@ impl ConditionCombinationGenerator {
                                         constant_value: None,
                                         primary_timeframe: Some(primary_tf.clone()),
                                         secondary_timeframe: Some(secondary_tf.clone()),
+                                        price_field: None,
                                     };
                                     conditions.push(condition);
                                 }
@@ -78,6 +79,7 @@ impl ConditionCombinationGenerator {
                                 constant_value: None,
                                 primary_timeframe: None,
                                 secondary_timeframe: None,
+                                price_field: Some(format!("{:?}", price_field)),
                             };
                             conditions.push(condition);
                         }
@@ -137,6 +139,7 @@ impl ConditionCombinationGenerator {
                                         constant_value: None,
                                         primary_timeframe: Some(primary_tf.clone()),
                                         secondary_timeframe: Some(secondary_tf.clone()),
+                                        price_field: None,
                                     };
                                     conditions.push(condition);
                                 }
@@ -160,6 +163,7 @@ impl ConditionCombinationGenerator {
                                 constant_value: None,
                                 primary_timeframe: None,
                                 secondary_timeframe: None,
+                                price_field: None,
                             };
                             conditions.push(condition);
                         }
@@ -231,6 +235,7 @@ impl ConditionCombinationGenerator {
                                         constant_value: Some(constant as f64),
                                         primary_timeframe: Some(primary_tf.clone()),
                                         secondary_timeframe: None, // Константа не имеет таймфрейма
+                                        price_field: None,
                                     };
                                     conditions.push(condition);
                                 }
@@ -257,6 +262,7 @@ impl ConditionCombinationGenerator {
                                     constant_value: Some(constant as f64),
                                     primary_timeframe: None,
                                     secondary_timeframe: None,
+                                    price_field: None,
                                 };
                                 conditions.push(condition);
                             }

@@ -1,6 +1,5 @@
-use crate::optimization::island::IslandManager;
 use crate::optimization::migration::MigrationSystem;
-use crate::optimization::types::{GeneticAlgorithmConfig, Population};
+use crate::optimization::types::GeneticAlgorithmConfig;
 
 pub struct EvolutionManager {
     config: GeneticAlgorithmConfig,
@@ -54,23 +53,8 @@ impl EvolutionManager {
         self.best_fitness_history.clear();
     }
 
-    pub fn handle_migration(
-        &self,
-        islands: &mut [Population],
-        generation: usize,
-    ) -> Result<(), anyhow::Error> {
-        if self.should_migrate(generation) {
-            self.migration_system.migrate_between_islands(islands)?;
-        }
-        Ok(())
-    }
-
     fn should_migrate(&self, generation: usize) -> bool {
         generation > 0 && generation % self.config.migration_interval == 0
-    }
-
-    pub fn should_continue(&self, generation: usize) -> bool {
-        generation < self.config.max_generations
     }
 }
 

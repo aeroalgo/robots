@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
 use crate::discovery::StrategyCandidate;
@@ -10,6 +9,7 @@ use crate::optimization::types::{
     EvaluatedStrategy, GeneticAlgorithmConfig, GeneticIndividual, Population,
 };
 use crate::strategy::types::StrategyParameterMap;
+use std::collections::HashMap;
 
 pub struct PerStructureOptimizer {
     config: GeneticAlgorithmConfig,
@@ -67,8 +67,14 @@ impl PerStructureOptimizer {
             self.discovery_config.clone(),
         );
 
-        println!("   Начальная популяция: {} стратегий", population.individuals.len());
-        println!("   Запуск эволюции на {} поколений...", self.config.max_generations);
+        println!(
+            "   Начальная популяция: {} стратегий",
+            population.individuals.len()
+        );
+        println!(
+            "   Запуск эволюции на {} поколений...",
+            self.config.max_generations
+        );
 
         for generation in 0..self.config.max_generations {
             genetic_algorithm.evolve_generation(&mut population).await?;
@@ -111,18 +117,4 @@ impl PerStructureOptimizer {
 
         Ok(results)
     }
-
-    pub fn filter_by_thresholds(
-        &self,
-        results: Vec<OptimizedStrategyResult>,
-        thresholds: &FitnessThresholds,
-    ) -> Vec<OptimizedStrategyResult> {
-        results
-            .into_iter()
-            .filter(|result| {
-                FitnessFunction::passes_thresholds(&result.backtest_report, thresholds)
-            })
-            .collect()
-    }
 }
-

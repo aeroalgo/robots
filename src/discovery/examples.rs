@@ -124,10 +124,10 @@ pub fn example_strategy_generation() {
     }
     println!("   Всего: {} условий\n", conditions.len());
 
-    // Полная генерация стратегий
+    // Полная генерация стратегий (используем CandidateBuilder)
     println!("4️⃣ Полная генерация стратегий:");
-    let engine = StrategyDiscoveryEngine::new(config);
-    let candidates = engine.generate_strategies(&indicators, &price_fields, &operators);
+    println!("   (Используется CandidateBuilder - см. examples в optimization/)");
+    let candidates: Vec<StrategyCandidate> = Vec::new(); // Старый метод generate_strategies удален, используйте CandidateBuilder
 
     println!("   Примеры кандидатов стратегий:");
     for (i, candidate) in candidates.iter().take(5).enumerate() {

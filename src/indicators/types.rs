@@ -155,6 +155,11 @@ impl ParameterSet {
         }
     }
 
+    /// Добавить параметр без валидации (для внутреннего использования в индикаторах)
+    pub fn add_parameter_unchecked(&mut self, parameter: IndicatorParameter) {
+        self.parameters.insert(parameter.name.clone(), parameter);
+    }
+
     pub fn get_parameter(&self, name: &str) -> Option<&IndicatorParameter> {
         self.parameters.get(name)
     }

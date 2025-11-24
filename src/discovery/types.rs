@@ -52,6 +52,9 @@ pub struct ConditionInfo {
     /// Таймфрейм для secondary источника (индикатор, цена или константа)
     /// Если None, используется базовый таймфрейм стратегии
     pub secondary_timeframe: Option<TimeFrame>,
+    /// Поле цены для условий типа "indicator_price" (если используется цена)
+    /// Если None, используется Close по умолчанию
+    pub price_field: Option<String>,
 }
 
 /// Информация о параметре условия

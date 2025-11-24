@@ -58,6 +58,54 @@ impl StopHandlerRegistry {
                 "      [StopHandlerRegistry] ОШИБКА: Не удалось зарегистрировать TakeProfitPct"
             );
         }
+
+        if let Some(range) = stops::get_optimization_range("ATRTrailStop", "coeff_atr") {
+            println!("      [StopHandlerRegistry] Зарегистрирован ATRTrailStop (диапазон coeff_atr: {:.1}-{:.1}, шаг: {:.2})", 
+                     range.start, range.end, range.step);
+            self.handlers.push(HandlerInfo {
+                handler_name: "ATRTrailStop".to_string(),
+                stop_type: "stop_loss".to_string(),
+                parameter_name: "coeff_atr".to_string(),
+                optimization_range: range,
+                priority: 100,
+            });
+        } else {
+            eprintln!(
+                "      [StopHandlerRegistry] ОШИБКА: Не удалось зарегистрировать ATRTrailStop"
+            );
+        }
+
+        if let Some(range) = stops::get_optimization_range("HILOTrailingStop", "period") {
+            println!("      [StopHandlerRegistry] Зарегистрирован HILOTrailingStop (диапазон period: {:.1}-{:.1}, шаг: {:.2})", 
+                     range.start, range.end, range.step);
+            self.handlers.push(HandlerInfo {
+                handler_name: "HILOTrailingStop".to_string(),
+                stop_type: "stop_loss".to_string(),
+                parameter_name: "period".to_string(),
+                optimization_range: range,
+                priority: 100,
+            });
+        } else {
+            eprintln!(
+                "      [StopHandlerRegistry] ОШИБКА: Не удалось зарегистрировать HILOTrailingStop"
+            );
+        }
+
+        if let Some(range) = stops::get_optimization_range("PercentTrailingStop", "percentage") {
+            println!("      [StopHandlerRegistry] Зарегистрирован PercentTrailingStop (диапазон: {:.1}-{:.1}, шаг: {:.2})", 
+                     range.start, range.end, range.step);
+            self.handlers.push(HandlerInfo {
+                handler_name: "PercentTrailingStop".to_string(),
+                stop_type: "stop_loss".to_string(),
+                parameter_name: "percentage".to_string(),
+                optimization_range: range,
+                priority: 100,
+            });
+        } else {
+            eprintln!(
+                "      [StopHandlerRegistry] ОШИБКА: Не удалось зарегистрировать PercentTrailingStop"
+            );
+        }
     }
 
     pub fn get_all_configs(&self) -> Vec<StopHandlerConfig> {

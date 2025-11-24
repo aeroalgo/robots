@@ -381,10 +381,15 @@ impl BacktestExecutor {
             //         }
             //     }
             // }
-            let decision = self
+            let mut decision = self
                 .strategy
                 .evaluate(&self.context)
                 .map_err(StrategyExecutionError::Strategy)?;
+            
+            if !decision.exits.is_empty() && !decision.entries.is_empty() {
+                decision.entries.clear();
+            }
+            
             let equity_changed = !decision.is_empty();
             if equity_changed {
                 let report = self
@@ -622,7 +627,9 @@ impl BacktestExecutor {
                             .insert(key, value);
                     }
                 }
-                super::types::ConditionInputSpec::DualWithPercent { primary, secondary, .. } => {
+                super::types::ConditionInputSpec::DualWithPercent {
+                    primary, secondary, ..
+                } => {
                     if let Some((key, value)) = extract_constants(primary) {
                         constants_by_timeframe
                             .entry(condition.timeframe.clone())
@@ -673,16 +680,12 @@ impl BacktestExecutor {
         }
 
         for (timeframe, constants) in constants_by_timeframe {
-            let frame = self
-                .feed
-                .frames
-                .get(&timeframe)
-                .ok_or_else(|| {
-                    StrategyExecutionError::Feed(format!(
-                        "timeframe {:?} not available for custom data",
-                        timeframe
-                    ))
-                })?;
+            let frame = self.feed.frames.get(&timeframe).ok_or_else(|| {
+                StrategyExecutionError::Feed(format!(
+                    "timeframe {:?} not available for custom data",
+                    timeframe
+                ))
+            })?;
 
             let frame_len = frame.len();
             let data = self

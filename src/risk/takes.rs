@@ -47,10 +47,10 @@ pub fn get_optimization_range(
     param_name: &str,
 ) -> Option<OptimizationRange> {
     match handler_name.to_uppercase().as_str() {
-        "TAKEPROFITPCT" | "TAKE_PROFIT_PCT" | "TAKEPROFIT" => {
+        "TAKEPROFITPCT" | "TAKE_PROFIT_PCT" => {
             match param_name.to_lowercase().as_str() {
                 "percentage" | "take_profit" | "take" | "value" | "pct" => {
-                    Some(OptimizationRange::new(1.0, 10.0, 0.2))
+                    Some(OptimizationRange::new(2.0, 10.0, 0.5))
                 }
                 _ => None,
             }
@@ -65,7 +65,7 @@ impl TakeHandlerFactory {
         parameters: &HashMap<String, StrategyParamValue>,
     ) -> Result<Box<dyn TakeHandler>, TakeHandlerError> {
         match handler_name.to_ascii_uppercase().as_str() {
-            "TAKEPROFITPCT" | "TAKE_PROFIT_PCT" | "TAKEPROFIT" => {
+            "TAKEPROFITPCT" | "TAKE_PROFIT_PCT" => {
                 let percentage = extract_percentage(
                     parameters,
                     &["percentage", "take_profit", "take", "value"],

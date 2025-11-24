@@ -11,18 +11,8 @@ impl ParameterPresets {
     }
 
     /// Диапазон для периода (стандартный)
-    pub fn standard_period() -> ParameterRange {
-        ParameterRange::new(5.0, 100.0, 1.0)
-    }
-
-    /// Диапазон для периода (короткий)
-    pub fn short_period() -> ParameterRange {
-        ParameterRange::new(2.0, 50.0, 1.0)
-    }
-
-    /// Диапазон для периода (длинный)
-    pub fn long_period() -> ParameterRange {
-        ParameterRange::new(20.0, 200.0, 5.0)
+    fn standard_period() -> ParameterRange {
+        ParameterRange::new(5.0, 200.0, 1.0)
     }
 
     /// Диапазон для множителя
@@ -31,23 +21,18 @@ impl ParameterPresets {
     }
 
     /// Диапазон для множителя (стандартный)
-    pub fn standard_multiplier() -> ParameterRange {
-        ParameterRange::new(1.0, 5.0, 0.1)
+    fn standard_multiplier() -> ParameterRange {
+        ParameterRange::new(0.5, 5.0, 0.1)
     }
 
     /// Диапазон для множителя (ATR)
-    pub fn atr_multiplier() -> ParameterRange {
-        ParameterRange::new(1.5, 4.0, 0.1)
+    fn atr_multiplier() -> ParameterRange {
+        ParameterRange::new(1.0, 10.0, 0.5)
     }
 
     /// Диапазон для порогового значения
     pub fn threshold_range(start: f32, end: f32, step: f32) -> ParameterRange {
         ParameterRange::new(start, end, step)
-    }
-
-    /// Диапазон для RSI порогов
-    pub fn rsi_thresholds() -> ParameterRange {
-        ParameterRange::new(20.0, 80.0, 5.0)
     }
 
     /// Диапазон для коэффициента
@@ -56,20 +41,58 @@ impl ParameterPresets {
     }
 
     /// Диапазон для коэффициента сглаживания
-    pub fn smoothing_coefficient() -> ParameterRange {
-        ParameterRange::new(0.1, 0.9, 0.05)
+    fn smoothing_coefficient() -> ParameterRange {
+        ParameterRange::new(0.1, 1.0, 0.05)
+    }
+
+    /// Централизованный метод для получения диапазона параметра
+    /// Используется и для валидации, и для оптимизации
+    pub fn get_range_for_parameter(
+        indicator_name: &str,
+        param_name: &str,
+        param_type: &ParameterType,
+    ) -> Option<ParameterRange> {
+        match param_type {
+            ParameterType::Period => Some(Self::standard_period()),
+            ParameterType::Multiplier => match param_name.to_lowercase().as_str() {
+                "deviation" => Some(ParameterRange::new(0.5, 4.0, 0.5)),
+                "coeff_atr" | "atr_multiplier" | "atr_coefficient" => Some(Self::atr_multiplier()),
+                _ => Some(Self::standard_multiplier()),
+            },
+            ParameterType::Threshold => Self::get_threshold_range(indicator_name, param_name),
+            ParameterType::Coefficient => Some(Self::smoothing_coefficient()),
+            ParameterType::Custom => match param_name.to_lowercase().as_str() {
+                "period" | "length" => Some(Self::standard_period()),
+                "deviation" => Some(ParameterRange::new(0.5, 4.0, 0.5)),
+                "coeff_atr" | "atr_multiplier" => Some(Self::atr_multiplier()),
+                _ => None,
+            },
+        }
+    }
+
+    /// Получить диапазон для пороговых значений осцилляторов
+    fn get_threshold_range(indicator_name: &str, param_name: &str) -> Option<ParameterRange> {
+        match indicator_name.to_uppercase().as_str() {
+            "RSI" => Some(ParameterRange::new(20.0, 80.0, 10.0)),
+            "STOCHASTIC" => Some(ParameterRange::new(10.0, 90.0, 10.0)),
+            "WILLIAMSR" | "WILLIAMS_R" | "%R" => Some(ParameterRange::new(-90.0, -10.0, 10.0)),
+            "CCI" => Some(ParameterRange::new(-200.0, 200.0, 40.0)),
+            "MACD" => Some(ParameterRange::new(-5.0, 5.0, 1.0)),
+            "MOMENTUM" => Some(ParameterRange::new(-100.0, 100.0, 20.0)),
+            _ => match param_name.to_lowercase().as_str() {
+                "overbought" | "upper" | "high" => Some(ParameterRange::new(60.0, 95.0, 10.0)),
+                "oversold" | "lower" | "low" => Some(ParameterRange::new(5.0, 40.0, 10.0)),
+                _ => Some(ParameterRange::new(0.0, 100.0, 5.0)),
+            },
+        }
     }
 }
 
 /// Создание параметра периода
 pub fn create_period_parameter(name: &str, value: f32, description: &str) -> IndicatorParameter {
-    IndicatorParameter::new(
-        name,
-        value,
-        ParameterPresets::standard_period(),
-        description,
-        ParameterType::Period,
-    )
+    let range = ParameterPresets::get_range_for_parameter("", name, &ParameterType::Period)
+        .unwrap_or_else(|| ParameterRange::new(10.0, 200.0, 20.0));
+    IndicatorParameter::new(name, value, range, description, ParameterType::Period)
 }
 
 /// Создание параметра периода с кастомным диапазоном
@@ -88,13 +111,9 @@ pub fn create_multiplier_parameter(
     value: f32,
     description: &str,
 ) -> IndicatorParameter {
-    IndicatorParameter::new(
-        name,
-        value,
-        ParameterPresets::standard_multiplier(),
-        description,
-        ParameterType::Multiplier,
-    )
+    let range = ParameterPresets::get_range_for_parameter("", name, &ParameterType::Multiplier)
+        .unwrap_or_else(|| ParameterRange::new(0.5, 5.0, 0.5));
+    IndicatorParameter::new(name, value, range, description, ParameterType::Multiplier)
 }
 
 /// Создание параметра множителя с кастомным диапазоном
@@ -108,14 +127,16 @@ pub fn create_multiplier_parameter_with_range(
 }
 
 /// Создание параметра порога
-pub fn create_threshold_parameter(name: &str, value: f32, description: &str) -> IndicatorParameter {
-    IndicatorParameter::new(
-        name,
-        value,
-        ParameterPresets::rsi_thresholds(),
-        description,
-        ParameterType::Threshold,
-    )
+pub fn create_threshold_parameter(
+    indicator_name: &str,
+    name: &str,
+    value: f32,
+    description: &str,
+) -> IndicatorParameter {
+    let range =
+        ParameterPresets::get_range_for_parameter(indicator_name, name, &ParameterType::Threshold)
+            .unwrap_or_else(|| ParameterRange::new(20.0, 80.0, 5.0));
+    IndicatorParameter::new(name, value, range, description, ParameterType::Threshold)
 }
 
 /// Создание параметра порога с кастомным диапазоном
@@ -134,13 +155,9 @@ pub fn create_coefficient_parameter(
     value: f32,
     description: &str,
 ) -> IndicatorParameter {
-    IndicatorParameter::new(
-        name,
-        value,
-        ParameterPresets::smoothing_coefficient(),
-        description,
-        ParameterType::Coefficient,
-    )
+    let range = ParameterPresets::get_range_for_parameter("", name, &ParameterType::Coefficient)
+        .unwrap_or_else(|| ParameterRange::new(1.0, 10.0, 0.5));
+    IndicatorParameter::new(name, value, range, description, ParameterType::Coefficient)
 }
 
 /// Создание параметра коэффициента с кастомным диапазоном
@@ -218,7 +235,12 @@ pub fn create_supertrend_parameters(
         create_multiplier_parameter_with_range(
             "coeff_atr",
             coeff_atr,
-            ParameterPresets::atr_multiplier(),
+            ParameterPresets::get_range_for_parameter(
+                "SuperTrend",
+                "coeff_atr",
+                &ParameterType::Multiplier,
+            )
+            .unwrap_or_else(|| ParameterRange::new(1.0, 10.0, 0.1)),
             "Коэффициент ATR для SuperTrend",
         ),
     );
@@ -237,7 +259,7 @@ pub fn create_macd_parameters(
         create_period_parameter_with_range(
             "fast_period",
             fast_period,
-            ParameterPresets::short_period(),
+            ParameterRange::new(2.0, 50.0, 1.0),
             "Быстрый период для MACD",
         ),
     );
@@ -246,7 +268,7 @@ pub fn create_macd_parameters(
         create_period_parameter_with_range(
             "slow_period",
             slow_period,
-            ParameterPresets::long_period(),
+            ParameterRange::new(20.0, 200.0, 5.0),
             "Медленный период для MACD",
         ),
     );
@@ -255,7 +277,7 @@ pub fn create_macd_parameters(
         create_period_parameter_with_range(
             "signal_period",
             signal_period,
-            ParameterPresets::short_period(),
+            ParameterRange::new(2.0, 50.0, 1.0),
             "Период сигнальной линии MACD",
         ),
     );

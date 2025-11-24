@@ -103,6 +103,18 @@ fn sma_crossover_definition() -> StrategyDefinition {
         ),
     };
 
+    let sma_above_close_percent_input = ConditionInputSpec::DualWithPercent {
+        primary: DataSeriesSource::indicator(fast_alias.clone()),
+        secondary: DataSeriesSource::price(PriceField::Close),
+        percent: 2.5,
+    };
+
+    let sma_above_slow_percent_input = ConditionInputSpec::DualWithPercent {
+        primary: DataSeriesSource::indicator(fast_alias.clone()),
+        secondary: DataSeriesSource::indicator(slow_alias.clone()),
+        percent: 1.5,
+    };
+
     let condition_bindings = vec![
         ConditionBindingSpec {
             id: "fast_cross_above".to_string(),
@@ -178,6 +190,52 @@ fn sma_crossover_definition() -> StrategyDefinition {
             ],
             user_formula: None,
         },
+        ConditionBindingSpec {
+            id: "sma_rising_trend".to_string(),
+            name: "SMA RisingTrend (period: 20)".to_string(),
+            timeframe: timeframe.clone(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::GreaterThan,
+                &ConditionInputSpec::Single {
+                    source: DataSeriesSource::indicator(fast_alias.clone()),
+                },
+            ),
+            parameters: HashMap::from([("period".to_string(), 20.0)]),
+            input: ConditionInputSpec::Single {
+                source: DataSeriesSource::indicator(fast_alias.clone()),
+            },
+            weight: 1.0,
+            tags: vec!["entry".to_string(), "trend".to_string()],
+            user_formula: None,
+        },
+        ConditionBindingSpec {
+            id: "sma_above_close_percent".to_string(),
+            name: "SMA GreaterThan Close на 2.5%".to_string(),
+            timeframe: timeframe.clone(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::GreaterThan,
+                &sma_above_close_percent_input,
+            ),
+            parameters: HashMap::from([("percentage".to_string(), 2.5)]),
+            input: sma_above_close_percent_input,
+            weight: 1.0,
+            tags: vec!["entry".to_string(), "filter".to_string()],
+            user_formula: None,
+        },
+        ConditionBindingSpec {
+            id: "fast_sma_above_slow_percent".to_string(),
+            name: "Fast SMA GreaterThan Slow SMA на 1.5%".to_string(),
+            timeframe: timeframe.clone(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::GreaterThan,
+                &sma_above_slow_percent_input,
+            ),
+            parameters: HashMap::from([("percentage".to_string(), 1.5)]),
+            input: sma_above_slow_percent_input,
+            weight: 1.0,
+            tags: vec!["entry".to_string(), "filter".to_string()],
+            user_formula: None,
+        },
     ];
 
     let entry_rules = vec![
@@ -209,6 +267,21 @@ fn sma_crossover_definition() -> StrategyDefinition {
             quantity: None,
             tags: vec!["trend".to_string()],
             position_group: Some("enter_long_trend".to_string()),
+            target_entry_ids: Vec::new(),
+        },
+        StrategyRuleSpec {
+            id: "enter_long_rising_trend".to_string(),
+            name: "Enter long on rising trend".to_string(),
+            logic: super::types::RuleLogic::All,
+            conditions: vec![
+                "sma_rising_trend".to_string(),
+                "close_above_ema_240".to_string(),
+            ],
+            signal: StrategySignalType::Entry,
+            direction: PositionDirection::Long,
+            quantity: None,
+            tags: vec!["trend".to_string(), "rising".to_string()],
+            position_group: Some("enter_long_rising_trend".to_string()),
             target_entry_ids: Vec::new(),
         },
     ];

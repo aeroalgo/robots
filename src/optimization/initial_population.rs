@@ -1,11 +1,13 @@
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
-use crate::discovery::{StrategyCandidate, StrategyDiscoveryEngine};
+use crate::discovery::StrategyCandidate;
 use crate::optimization::evaluator::StrategyEvaluationRunner;
 use crate::optimization::fitness::FitnessFunction;
 use crate::optimization::types::{
     EvaluatedStrategy, GeneticAlgorithmConfig, GeneticIndividual, Population,
 };
+use crate::optimization::candidate_builder::{CandidateBuilder, CandidateElements};
+use crate::optimization::candidate_builder_config::CandidateBuilderConfig;
 use crate::strategy::types::StrategyParameterMap;
 use rand::Rng;
 use std::collections::HashMap;
@@ -14,6 +16,7 @@ pub struct InitialPopulationGenerator {
     config: GeneticAlgorithmConfig,
     evaluator: StrategyEvaluationRunner,
     discovery_config: crate::discovery::StrategyDiscoveryConfig,
+    candidate_builder_config: CandidateBuilderConfig,
 }
 
 impl InitialPopulationGenerator {
@@ -33,12 +36,18 @@ impl InitialPopulationGenerator {
         base_timeframe: TimeFrame,
         discovery_config: crate::discovery::StrategyDiscoveryConfig,
     ) -> Self {
+        let candidate_builder_config = config
+            .candidate_builder_config
+            .clone()
+            .unwrap_or_else(|| CandidateBuilderConfig::default());
         Self {
             config,
             evaluator: StrategyEvaluationRunner::new(frames, base_timeframe),
             discovery_config,
+            candidate_builder_config,
         }
     }
+
 
     pub async fn generate(
         &self,
@@ -53,24 +62,31 @@ impl InitialPopulationGenerator {
             }
         }
 
+        // Этап 1: Генерация кандидатов стратегий с использованием decimation_coefficient
         let strategies_to_generate = if candidates.is_empty() {
             // Генерируем больше структур стратегий для большего разнообразия
-            // Используем population_size вместо деления на decimation_coefficient
-            self.config.population_size
+            // Используем decimation_coefficient: генерируем population_size * decimation_coefficient кандидатов
+            (self.config.population_size as f64 * self.config.decimation_coefficient) as usize
         } else {
             1
         };
 
-        let mut strategy_candidates =
+        let mut all_strategy_candidates =
             Vec::with_capacity(strategies_to_generate.max(initial_capacity));
         if candidates.is_empty() {
+            println!(
+                "   [Этап 1] Генерация {} кандидатов стратегий (population_size: {} × decimation_coefficient: {:.1})",
+                strategies_to_generate,
+                self.config.population_size,
+                self.config.decimation_coefficient
+            );
             let generated = self.generate_candidates(strategies_to_generate).await?;
-            strategy_candidates.extend(generated);
+            all_strategy_candidates.extend(generated);
         } else {
-            strategy_candidates.extend(candidates);
+            all_strategy_candidates.extend(candidates);
         }
 
-        if strategy_candidates.is_empty() {
+        if all_strategy_candidates.is_empty() {
             return Ok(Population {
                 individuals: Vec::new(),
                 generation: 0,
@@ -78,28 +94,30 @@ impl InitialPopulationGenerator {
             });
         }
 
-        // Количество вариантов параметров для каждого кандидата стратегии
-        // Используем population_size для баланса: 30 кандидатов × 30 вариантов = 900 тестов
-        let target_size = self.config.population_size;
-        let mut individuals = Vec::with_capacity(target_size);
+        println!(
+            "   [Этап 1] Сгенерировано {} кандидатов стратегий",
+            all_strategy_candidates.len()
+        );
 
-        let total_strategies = strategy_candidates.len() * target_size;
+        // Этап 2: Тестирование всех кандидатов с множеством вариантов параметров
+        let param_variants_count = self.config.param_variants_per_candidate;
+        println!(
+            "\n   [Этап 2] Тестирование всех {} кандидатов (по {} вариантов параметров для каждого)...",
+            all_strategy_candidates.len(),
+            param_variants_count
+        );
+
+        let total_strategies = all_strategy_candidates.len() * param_variants_count;
+        let mut individuals = Vec::with_capacity(total_strategies);
         let mut current_strategy = 0;
 
-        println!("   [Генерация популяции] Сгенерировано кандидатов стратегий: {}", strategy_candidates.len());
-        println!("   [Генерация популяции] Вариантов параметров для каждого кандидата: {}", target_size);
-        println!("   [Генерация популяции] Всего стратегий для тестирования: {} ({} кандидатов × {} вариантов параметров)", 
-                 total_strategies, 
-                 strategy_candidates.len(), 
-                 target_size);
-
-        for (candidate_idx, candidate) in strategy_candidates.iter().enumerate() {
-            for param_variant in 0..target_size {
+        for (candidate_idx, candidate) in all_strategy_candidates.iter().enumerate() {
+            for param_variant in 0..param_variants_count {
                 current_strategy += 1;
                 let progress = (current_strategy as f64 / total_strategies as f64) * 100.0;
 
                 println!(
-                    "   [{}/{}] ({:.1}%) Тестирование стратегии #{} (вариант параметров #{})...",
+                    "\n   [{}/{}] ({:.1}%) Тестирование кандидата #{} (вариант параметров #{})...",
                     current_strategy,
                     total_strategies,
                     progress,
@@ -116,7 +134,7 @@ impl InitialPopulationGenerator {
                     Ok(report) => report,
                     Err(e) => {
                         eprintln!(
-                            "      ❌ Ошибка выполнения backtest для стратегии #{} (вариант #{})",
+                            "      ❌ Ошибка выполнения backtest для кандидата #{} (вариант #{})",
                             candidate_idx + 1,
                             param_variant + 1
                         );
@@ -165,23 +183,31 @@ impl InitialPopulationGenerator {
             }
         }
 
-        individuals.sort_by(|a, b| {
-            let fitness_a = a.strategy.fitness.unwrap_or(0.0);
-            let fitness_b = b.strategy.fitness.unwrap_or(0.0);
-            fitness_b
-                .partial_cmp(&fitness_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        println!(
+            "\n   [Этап 2] Протестировано {} стратегий ({} кандидатов × {} вариантов параметров)",
+            individuals.len(),
+            all_strategy_candidates.len(),
+            param_variants_count
+        );
 
-        let final_individuals: Vec<GeneticIndividual> = individuals
-            .into_iter()
-            .take(self.config.population_size)
-            .collect();
+        // Этап 3: Отбор лучших особей
+        let total_tested = individuals.len();
+        println!(
+            "\n   [Этап 3] Отбор лучших {} особей из {} протестированных...",
+            self.config.population_size,
+            total_tested
+        );
+
+        // Round-robin отбор с группировкой по стратегиям для поддержания разнообразия
+        let final_individuals = Self::select_with_diversity(
+            individuals,
+            self.config.population_size,
+        );
 
         println!(
-            "\n   ✅ Генерация завершена: создано {} особей из {} протестированных",
+            "\n   ✅ Генерация завершена: отобрано {} особей из {} протестированных",
             final_individuals.len(),
-            current_strategy
+            total_tested
         );
 
         if !final_individuals.is_empty() {
@@ -206,15 +232,11 @@ impl InitialPopulationGenerator {
         );
 
         use crate::discovery::IndicatorInfoCollector;
-        use crate::strategy::types::PriceField;
 
         let mut candidates = Vec::with_capacity(count);
-        println!("   [Генерация кандидатов] Создание StrategyDiscoveryEngine...");
-        let mut engine = StrategyDiscoveryEngine::new(self.discovery_config.clone());
 
         use crate::indicators::registry::IndicatorRegistry;
         use crate::risk::registry::StopHandlerRegistry;
-        use crate::strategy::types::ConditionOperator;
 
         println!("   [Генерация кандидатов] Создание IndicatorRegistry...");
         let registry = IndicatorRegistry::new();
@@ -228,44 +250,29 @@ impl InitialPopulationGenerator {
         println!("   [Генерация кандидатов] Создание StopHandlerRegistry...");
         let stop_handler_registry = StopHandlerRegistry::new();
         let stop_handler_configs = stop_handler_registry.get_all_configs();
-        let stop_loss_configs = stop_handler_registry.get_stop_loss_configs();
-        let take_profit_configs = stop_handler_registry.get_take_profit_configs();
         println!(
-            "   [Генерация кандидатов] Найдено стоп-обработчиков: {} (Стоп-лоссов: {}, Тейк-профитов: {})",
-            stop_handler_configs.len(),
-            stop_loss_configs.len(),
-            take_profit_configs.len()
+            "   [Генерация кандидатов] Найдено стоп-обработчиков: {}",
+            stop_handler_configs.len()
         );
 
-        let price_fields = vec![
-            PriceField::Close,
-            PriceField::Open,
-            PriceField::High,
-            PriceField::Low,
-        ];
-
-        let operators = vec![
-            ConditionOperator::GreaterThan,
-            ConditionOperator::LessThan,
-            ConditionOperator::CrossesAbove,
-            ConditionOperator::CrossesBelow,
-        ];
-
-        println!(
-            "   [Генерация кандидатов] Генерация комбинаций стратегий (это может занять время)..."
-        );
         let available_timeframes = self.evaluator.available_timeframes();
-        let mut iterator = engine.generate_strategies_random(
-            &available_indicators_vec,
-            &price_fields,
-            &operators,
-            &stop_handler_configs,
-            Some(&available_timeframes),
-        );
-        println!("   [Генерация кандидатов] Итератор создан, начинаем извлечение кандидатов...");
 
+        println!("   [Генерация кандидатов] Использование CandidateBuilder с правилами...");
+        let mut builder = CandidateBuilder::new(self.candidate_builder_config.clone());
+        
         for i in 0..count {
-            if let Some(candidate) = iterator.next() {
+            let candidate_elements = builder.build_candidate(
+                &available_indicators_vec,
+                &stop_handler_configs,
+                &available_timeframes,
+            );
+            
+            if let Some(candidate) = Self::convert_candidate_elements_to_strategy_candidate(
+                candidate_elements,
+                &self.discovery_config,
+            ) {
+                println!("\n   📋 Кандидат стратегии #{}:", i + 1);
+                Self::log_strategy_details(&candidate, None);
                 candidates.push(candidate);
                 if (i + 1) % 5 == 0 || i == 0 {
                     println!(
@@ -274,12 +281,6 @@ impl InitialPopulationGenerator {
                         count
                     );
                 }
-            } else {
-                println!(
-                    "   [Генерация кандидатов] Итератор исчерпан на {}/{}",
-                    i, count
-                );
-                break;
             }
         }
 
@@ -288,6 +289,32 @@ impl InitialPopulationGenerator {
             candidates.len()
         );
         Ok(candidates)
+    }
+
+    fn convert_candidate_elements_to_strategy_candidate(
+        elements: CandidateElements,
+        discovery_config: &crate::discovery::StrategyDiscoveryConfig,
+    ) -> Option<StrategyCandidate> {
+        use crate::discovery::types::StopHandlerInfo;
+        
+        let all_handlers: Vec<StopHandlerInfo> = elements
+            .stop_handlers
+            .into_iter()
+            .chain(elements.take_handlers.into_iter())
+            .collect();
+
+        let (stop_handlers, take_handlers) = StrategyCandidate::split_handlers(&all_handlers);
+
+        Some(StrategyCandidate {
+            indicators: elements.indicators,
+            nested_indicators: elements.nested_indicators,
+            conditions: elements.entry_conditions,
+            exit_conditions: elements.exit_conditions,
+            stop_handlers,
+            take_handlers,
+            timeframes: elements.timeframes,
+            config: discovery_config.clone(),
+        })
     }
 
     fn generate_random_parameters(&self, candidate: &StrategyCandidate) -> StrategyParameterMap {
@@ -310,9 +337,21 @@ impl InitialPopulationGenerator {
                     let param_value = if param_type_str.contains("Boolean") {
                         StrategyParamValue::Flag(rng.gen())
                     } else {
-                        if let Some(range) =
+                        let range = if Self::should_apply_volatility_constraint(
+                            indicator,
+                            &candidate.conditions,
+                            &candidate.exit_conditions,
+                            &self.candidate_builder_config,
+                        ) {
+                            Self::get_volatility_percentage_range(
+                                &self.candidate_builder_config,
+                                indicator,
+                            )
+                        } else {
                             get_optimization_range(&indicator.name, &param.name, &param.param_type)
-                        {
+                        };
+
+                        if let Some(range) = range {
                             let steps = ((range.end - range.start) / range.step) as usize;
                             let step_index = rng.gen_range(0..=steps);
                             let value = range.start + (step_index as f32 * range.step);
@@ -325,7 +364,8 @@ impl InitialPopulationGenerator {
                             continue;
                         }
                     };
-                    params.insert(format!("{}_{}", indicator.name, param.name), param_value);
+                    let param_key = format!("{}_{}", indicator.alias, param.name);
+                    params.insert(param_key, param_value);
                 }
             }
         }
@@ -354,10 +394,8 @@ impl InitialPopulationGenerator {
                             continue;
                         }
                     };
-                    params.insert(
-                        format!("nested_{}_{}", nested.indicator.name, param.name),
-                        param_value,
-                    );
+                    let param_key = format!("{}_{}", nested.indicator.alias, param.name);
+                    params.insert(param_key, param_value);
                 }
             }
         }
@@ -411,6 +449,47 @@ impl InitialPopulationGenerator {
                         && condition.constant_value.is_some()
                     {
                         StrategyParamValue::Number(condition.constant_value.unwrap())
+                    } else if param.name.to_lowercase() == "percentage" 
+                        && condition.condition_type == "indicator_constant"
+                        && indicator_name.is_some()
+                    {
+                        // Для volatility индикаторов: процент от цены из конфигурации
+                        if let Some(ind_name) = &indicator_name {
+                            if let Some(indicator) = candidate.indicators.iter()
+                                .find(|i| i.name == *ind_name && i.indicator_type == "volatility") 
+                            {
+                                // Используем диапазон из конфигурации для volatility
+                                if let Some(range) = Self::get_volatility_percentage_range(
+                                    &self.candidate_builder_config,
+                                    indicator,
+                                ) {
+                                    let steps = ((range.end - range.start) / range.step) as usize;
+                                    let step_index = rng.gen_range(0..=steps);
+                                    let value = range.start + (step_index as f32 * range.step);
+                                    StrategyParamValue::Number(value as f64)
+                                } else {
+                                    // Fallback: используем значение из constant_value если есть
+                                    StrategyParamValue::Number(condition.constant_value.unwrap_or(2.0))
+                                }
+                            } else {
+                                // Не volatility индикатор, используем стандартный диапазон
+                                use crate::indicators::types::ParameterType;
+                                if let Some(range) = get_optimization_range(
+                                    ind_name, 
+                                    &param.name, 
+                                    &ParameterType::Multiplier
+                                ) {
+                                    let steps = ((range.end - range.start) / range.step) as usize;
+                                    let step_index = rng.gen_range(0..=steps);
+                                    let value = range.start + (step_index as f32 * range.step);
+                                    StrategyParamValue::Number(value as f64)
+                                } else {
+                                    continue;
+                                }
+                            }
+                        } else {
+                            continue;
+                        }
                     } else if let Some(ind_name) = &indicator_name {
                         use crate::indicators::types::ParameterType;
                         let param_type = match param.name.to_lowercase().as_str() {
@@ -495,5 +574,414 @@ impl InitialPopulationGenerator {
             }
         }
         None
+    }
+
+    fn should_apply_volatility_constraint(
+        indicator: &crate::discovery::IndicatorInfo,
+        conditions: &[crate::discovery::ConditionInfo],
+        exit_conditions: &[crate::discovery::ConditionInfo],
+        config: &CandidateBuilderConfig,
+    ) -> bool {
+        if indicator.indicator_type != "volatility" {
+            return false;
+        }
+
+        let rules = &config.rules.indicator_parameter_rules;
+        for rule in rules {
+            if rule.indicator_type == "volatility" {
+                if !rule.indicator_names.is_empty() {
+                    if !rule.indicator_names.contains(&indicator.name) {
+                        continue;
+                    }
+                }
+
+                if let Some(constraint) = &rule.price_field_constraint {
+                    if constraint.required_price_field == "Close" {
+                        for condition in conditions.iter().chain(exit_conditions.iter()) {
+                            if let Some(price_field) = &condition.price_field {
+                                if price_field == "Close" {
+                                    if let Some(alias) = Self::extract_indicator_alias_from_condition_id(&condition.id) {
+                                        if alias == indicator.alias {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn get_volatility_percentage_range(
+        config: &CandidateBuilderConfig,
+        indicator: &crate::discovery::IndicatorInfo,
+    ) -> Option<crate::indicators::implementations::OptimizationRange> {
+        let rules = &config.rules.indicator_parameter_rules;
+        for rule in rules {
+            if rule.indicator_type == "volatility" {
+                if !rule.indicator_names.is_empty() {
+                    if !rule.indicator_names.contains(&indicator.name) {
+                        continue;
+                    }
+                }
+
+                if let Some(constraint) = &rule.price_field_constraint {
+                    if let super::candidate_builder_config::ParameterConstraint::PercentageFromPrice {
+                        min_percent,
+                        max_percent,
+                        step,
+                    } = &constraint.parameter_constraint
+                    {
+                        return Some(crate::indicators::implementations::OptimizationRange {
+                            start: *min_percent as f32,
+                            end: *max_percent as f32,
+                            step: *step as f32,
+                        });
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn log_strategy_details(
+        candidate: &StrategyCandidate,
+        parameters: Option<&StrategyParameterMap>,
+    ) {
+        println!("   ═══════════════════════════════════════════════════════");
+        println!("   📊 ДЕТАЛИ СТРАТЕГИИ");
+        println!("   ═══════════════════════════════════════════════════════");
+
+        println!("\n   🕐 ТАЙМФРЕЙМЫ:");
+        if candidate.timeframes.is_empty() {
+            println!("      (нет таймфреймов)");
+        } else {
+            for (idx, tf) in candidate.timeframes.iter().enumerate() {
+                println!("      {}. {}", idx + 1, tf.identifier());
+            }
+        }
+
+        println!("\n   📈 ИНДИКАТОРЫ:");
+        if candidate.indicators.is_empty() && candidate.nested_indicators.is_empty() {
+            println!("      (нет индикаторов)");
+        } else {
+            for (idx, indicator) in candidate.indicators.iter().enumerate() {
+                println!("      {}. {} ({})", idx + 1, indicator.name, indicator.alias);
+                if !indicator.parameters.is_empty() {
+                    println!("         Параметры:");
+                    for param in &indicator.parameters {
+                        if let Some(params) = parameters {
+                            let param_key = format!("{}_{}", indicator.alias, param.name);
+                            if let Some(value) = params.get(&param_key) {
+                                println!("            - {}: {:?}", param.name, value);
+                            } else {
+                                println!("            - {}: (не оптимизируется)", param.name);
+                            }
+                        } else {
+                            println!("            - {}: (тип: {:?}, оптимизируемый: {})", 
+                                param.name, param.param_type, param.optimizable);
+                        }
+                    }
+                }
+            }
+
+            if !candidate.nested_indicators.is_empty() {
+                println!("\n      Вложенные индикаторы:");
+                for (idx, nested) in candidate.nested_indicators.iter().enumerate() {
+                    println!("         {}. {} ({}) [вход: {}]", 
+                        idx + 1, 
+                        nested.indicator.name, 
+                        nested.indicator.alias,
+                        nested.input_indicator_alias);
+                    if !nested.indicator.parameters.is_empty() {
+                        println!("            Параметры:");
+                        for param in &nested.indicator.parameters {
+                            if let Some(params) = parameters {
+                                let param_key = format!("{}_{}", nested.indicator.alias, param.name);
+                                if let Some(value) = params.get(&param_key) {
+                                    println!("               - {}: {:?}", param.name, value);
+                                } else {
+                                    println!("               - {}: (не оптимизируется)", param.name);
+                                }
+                            } else {
+                                println!("               - {}: (тип: {:?}, оптимизируемый: {})", 
+                                    param.name, param.param_type, param.optimizable);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("\n   🚪 УСЛОВИЯ ВХОДА (Entry Rules):");
+        if candidate.conditions.is_empty() {
+            println!("      (нет условий входа)");
+        } else {
+            for (idx, condition) in candidate.conditions.iter().enumerate() {
+                println!("      {}. {} ({})", idx + 1, condition.name, condition.id);
+                println!("         Тип: {}", condition.condition_type);
+                println!("         Оператор: {:?}", condition.operator);
+                if let Some(tf) = &condition.primary_timeframe {
+                    println!("         Таймфрейм: {}", tf.identifier());
+                }
+                if let Some(price_field) = &condition.price_field {
+                    println!("         Поле цены: {}", price_field);
+                }
+                if let Some(const_val) = condition.constant_value {
+                    println!("         Константа: {}", const_val);
+                }
+                if !condition.optimization_params.is_empty() {
+                    println!("         Параметры оптимизации:");
+                    for param in &condition.optimization_params {
+                        if let Some(params) = parameters {
+                            let param_key = format!("condition_{}_{}", condition.id, param.name);
+                            if let Some(value) = params.get(&param_key) {
+                                println!("            - {}: {:?}", param.name, value);
+                            } else {
+                                println!("            - {}: (не оптимизируется)", param.name);
+                            }
+                        } else {
+                            println!("            - {}: (оптимизируемый: {})", 
+                                param.name, param.optimizable);
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("\n   🚪 УСЛОВИЯ ВЫХОДА (Exit Rules):");
+        if candidate.exit_conditions.is_empty() {
+            println!("      (нет условий выхода)");
+        } else {
+            for (idx, condition) in candidate.exit_conditions.iter().enumerate() {
+                println!("      {}. {} ({})", idx + 1, condition.name, condition.id);
+                println!("         Тип: {}", condition.condition_type);
+                println!("         Оператор: {:?}", condition.operator);
+                if let Some(tf) = &condition.primary_timeframe {
+                    println!("         Таймфрейм: {}", tf.identifier());
+                }
+                if let Some(price_field) = &condition.price_field {
+                    println!("         Поле цены: {}", price_field);
+                }
+                if let Some(const_val) = condition.constant_value {
+                    println!("         Константа: {}", const_val);
+                }
+                if !condition.optimization_params.is_empty() {
+                    println!("         Параметры оптимизации:");
+                    for param in &condition.optimization_params {
+                        if let Some(params) = parameters {
+                            let param_key = format!("condition_{}_{}", condition.id, param.name);
+                            if let Some(value) = params.get(&param_key) {
+                                println!("            - {}: {:?}", param.name, value);
+                            } else {
+                                println!("            - {}: (не оптимизируется)", param.name);
+                            }
+                        } else {
+                            println!("            - {}: (оптимизируемый: {})", 
+                                param.name, param.optimizable);
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("\n   🛑 STOP HANDLERS:");
+        if candidate.stop_handlers.is_empty() {
+            println!("      (нет стоп-обработчиков)");
+        } else {
+            for (idx, stop) in candidate.stop_handlers.iter().enumerate() {
+                println!("      {}. {} ({})", idx + 1, stop.name, stop.handler_name);
+                println!("         Тип: {}", stop.stop_type);
+                println!("         Приоритет: {}", stop.priority);
+                if !stop.optimization_params.is_empty() {
+                    println!("         Параметры оптимизации:");
+                    for param in &stop.optimization_params {
+                        if let Some(params) = parameters {
+                            let param_key = format!("stop_{}_{}", stop.name, param.name);
+                            if let Some(value) = params.get(&param_key) {
+                                println!("            - {}: {:?}", param.name, value);
+                            } else {
+                                println!("            - {}: (не оптимизируется)", param.name);
+                            }
+                        } else {
+                            println!("            - {}: (оптимизируемый: {})", 
+                                param.name, param.optimizable);
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("\n   🎯 TAKE HANDLERS:");
+        if candidate.take_handlers.is_empty() {
+            println!("      (нет тейк-обработчиков)");
+        } else {
+            for (idx, take) in candidate.take_handlers.iter().enumerate() {
+                println!("      {}. {} ({})", idx + 1, take.name, take.handler_name);
+                println!("         Тип: {}", take.stop_type);
+                println!("         Приоритет: {}", take.priority);
+                if !take.optimization_params.is_empty() {
+                    println!("         Параметры оптимизации:");
+                    for param in &take.optimization_params {
+                        if let Some(params) = parameters {
+                            let param_key = format!("take_{}_{}", take.name, param.name);
+                            if let Some(value) = params.get(&param_key) {
+                                println!("            - {}: {:?}", param.name, value);
+                            } else {
+                                println!("            - {}: (не оптимизируется)", param.name);
+                            }
+                        } else {
+                            println!("            - {}: (оптимизируемый: {})", 
+                                param.name, param.optimizable);
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("   ═══════════════════════════════════════════════════════\n");
+    }
+
+    /// Отбор особей с поддержанием разнообразия стратегий (round-robin)
+    /// Группирует особи по стратегиям, сортирует каждую группу по fitness,
+    /// затем по очереди выбирает по одной особи от каждой стратегии
+    fn select_with_diversity(
+        individuals: Vec<GeneticIndividual>,
+        target_size: usize,
+    ) -> Vec<GeneticIndividual> {
+        use std::collections::HashMap;
+        
+        // Группируем особи по стратегиям
+        let mut strategy_groups: HashMap<String, Vec<GeneticIndividual>> = HashMap::new();
+        
+        for individual in individuals {
+            // Создаем уникальный идентификатор стратегии на основе её структуры
+            let strategy_id = if let Some(ref candidate) = individual.strategy.candidate {
+                Self::get_strategy_signature(candidate)
+            } else {
+                // Если нет кандидата, используем хеш параметров как идентификатор
+                format!("no_candidate_{:?}", individual.strategy.parameters)
+            };
+            
+            strategy_groups
+                .entry(strategy_id)
+                .or_insert_with(Vec::new)
+                .push(individual);
+        }
+        
+        // Сортируем каждую группу по fitness (от лучшего к худшему)
+        for group in strategy_groups.values_mut() {
+            group.sort_by(|a, b| {
+                let fitness_a = a.strategy.fitness.unwrap_or(0.0);
+                let fitness_b = b.strategy.fitness.unwrap_or(0.0);
+                fitness_b
+                    .partial_cmp(&fitness_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        
+        // Round-robin отбор: по очереди берем по одной особи от каждой стратегии
+        let mut selected = Vec::with_capacity(target_size);
+        let mut strategy_indices: HashMap<String, usize> = HashMap::new();
+        
+        // Инициализируем индексы для каждой стратегии
+        for strategy_id in strategy_groups.keys() {
+            strategy_indices.insert(strategy_id.clone(), 0);
+        }
+        
+        while selected.len() < target_size {
+            let mut found_any = false;
+            
+            // Проходим по всем стратегиям в каждом раунде
+            for (strategy_id, group) in &strategy_groups {
+                if selected.len() >= target_size {
+                    break;
+                }
+                
+                let index = strategy_indices.get(strategy_id).copied().unwrap_or(0);
+                
+                // Если в этой стратегии еще есть особи
+                if index < group.len() {
+                    selected.push(group[index].clone());
+                    strategy_indices.insert(strategy_id.clone(), index + 1);
+                    found_any = true;
+                }
+            }
+            
+            // Если не нашли ни одной особи в этом раунде, значит все стратегии исчерпаны
+            if !found_any {
+                break;
+            }
+        }
+        
+        println!(
+            "   [Отбор с разнообразием] Выбрано {} особей из {} уникальных стратегий (round-robin)",
+            selected.len(),
+            strategy_groups.len()
+        );
+        
+        selected
+    }
+
+    /// Создает уникальный идентификатор стратегии на основе её структуры
+    fn get_strategy_signature(candidate: &StrategyCandidate) -> String {
+        use std::collections::BTreeSet;
+        
+        // Сортируем индикаторы по alias для стабильности
+        let mut indicator_aliases: BTreeSet<String> = candidate
+            .indicators
+            .iter()
+            .map(|ind| ind.alias.clone())
+            .collect();
+        
+        let mut nested_aliases: BTreeSet<String> = candidate
+            .nested_indicators
+            .iter()
+            .map(|nested| format!("{}->{}", nested.input_indicator_alias, nested.indicator.alias))
+            .collect();
+        
+        let mut condition_ids: BTreeSet<String> = candidate
+            .conditions
+            .iter()
+            .map(|cond| format!("{}:{}:{:?}", cond.condition_type, cond.id, cond.operator))
+            .collect();
+        
+        let mut exit_condition_ids: BTreeSet<String> = candidate
+            .exit_conditions
+            .iter()
+            .map(|cond| format!("{}:{}:{:?}", cond.condition_type, cond.id, cond.operator))
+            .collect();
+        
+        let mut stop_handler_names: BTreeSet<String> = candidate
+            .stop_handlers
+            .iter()
+            .map(|h| h.handler_name.clone())
+            .collect();
+        
+        let mut take_handler_names: BTreeSet<String> = candidate
+            .take_handlers
+            .iter()
+            .map(|h| h.handler_name.clone())
+            .collect();
+        
+        let mut timeframe_strings: BTreeSet<String> = candidate
+            .timeframes
+            .iter()
+            .map(|tf| format!("{:?}", tf))
+            .collect();
+        
+        format!(
+            "indicators:{:?}|nested:{:?}|conditions:{:?}|exit:{:?}|stops:{:?}|takes:{:?}|timeframes:{:?}",
+            indicator_aliases,
+            nested_aliases,
+            condition_ids,
+            exit_condition_ids,
+            stop_handler_names,
+            take_handler_names,
+            timeframe_strings
+        )
     }
 }

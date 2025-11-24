@@ -1,7 +1,4 @@
-use crate::data_model::quote_frame::QuoteFrame;
-use crate::data_model::types::TimeFrame;
 use crate::optimization::types::{GeneticAlgorithmConfig, Population};
-use std::collections::HashMap;
 
 pub struct IslandManager {
     config: GeneticAlgorithmConfig,
@@ -28,13 +25,6 @@ impl IslandManager {
         Self { config, islands }
     }
 
-    pub fn get_island(&self, island_id: usize) -> Option<&Population> {
-        self.islands.get(island_id)
-    }
-
-    pub fn get_island_mut(&mut self, island_id: usize) -> Option<&mut Population> {
-        self.islands.get_mut(island_id)
-    }
 
     pub fn get_all_islands(&self) -> &[Population] {
         &self.islands

@@ -632,6 +632,7 @@ impl PositionManager {
         }
         drop(state);
         self.portfolio.realized_pnl += pnl;
+        self.portfolio.update_equity();
         let trade = ClosedTrade {
             position_id: position_id.clone(),
             symbol: snapshot.key.symbol.clone(),
