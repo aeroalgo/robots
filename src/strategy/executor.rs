@@ -1,14 +1,13 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
 use thiserror::Error;
 
 use crate::condition::types::ConditionResultData;
 
 use crate::candles::aggregator::TimeFrameAggregator;
 use crate::data_model::quote_frame::QuoteFrame;
-use crate::data_model::types::{timestamp_from_millis, Symbol, TimeFrame};
+use crate::data_model::types::TimeFrame;
 use crate::indicators::formula::{FormulaDefinition, FormulaEvaluationContext};
 use crate::indicators::runtime::IndicatorRuntimeEngine;
 
@@ -16,8 +15,8 @@ use super::base::Strategy;
 use super::builder::StrategyBuilder;
 use super::context::{StrategyContext, TimeframeData};
 use super::types::{
-    IndicatorBindingSpec, IndicatorSourceSpec, PositionDirection, StrategyDecision,
-    StrategyDefinition, StrategyError, StrategyParameterMap,
+    IndicatorBindingSpec, IndicatorSourceSpec, StrategyDecision, StrategyDefinition,
+    StrategyError, StrategyParameterMap,
 };
 use crate::metrics::{BacktestAnalytics, BacktestReport};
 use crate::position::{ExecutionReport, PositionBook, PositionError, PositionManager};
@@ -55,7 +54,7 @@ struct SessionState {
 impl BacktestExecutor {
     pub fn new(
         strategy: Box<dyn Strategy>,
-        mut frames: HashMap<TimeFrame, QuoteFrame>,
+        frames: HashMap<TimeFrame, QuoteFrame>,
     ) -> Result<Self, StrategyExecutionError> {
         if frames.is_empty() {
             return Err(StrategyExecutionError::Feed(
@@ -863,76 +862,19 @@ struct HistoricalFeed {
     frames: HashMap<TimeFrame, Arc<QuoteFrame>>,
     indices: HashMap<TimeFrame, usize>,
     primary_timeframe: Option<TimeFrame>,
-    timeframe_hierarchy: Vec<TimeFrame>,
     higher_timeframe_timestamps: HashMap<TimeFrame, Vec<i64>>,
     cached_aligned_timestamps: HashMap<TimeFrame, i64>,
 }
 
 impl HistoricalFeed {
-    fn new(frames: HashMap<TimeFrame, QuoteFrame>) -> Self {
-        let frames_len = frames.len();
-        let mut arc_frames = HashMap::with_capacity(frames_len);
-        let mut primary_timeframe = None;
-        let mut max_len = 0usize;
-        let mut timeframes: Vec<TimeFrame> = Vec::new();
-        for (timeframe, frame) in frames {
-            let len = frame.len();
-            let timeframe_for_vec = timeframe.clone();
-            if len > max_len {
-                max_len = len;
-                primary_timeframe = Some(timeframe_for_vec.clone());
-            }
-            timeframes.push(timeframe_for_vec);
-            arc_frames.insert(timeframe, Arc::new(frame));
-        }
-        timeframes.sort_by(|a, b| {
-            let a_min = Self::timeframe_to_minutes(a).unwrap_or(0);
-            let b_min = Self::timeframe_to_minutes(b).unwrap_or(0);
-            a_min.cmp(&b_min)
-        });
-
-        let mut higher_timeframe_timestamps = HashMap::new();
-        if let Some(ref primary_tf) = primary_timeframe {
-            for (timeframe, frame) in &arc_frames {
-                if Self::is_higher_timeframe(timeframe, primary_tf) {
-                    let timestamps: Vec<i64> = frame
-                        .quotes()
-                        .iter()
-                        .map(|q| q.timestamp_millis())
-                        .collect();
-                    higher_timeframe_timestamps.insert(timeframe.clone(), timestamps);
-                }
-            }
-        }
-
-        Self {
-            frames: arc_frames,
-            indices: HashMap::with_capacity(frames_len),
-            primary_timeframe,
-            timeframe_hierarchy: timeframes,
-            higher_timeframe_timestamps,
-            cached_aligned_timestamps: HashMap::new(),
-        }
-    }
-
     fn new_empty() -> Self {
         Self {
             frames: HashMap::new(),
             indices: HashMap::new(),
             primary_timeframe: None,
-            timeframe_hierarchy: Vec::new(),
             higher_timeframe_timestamps: HashMap::new(),
             cached_aligned_timestamps: HashMap::new(),
         }
-    }
-
-    fn initialize_context(&self) -> StrategyContext {
-        let mut map = HashMap::with_capacity(self.frames.len());
-        for (timeframe, frame) in &self.frames {
-            let data = TimeframeData::with_quote_frame(frame.as_ref(), 0);
-            map.insert(timeframe.clone(), data);
-        }
-        StrategyContext::with_timeframes(map)
     }
 
     fn initialize_context_ordered(&self, timeframe_order: &[TimeFrame]) -> StrategyContext {
@@ -980,17 +922,6 @@ impl HistoricalFeed {
         Some(aligned_minutes * 60 * 1000)
     }
 
-    #[allow(dead_code)]
-    fn align_timestamp_to_timeframe(
-        timestamp: DateTime<Utc>,
-        timeframe: &TimeFrame,
-    ) -> Option<DateTime<Utc>> {
-        let timestamp_millis = timestamp.timestamp_millis();
-        let aligned_millis =
-            Self::align_timestamp_millis_to_timeframe(timestamp_millis, timeframe)?;
-        timestamp_from_millis(aligned_millis)
-    }
-
     fn create_derived_timeframe(base: &TimeFrame, multiplier: u32) -> Option<TimeFrame> {
         let base_minutes = Self::timeframe_to_minutes(base)?;
         let target_minutes = base_minutes * multiplier;
@@ -1022,44 +953,6 @@ impl HistoricalFeed {
     fn reset(&mut self) {
         self.indices.clear();
         self.cached_aligned_timestamps.clear();
-    }
-
-    fn find_higher_timeframe_index_binary_static(
-        higher_timestamps: &HashMap<TimeFrame, Vec<i64>>,
-        timeframe: &TimeFrame,
-        aligned_timestamp_millis: i64,
-        current_idx: usize,
-        frame_len: usize,
-    ) -> usize {
-        if let Some(timestamps) = higher_timestamps.get(timeframe) {
-            if timestamps.is_empty() || frame_len == 0 {
-                return current_idx.min(frame_len.saturating_sub(1));
-            }
-
-            let start_idx = current_idx.min(timestamps.len().saturating_sub(1));
-            let end_idx = timestamps.len();
-
-            let mut target_idx = start_idx;
-            let mut left = start_idx;
-            let mut right = end_idx;
-
-            while left < right {
-                let mid = left + (right - left) / 2;
-                if mid >= timestamps.len() {
-                    break;
-                }
-                if timestamps[mid] <= aligned_timestamp_millis {
-                    target_idx = mid;
-                    left = mid + 1;
-                } else {
-                    right = mid;
-                }
-            }
-
-            target_idx.min(frame_len.saturating_sub(1))
-        } else {
-            current_idx.min(frame_len.saturating_sub(1))
-        }
     }
 
     fn step(&mut self, context: &mut StrategyContext) -> bool {
@@ -1297,13 +1190,15 @@ impl<'a> IndicatorComputationPlan<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
     use crate::condition::types::SignalStrength;
     use crate::data_model::quote::Quote;
     use crate::data_model::quote_frame::QuoteFrame;
+    use crate::data_model::types::Symbol;
     use crate::strategy::context::StrategyContext;
     use crate::strategy::types::{
-        IndicatorBindingSpec, PreparedCondition, PriceField, StrategyDecision, StrategyId,
-        StrategyMetadata, StrategyParameterMap, StrategyRuleSpec, StrategySignal,
+        IndicatorBindingSpec, PositionDirection, PreparedCondition, PriceField, StrategyDecision,
+        StrategyId, StrategyMetadata, StrategyParameterMap, StrategyRuleSpec, StrategySignal,
         StrategySignalType, TimeframeRequirement,
     };
 

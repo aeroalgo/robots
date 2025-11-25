@@ -1,8 +1,7 @@
 use super::context::StrategyContext;
 use super::types::{
-    IndicatorBindingSpec, PreparedCondition, StopSignal, StrategyDecision, StrategyDefinition,
-    StrategyError, StrategyId, StrategyMetadata, StrategyParameterMap, StrategyRuleSpec,
-    TimeframeRequirement,
+    IndicatorBindingSpec, PreparedCondition, StopSignal, StrategyDecision, StrategyError,
+    StrategyId, StrategyMetadata, StrategyParameterMap, StrategyRuleSpec, TimeframeRequirement,
 };
 
 pub trait Strategy: Send + Sync {
@@ -22,8 +21,4 @@ pub trait Strategy: Send + Sync {
         Ok(Vec::new())
     }
     fn clone_box(&self) -> Box<dyn Strategy>;
-}
-
-pub trait StrategyDescriptor {
-    fn definition(&self) -> &StrategyDefinition;
 }

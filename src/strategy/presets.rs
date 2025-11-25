@@ -7,7 +7,7 @@ use super::types::{
     DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec, PositionDirection, PriceField,
     StopHandlerSpec, StrategyDefinition, StrategyMetadata, StrategyParamValue,
     StrategyParameterMap, StrategyRuleSpec, StrategySignalType, TakeHandlerSpec,
-    TimeframeRequirement, UserFormulaMetadata,
+    UserFormulaMetadata,
 };
 
 pub fn default_strategy_definitions() -> Vec<StrategyDefinition> {
@@ -445,10 +445,6 @@ fn bollinger_bands_definition() -> StrategyDefinition {
             tags: vec!["bb".to_string(), "lower".to_string()],
         },
     ];
-
-    let close_price_input = ConditionInputSpec::Single {
-        source: DataSeriesSource::price(PriceField::Close),
-    };
 
     let price_above_upper = ConditionInputSpec::Dual {
         primary: DataSeriesSource::price(PriceField::Close),

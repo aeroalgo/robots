@@ -3,9 +3,9 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::condition::types::{
-    ConditionCategory, ConditionConfig, ConditionError, ConditionResultData, SignalStrength,
+    ConditionConfig, ConditionError, ConditionResultData, SignalStrength,
 };
-use crate::data_model::types::{Symbol, TimeFrame};
+use crate::data_model::types::TimeFrame;
 use crate::risk::stops::StopHandler;
 use crate::risk::takes::TakeHandler;
 use serde::{Deserialize, Serialize};
@@ -679,45 +679,6 @@ pub struct ConditionEvaluation {
     pub satisfied: bool,
     pub strength: SignalStrength,
     pub weight: f32,
-}
-
-#[derive(Clone, Debug)]
-pub struct UserIndicatorStep {
-    pub alias: String,
-    pub expression: String,
-    pub timeframe: String,
-    pub parameters: HashMap<String, StrategyParamValue>,
-}
-
-#[derive(Clone, Debug)]
-pub struct UserConditionStep {
-    pub id: String,
-    pub expression: String,
-    pub category: ConditionCategory,
-    pub timeframe: String,
-    pub parameters: HashMap<String, StrategyParamValue>,
-}
-
-#[derive(Clone, Debug)]
-pub struct UserActionStep {
-    pub rule_id: String,
-    pub logic: RuleLogic,
-    pub condition_ids: Vec<String>,
-    pub signal: StrategySignalType,
-    pub direction: PositionDirection,
-    pub quantity: Option<f64>,
-    pub tags: Vec<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct StrategyUserInput {
-    pub name: String,
-    pub description: Option<String>,
-    pub indicators: Vec<UserIndicatorStep>,
-    pub conditions: Vec<UserConditionStep>,
-    pub actions: Vec<UserActionStep>,
-    pub parameters: StrategyParameterMap,
-    pub metadata: HashMap<String, String>,
 }
 
 impl From<ConditionResultData> for ConditionEvaluation {

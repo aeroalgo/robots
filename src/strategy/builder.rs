@@ -1,19 +1,17 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::condition::factory::ConditionFactory;
 use crate::condition::types::{ConditionError, SignalStrength};
-use crate::indicators::formula::FormulaDefinition;
 
-use super::base::{Strategy, StrategyDescriptor};
+use super::base::Strategy;
 use super::context::StrategyContext;
 use super::types::{
-    ConditionBindingSpec, ConditionDeclarativeSpec, ConditionEvaluation, ConditionInputSpec,
-    ConditionOperator, DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec,
-    PositionDirection, PreparedCondition, PreparedStopHandler, PreparedTakeHandler, PriceField,
-    RuleLogic, StopSignal, StrategyDecision, StrategyDefinition, StrategyError, StrategyId,
-    StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyRuleSpec, StrategySignal,
-    StrategySignalType, StrategyUserInput, TimeframeRequirement, UserFormulaMetadata,
+    ConditionEvaluation, IndicatorBindingSpec, IndicatorSourceSpec, PositionDirection,
+    PreparedCondition, PreparedStopHandler, PreparedTakeHandler, RuleLogic, StopSignal,
+    StrategyDecision, StrategyDefinition, StrategyError, StrategyId, StrategyMetadata,
+    StrategyParamValue, StrategyParameterMap, StrategyRuleSpec, StrategySignal, StrategySignalType,
+    TimeframeRequirement,
 };
 use crate::risk::stops::{StopEvaluationContext, StopHandlerError, StopHandlerFactory};
 use crate::risk::takes::{TakeEvaluationContext, TakeHandlerError, TakeHandlerFactory};
@@ -30,7 +28,6 @@ pub struct DynamicStrategy {
     definition: StrategyDefinition,
     indicator_bindings: Vec<IndicatorBindingSpec>,
     conditions: Vec<PreparedCondition>,
-    condition_lookup: HashMap<String, usize>,
     entry_rules: Vec<OptimizedRule>,
     exit_rules: Vec<OptimizedRule>,
     stop_handlers: Vec<PreparedStopHandler>,
@@ -81,7 +78,6 @@ impl DynamicStrategy {
             definition,
             indicator_bindings,
             conditions,
-            condition_lookup: condition_lookup.clone(),
             entry_rules: optimize_rules(entry_rules, &condition_lookup),
             exit_rules: optimize_rules(exit_rules, &condition_lookup),
             stop_handlers,
@@ -653,12 +649,6 @@ impl Strategy for DynamicStrategy {
     }
 }
 
-impl StrategyDescriptor for DynamicStrategy {
-    fn definition(&self) -> &StrategyDefinition {
-        &self.definition
-    }
-}
-
 pub struct StrategyBuilder {
     definition: StrategyDefinition,
     parameter_overrides: StrategyParameterMap,
@@ -851,129 +841,6 @@ impl StrategyBuilder {
         );
         Ok(strategy)
     }
-
-    pub fn from_user_input(input: StrategyUserInput) -> Result<Self, StrategyError> {
-        let metadata = StrategyMetadata::with_id(input.name.clone(), input.name.clone());
-        let mut indicator_bindings = Vec::with_capacity(input.indicators.len());
-        let mut formula_metadata = Vec::with_capacity(input.indicators.len());
-        for indicator in &input.indicators {
-            let timeframe =
-                crate::data_model::types::TimeFrame::from_identifier(&indicator.timeframe);
-            let mut numeric_params = HashMap::with_capacity(indicator.parameters.len());
-            let mut string_params = HashMap::with_capacity(indicator.parameters.len());
-            for (key, value) in &indicator.parameters {
-                if let Some(number) = value.as_f64() {
-                    numeric_params.insert(key.clone(), number as f32);
-                } else if let Some(text) = value.as_str() {
-                    string_params.insert(key.clone(), text.to_string());
-                }
-            }
-            let source = if let Some(name) = string_params.get("name") {
-                IndicatorSourceSpec::Registry {
-                    name: name.clone(),
-                    parameters: numeric_params.clone(),
-                }
-            } else {
-                let expression = indicator.expression.trim();
-                if expression.is_empty() {
-                    return Err(StrategyError::DefinitionError(format!(
-                        "indicator {} requires expression",
-                        indicator.alias
-                    )));
-                }
-                let definition = FormulaDefinition::parse(expression).map_err(|err| {
-                    StrategyError::DefinitionError(format!(
-                        "formula {} parse error: {}",
-                        indicator.alias, err
-                    ))
-                })?;
-                let inputs = definition.data_dependencies().cloned().collect::<Vec<_>>();
-                formula_metadata.push(UserFormulaMetadata {
-                    id: indicator.alias.clone(),
-                    name: indicator.alias.clone(),
-                    expression: expression.to_string(),
-                    description: None,
-                    tags: Vec::new(),
-                    inputs,
-                });
-                IndicatorSourceSpec::Formula {
-                    expression: expression.to_string(),
-                }
-            };
-            indicator_bindings.push(IndicatorBindingSpec {
-                alias: indicator.alias.clone(),
-                timeframe,
-                source,
-                tags: Vec::new(),
-            });
-        }
-        let mut condition_bindings = Vec::with_capacity(input.conditions.len());
-        for condition in &input.conditions {
-            let timeframe =
-                crate::data_model::types::TimeFrame::from_identifier(&condition.timeframe);
-            let operator = extract_condition_operator(condition)?;
-            let parameters = extract_numeric_parameters(&condition.parameters);
-            let input_spec = build_condition_input_spec(&operator, &condition.parameters)?;
-            let declarative = ConditionDeclarativeSpec::from_input(operator, &input_spec);
-            condition_bindings.push(ConditionBindingSpec {
-                id: condition.id.clone(),
-                name: condition.id.clone(),
-                timeframe,
-                declarative,
-                parameters,
-                input: input_spec,
-                weight: 1.0,
-                tags: Vec::new(),
-                user_formula: Some(condition.expression.clone()),
-            });
-        }
-        let mut entry_rules = Vec::new();
-        let mut exit_rules = Vec::new();
-        entry_rules.reserve(input.actions.len());
-        exit_rules.reserve(input.actions.len());
-        for action in &input.actions {
-            let rule = StrategyRuleSpec {
-                id: action.rule_id.clone(),
-                name: action.rule_id.clone(),
-                logic: action.logic.clone(),
-                conditions: action.condition_ids.clone(),
-                signal: action.signal.clone(),
-                direction: action.direction.clone(),
-                quantity: action.quantity,
-                tags: action.tags.clone(),
-                position_group: None,
-                target_entry_ids: Vec::new(),
-            };
-            match action.signal {
-                StrategySignalType::Entry => entry_rules.push(rule),
-                StrategySignalType::Exit => exit_rules.push(rule),
-                StrategySignalType::Custom(_) => entry_rules.push(rule),
-            }
-        }
-        let timeframe_requirements = indicator_bindings
-            .iter()
-            .map(|binding| TimeframeRequirement {
-                alias: binding.alias.clone(),
-                timeframe: binding.timeframe.clone(),
-            })
-            .collect();
-        let defaults = input.parameters.clone();
-        let definition = StrategyDefinition {
-            metadata,
-            parameters: Vec::new(),
-            indicator_bindings,
-            formulas: formula_metadata,
-            condition_bindings,
-            entry_rules,
-            exit_rules,
-            stop_handlers: Vec::new(),
-            take_handlers: vec![],
-            timeframe_requirements,
-            defaults,
-            optimizer_hints: BTreeMap::new(),
-        };
-        Ok(Self::new(definition))
-    }
 }
 
 fn map_condition_error(name: &str, error: ConditionError) -> StrategyError {
@@ -986,192 +853,4 @@ fn map_stop_error(name: &str, error: StopHandlerError) -> StrategyError {
 
 fn map_take_error(name: &str, error: TakeHandlerError) -> StrategyError {
     StrategyError::DefinitionError(format!("take handler {} creation failed: {}", name, error))
-}
-
-fn extract_condition_operator(
-    step: &super::types::UserConditionStep,
-) -> Result<ConditionOperator, StrategyError> {
-    if let Some(operator) = step
-        .parameters
-        .get("operator")
-        .and_then(|value| value.as_str())
-        .and_then(parse_condition_operator)
-    {
-        return Ok(operator);
-    }
-    if let Some(operator) = step
-        .parameters
-        .get("condition_name")
-        .and_then(|value| value.as_str())
-        .and_then(parse_condition_operator)
-    {
-        return Ok(operator);
-    }
-    if let Some(operator) = step
-        .parameters
-        .get("name")
-        .and_then(|value| value.as_str())
-        .and_then(parse_condition_operator)
-    {
-        return Ok(operator);
-    }
-    if !step.expression.is_empty() {
-        if let Some(operator) = parse_condition_operator(&step.expression) {
-            return Ok(operator);
-        }
-    }
-    Err(StrategyError::DefinitionError(format!(
-        "condition {} has no identifiable operator",
-        step.id
-    )))
-}
-
-fn parse_condition_operator(value: &str) -> Option<ConditionOperator> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let upper = trimmed.to_ascii_uppercase();
-    match upper.as_str() {
-        ">" | "GT" | "GREATER" | "GREATERTHAN" | "ABOVE" => {
-            return Some(ConditionOperator::GreaterThan)
-        }
-        "<" | "LT" | "LESS" | "LESSTHAN" | "BELOW" => return Some(ConditionOperator::LessThan),
-        "CROSSESABOVE" | "CROSSABOVE" | "CROSSUP" | "CROSS_UP" => {
-            return Some(ConditionOperator::CrossesAbove)
-        }
-        "CROSSESBELOW" | "CROSSBELOW" | "CROSSDOWN" | "CROSS_DOWN" => {
-            return Some(ConditionOperator::CrossesBelow)
-        }
-        "BETWEEN" => return Some(ConditionOperator::Between),
-        _ => {}
-    }
-    let lower = trimmed.to_ascii_lowercase();
-    if lower.contains("cross") && lower.contains("above") {
-        return Some(ConditionOperator::CrossesAbove);
-    }
-    if lower.contains("cross") && lower.contains("below") {
-        return Some(ConditionOperator::CrossesBelow);
-    }
-    if lower.contains("between") {
-        return Some(ConditionOperator::Between);
-    }
-    if lower.contains('>') {
-        return Some(ConditionOperator::GreaterThan);
-    }
-    if lower.contains('<') {
-        return Some(ConditionOperator::LessThan);
-    }
-    None
-}
-
-fn extract_numeric_parameters(parameters: &StrategyParameterMap) -> HashMap<String, f32> {
-    let mut result = HashMap::with_capacity(parameters.len());
-    for (key, value) in parameters {
-        if let Some(number) = value.as_f64() {
-            result.insert(key.clone(), number as f32);
-        }
-    }
-    result
-}
-
-fn build_condition_input_spec(
-    operator: &ConditionOperator,
-    parameters: &StrategyParameterMap,
-) -> Result<ConditionInputSpec, StrategyError> {
-    let primary = parameters
-        .get("primary")
-        .and_then(parse_series_source)
-        .ok_or_else(|| {
-            StrategyError::DefinitionError("condition primary source not specified".to_string())
-        })?;
-
-    if matches!(operator, ConditionOperator::Between) {
-        let lower = parameters
-            .get("lower")
-            .and_then(parse_series_source)
-            .ok_or_else(|| {
-                StrategyError::DefinitionError(
-                    "between condition requires lower bound series".to_string(),
-                )
-            })?;
-        let upper = parameters
-            .get("upper")
-            .and_then(parse_series_source)
-            .ok_or_else(|| {
-                StrategyError::DefinitionError(
-                    "between condition requires upper bound series".to_string(),
-                )
-            })?;
-        return Ok(ConditionInputSpec::Range {
-            source: primary,
-            lower,
-            upper,
-        });
-    }
-
-    if let Some(secondary_value) = parameters.get("secondary").and_then(parse_series_source) {
-        if let Some(percent_value) = parameters.get("percent").and_then(|value| value.as_f64()) {
-            return Ok(ConditionInputSpec::DualWithPercent {
-                primary,
-                secondary: secondary_value,
-                percent: percent_value as f32,
-            });
-        }
-        return Ok(ConditionInputSpec::Dual {
-            primary,
-            secondary: secondary_value,
-        });
-    }
-
-    if let Some(index_offset) = parameters
-        .get("index_offset")
-        .and_then(|value| value.as_f64())
-        .map(|value| value.max(0.0) as usize)
-    {
-        return Ok(ConditionInputSpec::Indexed {
-            source: primary,
-            index_offset,
-        });
-    }
-
-    match operator {
-        ConditionOperator::GreaterThan
-        | ConditionOperator::LessThan
-        | ConditionOperator::CrossesAbove
-        | ConditionOperator::CrossesBelow => Err(StrategyError::DefinitionError(
-            "condition requires secondary source".to_string(),
-        )),
-        ConditionOperator::Between => unreachable!("handled above"),
-    }
-}
-
-fn parse_series_source(value: &StrategyParamValue) -> Option<DataSeriesSource> {
-    if let Some(text) = value.as_str() {
-        parse_series_source_text(text)
-    } else {
-        None
-    }
-}
-
-fn parse_series_source_text(value: &str) -> Option<DataSeriesSource> {
-    let lower = value.to_ascii_lowercase();
-    if let Some(rest) = lower.strip_prefix("indicator:") {
-        return Some(DataSeriesSource::indicator(rest));
-    }
-    if let Some(rest) = lower.strip_prefix("price:") {
-        let field = match rest {
-            "open" => PriceField::Open,
-            "high" => PriceField::High,
-            "low" => PriceField::Low,
-            "close" => PriceField::Close,
-            "volume" => PriceField::Volume,
-            _ => PriceField::Close,
-        };
-        return Some(DataSeriesSource::price(field));
-    }
-    if let Some(rest) = lower.strip_prefix("custom:") {
-        return Some(DataSeriesSource::custom(rest));
-    }
-    Some(DataSeriesSource::indicator(value))
 }
