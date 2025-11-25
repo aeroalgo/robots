@@ -1,13 +1,13 @@
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
 use crate::discovery::StrategyCandidate;
+use crate::optimization::candidate_builder::{CandidateBuilder, CandidateElements};
+use crate::optimization::candidate_builder_config::CandidateBuilderConfig;
 use crate::optimization::evaluator::StrategyEvaluationRunner;
 use crate::optimization::fitness::FitnessFunction;
 use crate::optimization::types::{
     EvaluatedStrategy, GeneticAlgorithmConfig, GeneticIndividual, Population,
 };
-use crate::optimization::candidate_builder::{CandidateBuilder, CandidateElements};
-use crate::optimization::candidate_builder_config::CandidateBuilderConfig;
 use crate::strategy::types::StrategyParameterMap;
 use rand::Rng;
 use std::collections::HashMap;
@@ -47,7 +47,6 @@ impl InitialPopulationGenerator {
             candidate_builder_config,
         }
     }
-
 
     pub async fn generate(
         &self,
@@ -194,15 +193,12 @@ impl InitialPopulationGenerator {
         let total_tested = individuals.len();
         println!(
             "\n   [Этап 3] Отбор лучших {} особей из {} протестированных...",
-            self.config.population_size,
-            total_tested
+            self.config.population_size, total_tested
         );
 
         // Round-robin отбор с группировкой по стратегиям для поддержания разнообразия
-        let final_individuals = Self::select_with_diversity(
-            individuals,
-            self.config.population_size,
-        );
+        let final_individuals =
+            Self::select_with_diversity(individuals, self.config.population_size);
 
         println!(
             "\n   ✅ Генерация завершена: отобрано {} особей из {} протестированных",
@@ -259,14 +255,14 @@ impl InitialPopulationGenerator {
 
         println!("   [Генерация кандидатов] Использование CandidateBuilder с правилами...");
         let mut builder = CandidateBuilder::new(self.candidate_builder_config.clone());
-        
+
         for i in 0..count {
             let candidate_elements = builder.build_candidate(
                 &available_indicators_vec,
                 &stop_handler_configs,
                 &available_timeframes,
             );
-            
+
             if let Some(candidate) = Self::convert_candidate_elements_to_strategy_candidate(
                 candidate_elements,
                 &self.discovery_config,
@@ -296,7 +292,7 @@ impl InitialPopulationGenerator {
         discovery_config: &crate::discovery::StrategyDiscoveryConfig,
     ) -> Option<StrategyCandidate> {
         use crate::discovery::types::StopHandlerInfo;
-        
+
         let all_handlers: Vec<StopHandlerInfo> = elements
             .stop_handlers
             .into_iter()
@@ -449,14 +445,16 @@ impl InitialPopulationGenerator {
                         && condition.constant_value.is_some()
                     {
                         StrategyParamValue::Number(condition.constant_value.unwrap())
-                    } else if param.name.to_lowercase() == "percentage" 
+                    } else if param.name.to_lowercase() == "percentage"
                         && condition.condition_type == "indicator_constant"
                         && indicator_name.is_some()
                     {
                         // Для volatility индикаторов: процент от цены из конфигурации
                         if let Some(ind_name) = &indicator_name {
-                            if let Some(indicator) = candidate.indicators.iter()
-                                .find(|i| i.name == *ind_name && i.indicator_type == "volatility") 
+                            if let Some(indicator) = candidate
+                                .indicators
+                                .iter()
+                                .find(|i| i.name == *ind_name && i.indicator_type == "volatility")
                             {
                                 // Используем диапазон из конфигурации для volatility
                                 if let Some(range) = Self::get_volatility_percentage_range(
@@ -469,15 +467,17 @@ impl InitialPopulationGenerator {
                                     StrategyParamValue::Number(value as f64)
                                 } else {
                                     // Fallback: используем значение из constant_value если есть
-                                    StrategyParamValue::Number(condition.constant_value.unwrap_or(2.0))
+                                    StrategyParamValue::Number(
+                                        condition.constant_value.unwrap_or(2.0),
+                                    )
                                 }
                             } else {
                                 // Не volatility индикатор, используем стандартный диапазон
                                 use crate::indicators::types::ParameterType;
                                 if let Some(range) = get_optimization_range(
-                                    ind_name, 
-                                    &param.name, 
-                                    &ParameterType::Multiplier
+                                    ind_name,
+                                    &param.name,
+                                    &ParameterType::Multiplier,
                                 ) {
                                     let steps = ((range.end - range.start) / range.step) as usize;
                                     let step_index = rng.gen_range(0..=steps);
@@ -543,37 +543,68 @@ impl InitialPopulationGenerator {
         None
     }
 
-    fn extract_indicator_alias_from_condition_id(condition_id: &str) -> Option<String> {
-        if condition_id.starts_with("ind_price_") {
-            let rest = condition_id.strip_prefix("ind_price_")?;
-            if let Some(tf_pos) = rest.find("_tf") {
-                let before_tf = &rest[..tf_pos];
-                let parts: Vec<&str> = before_tf.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
+    fn extract_all_indicator_aliases_from_condition(condition_id: &str) -> Vec<String> {
+        if condition_id.starts_with("ind_ind_") {
+            let rest = condition_id.strip_prefix("ind_ind_").unwrap_or("");
+            let parts: Vec<&str> = if let Some(tf_pos) = rest.find("_tf") {
+                rest[..tf_pos].split('_').collect()
             } else {
-                let parts: Vec<&str> = rest.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
+                rest.split('_').collect()
+            };
+            if parts.len() >= 2 {
+                return vec![parts[0].to_string(), parts[1].to_string()];
+            }
+        } else if condition_id.starts_with("entry_") {
+            let rest = condition_id.strip_prefix("entry_").unwrap_or("");
+            let parts: Vec<&str> = rest.split('_').collect();
+            if parts.len() >= 3 {
+                let last_part = parts[parts.len() - 1];
+                if last_part.parse::<u32>().is_ok() {
+                    return vec![parts[0].to_string(), parts[1].to_string()];
                 }
+            }
+            if parts.len() >= 1 {
+                return vec![parts[0].to_string()];
+            }
+        } else if condition_id.starts_with("exit_") {
+            let rest = condition_id.strip_prefix("exit_").unwrap_or("");
+            let parts: Vec<&str> = rest.split('_').collect();
+            if parts.len() >= 3 {
+                let last_part = parts[parts.len() - 1];
+                if last_part.parse::<u32>().is_ok() {
+                    return vec![parts[0].to_string(), parts[1].to_string()];
+                }
+            }
+            if parts.len() >= 1 {
+                return vec![parts[0].to_string()];
+            }
+        } else if condition_id.starts_with("ind_price_") {
+            let rest = condition_id.strip_prefix("ind_price_").unwrap_or("");
+            let parts: Vec<&str> = if let Some(tf_pos) = rest.find("_tf") {
+                rest[..tf_pos].split('_').collect()
+            } else {
+                rest.split('_').collect()
+            };
+            if !parts.is_empty() {
+                return vec![parts[0].to_string()];
             }
         } else if condition_id.starts_with("ind_const_") {
-            let rest = condition_id.strip_prefix("ind_const_")?;
-            if let Some(tf_pos) = rest.find("_tf") {
-                let before_tf = &rest[..tf_pos];
-                let parts: Vec<&str> = before_tf.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
+            let rest = condition_id.strip_prefix("ind_const_").unwrap_or("");
+            let parts: Vec<&str> = if let Some(tf_pos) = rest.find("_tf") {
+                rest[..tf_pos].split('_').collect()
             } else {
-                let parts: Vec<&str> = rest.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
+                rest.split('_').collect()
+            };
+            if !parts.is_empty() {
+                return vec![parts[0].to_string()];
             }
         }
-        None
+        Vec::new()
+    }
+
+    fn extract_indicator_alias_from_condition_id(condition_id: &str) -> Option<String> {
+        let aliases = Self::extract_all_indicator_aliases_from_condition(condition_id);
+        aliases.first().cloned()
     }
 
     fn should_apply_volatility_constraint(
@@ -600,7 +631,11 @@ impl InitialPopulationGenerator {
                         for condition in conditions.iter().chain(exit_conditions.iter()) {
                             if let Some(price_field) = &condition.price_field {
                                 if price_field == "Close" {
-                                    if let Some(alias) = Self::extract_indicator_alias_from_condition_id(&condition.id) {
+                                    if let Some(alias) =
+                                        Self::extract_indicator_alias_from_condition_id(
+                                            &condition.id,
+                                        )
+                                    {
                                         if alias == indicator.alias {
                                             return true;
                                         }
@@ -669,7 +704,12 @@ impl InitialPopulationGenerator {
             println!("      (нет индикаторов)");
         } else {
             for (idx, indicator) in candidate.indicators.iter().enumerate() {
-                println!("      {}. {} ({})", idx + 1, indicator.name, indicator.alias);
+                println!(
+                    "      {}. {} ({})",
+                    idx + 1,
+                    indicator.name,
+                    indicator.alias
+                );
                 if !indicator.parameters.is_empty() {
                     println!("         Параметры:");
                     for param in &indicator.parameters {
@@ -681,8 +721,10 @@ impl InitialPopulationGenerator {
                                 println!("            - {}: (не оптимизируется)", param.name);
                             }
                         } else {
-                            println!("            - {}: (тип: {:?}, оптимизируемый: {})", 
-                                param.name, param.param_type, param.optimizable);
+                            println!(
+                                "            - {}: (тип: {:?}, оптимизируемый: {})",
+                                param.name, param.param_type, param.optimizable
+                            );
                         }
                     }
                 }
@@ -691,24 +733,32 @@ impl InitialPopulationGenerator {
             if !candidate.nested_indicators.is_empty() {
                 println!("\n      Вложенные индикаторы:");
                 for (idx, nested) in candidate.nested_indicators.iter().enumerate() {
-                    println!("         {}. {} ({}) [вход: {}]", 
-                        idx + 1, 
-                        nested.indicator.name, 
+                    println!(
+                        "         {}. {} ({}) [вход: {}]",
+                        idx + 1,
+                        nested.indicator.name,
                         nested.indicator.alias,
-                        nested.input_indicator_alias);
+                        nested.input_indicator_alias
+                    );
                     if !nested.indicator.parameters.is_empty() {
                         println!("            Параметры:");
                         for param in &nested.indicator.parameters {
                             if let Some(params) = parameters {
-                                let param_key = format!("{}_{}", nested.indicator.alias, param.name);
+                                let param_key =
+                                    format!("{}_{}", nested.indicator.alias, param.name);
                                 if let Some(value) = params.get(&param_key) {
                                     println!("               - {}: {:?}", param.name, value);
                                 } else {
-                                    println!("               - {}: (не оптимизируется)", param.name);
+                                    println!(
+                                        "               - {}: (не оптимизируется)",
+                                        param.name
+                                    );
                                 }
                             } else {
-                                println!("               - {}: (тип: {:?}, оптимизируемый: {})", 
-                                    param.name, param.param_type, param.optimizable);
+                                println!(
+                                    "               - {}: (тип: {:?}, оптимизируемый: {})",
+                                    param.name, param.param_type, param.optimizable
+                                );
                             }
                         }
                     }
@@ -744,8 +794,10 @@ impl InitialPopulationGenerator {
                                 println!("            - {}: (не оптимизируется)", param.name);
                             }
                         } else {
-                            println!("            - {}: (оптимизируемый: {})", 
-                                param.name, param.optimizable);
+                            println!(
+                                "            - {}: (оптимизируемый: {})",
+                                param.name, param.optimizable
+                            );
                         }
                     }
                 }
@@ -780,8 +832,10 @@ impl InitialPopulationGenerator {
                                 println!("            - {}: (не оптимизируется)", param.name);
                             }
                         } else {
-                            println!("            - {}: (оптимизируемый: {})", 
-                                param.name, param.optimizable);
+                            println!(
+                                "            - {}: (оптимизируемый: {})",
+                                param.name, param.optimizable
+                            );
                         }
                     }
                 }
@@ -807,8 +861,10 @@ impl InitialPopulationGenerator {
                                 println!("            - {}: (не оптимизируется)", param.name);
                             }
                         } else {
-                            println!("            - {}: (оптимизируемый: {})", 
-                                param.name, param.optimizable);
+                            println!(
+                                "            - {}: (оптимизируемый: {})",
+                                param.name, param.optimizable
+                            );
                         }
                     }
                 }
@@ -834,8 +890,10 @@ impl InitialPopulationGenerator {
                                 println!("            - {}: (не оптимизируется)", param.name);
                             }
                         } else {
-                            println!("            - {}: (оптимизируемый: {})", 
-                                param.name, param.optimizable);
+                            println!(
+                                "            - {}: (оптимизируемый: {})",
+                                param.name, param.optimizable
+                            );
                         }
                     }
                 }
@@ -853,10 +911,10 @@ impl InitialPopulationGenerator {
         target_size: usize,
     ) -> Vec<GeneticIndividual> {
         use std::collections::HashMap;
-        
+
         // Группируем особи по стратегиям
         let mut strategy_groups: HashMap<String, Vec<GeneticIndividual>> = HashMap::new();
-        
+
         for individual in individuals {
             // Создаем уникальный идентификатор стратегии на основе её структуры
             let strategy_id = if let Some(ref candidate) = individual.strategy.candidate {
@@ -865,13 +923,13 @@ impl InitialPopulationGenerator {
                 // Если нет кандидата, используем хеш параметров как идентификатор
                 format!("no_candidate_{:?}", individual.strategy.parameters)
             };
-            
+
             strategy_groups
                 .entry(strategy_id)
                 .or_insert_with(Vec::new)
                 .push(individual);
         }
-        
+
         // Сортируем каждую группу по fitness (от лучшего к худшему)
         for group in strategy_groups.values_mut() {
             group.sort_by(|a, b| {
@@ -882,27 +940,27 @@ impl InitialPopulationGenerator {
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
         }
-        
+
         // Round-robin отбор: по очереди берем по одной особи от каждой стратегии
         let mut selected = Vec::with_capacity(target_size);
         let mut strategy_indices: HashMap<String, usize> = HashMap::new();
-        
+
         // Инициализируем индексы для каждой стратегии
         for strategy_id in strategy_groups.keys() {
             strategy_indices.insert(strategy_id.clone(), 0);
         }
-        
+
         while selected.len() < target_size {
             let mut found_any = false;
-            
+
             // Проходим по всем стратегиям в каждом раунде
             for (strategy_id, group) in &strategy_groups {
                 if selected.len() >= target_size {
                     break;
                 }
-                
+
                 let index = strategy_indices.get(strategy_id).copied().unwrap_or(0);
-                
+
                 // Если в этой стратегии еще есть особи
                 if index < group.len() {
                     selected.push(group[index].clone());
@@ -910,69 +968,74 @@ impl InitialPopulationGenerator {
                     found_any = true;
                 }
             }
-            
+
             // Если не нашли ни одной особи в этом раунде, значит все стратегии исчерпаны
             if !found_any {
                 break;
             }
         }
-        
+
         println!(
             "   [Отбор с разнообразием] Выбрано {} особей из {} уникальных стратегий (round-robin)",
             selected.len(),
             strategy_groups.len()
         );
-        
+
         selected
     }
 
     /// Создает уникальный идентификатор стратегии на основе её структуры
     fn get_strategy_signature(candidate: &StrategyCandidate) -> String {
         use std::collections::BTreeSet;
-        
+
         // Сортируем индикаторы по alias для стабильности
-        let mut indicator_aliases: BTreeSet<String> = candidate
+        let indicator_aliases: BTreeSet<String> = candidate
             .indicators
             .iter()
             .map(|ind| ind.alias.clone())
             .collect();
-        
-        let mut nested_aliases: BTreeSet<String> = candidate
+
+        let nested_aliases: BTreeSet<String> = candidate
             .nested_indicators
             .iter()
-            .map(|nested| format!("{}->{}", nested.input_indicator_alias, nested.indicator.alias))
+            .map(|nested| {
+                format!(
+                    "{}->{}",
+                    nested.input_indicator_alias, nested.indicator.alias
+                )
+            })
             .collect();
-        
-        let mut condition_ids: BTreeSet<String> = candidate
+
+        let condition_ids: BTreeSet<String> = candidate
             .conditions
             .iter()
             .map(|cond| format!("{}:{}:{:?}", cond.condition_type, cond.id, cond.operator))
             .collect();
-        
-        let mut exit_condition_ids: BTreeSet<String> = candidate
+
+        let exit_condition_ids: BTreeSet<String> = candidate
             .exit_conditions
             .iter()
             .map(|cond| format!("{}:{}:{:?}", cond.condition_type, cond.id, cond.operator))
             .collect();
-        
-        let mut stop_handler_names: BTreeSet<String> = candidate
+
+        let stop_handler_names: BTreeSet<String> = candidate
             .stop_handlers
             .iter()
             .map(|h| h.handler_name.clone())
             .collect();
-        
-        let mut take_handler_names: BTreeSet<String> = candidate
+
+        let take_handler_names: BTreeSet<String> = candidate
             .take_handlers
             .iter()
             .map(|h| h.handler_name.clone())
             .collect();
-        
-        let mut timeframe_strings: BTreeSet<String> = candidate
+
+        let timeframe_strings: BTreeSet<String> = candidate
             .timeframes
             .iter()
             .map(|tf| format!("{:?}", tf))
             .collect();
-        
+
         format!(
             "indicators:{:?}|nested:{:?}|conditions:{:?}|exit:{:?}|stops:{:?}|takes:{:?}|timeframes:{:?}",
             indicator_aliases,

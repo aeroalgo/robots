@@ -1,9 +1,7 @@
-use crate::optimization::migration::MigrationSystem;
 use crate::optimization::types::GeneticAlgorithmConfig;
 
 pub struct EvolutionManager {
     config: GeneticAlgorithmConfig,
-    migration_system: MigrationSystem,
     stagnation_threshold: usize,
     stagnation_counter: usize,
     best_fitness_history: Vec<f64>,
@@ -15,7 +13,6 @@ impl EvolutionManager {
             stagnation_threshold: 10,
             stagnation_counter: 0,
             best_fitness_history: Vec::new(),
-            migration_system: MigrationSystem::new(config.clone()),
             config,
         }
     }
@@ -51,10 +48,6 @@ impl EvolutionManager {
     pub fn reset_stagnation(&mut self) {
         self.stagnation_counter = 0;
         self.best_fitness_history.clear();
-    }
-
-    fn should_migrate(&self, generation: usize) -> bool {
-        generation > 0 && generation % self.config.migration_interval == 0
     }
 }
 

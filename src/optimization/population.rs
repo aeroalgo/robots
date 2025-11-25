@@ -1,6 +1,5 @@
 use crate::discovery::StrategyCandidate;
-use crate::optimization::fitness::{FitnessFunction, FitnessThresholds, FitnessWeights};
-use crate::optimization::types::{EvaluatedStrategy, GeneticIndividual, Population};
+use crate::optimization::types::{GeneticIndividual, Population};
 use crate::strategy::types::StrategyParameterMap;
 use rand::Rng;
 use std::collections::HashMap;
@@ -127,10 +126,6 @@ impl PopulationManager {
         candidate: &StrategyCandidate,
         mutation_config: &crate::optimization::types::GeneticAlgorithmConfig,
     ) {
-        use crate::indicators::implementations::get_optimization_range;
-        use crate::risk::stops::get_optimization_range as get_stop_optimization_range;
-        use crate::indicators::types::ParameterType;
-        
         let mut rng = rand::thread_rng();
         let keys: Vec<String> = parameters.keys().cloned().collect();
 
@@ -157,7 +152,7 @@ impl PopulationManager {
         key: &str,
         candidate: &StrategyCandidate,
     ) -> Option<crate::indicators::implementations::OptimizationRange> {
-        use crate::indicators::implementations::{get_optimization_range, OptimizationRange};
+        use crate::indicators::implementations::get_optimization_range;
         use crate::risk::stops::get_optimization_range as get_stop_optimization_range;
         use crate::indicators::types::ParameterType;
 

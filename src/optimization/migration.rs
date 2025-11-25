@@ -1,4 +1,3 @@
-use rand::Rng;
 use crate::optimization::types::{GeneticAlgorithmConfig, GeneticIndividual, Population};
 
 pub struct MigrationSystem {

@@ -385,11 +385,11 @@ impl BacktestExecutor {
                 .strategy
                 .evaluate(&self.context)
                 .map_err(StrategyExecutionError::Strategy)?;
-            
+
             if !decision.exits.is_empty() && !decision.entries.is_empty() {
                 decision.entries.clear();
             }
-            
+
             let equity_changed = !decision.is_empty();
             if equity_changed {
                 let report = self

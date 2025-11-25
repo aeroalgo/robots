@@ -1,7 +1,7 @@
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
 use crate::discovery::StopHandlerConfig;
-use crate::discovery::{StrategyCandidate, StrategyDiscoveryEngine};
+use crate::discovery::StrategyCandidate;
 use crate::optimization::evaluator::StrategyEvaluationRunner;
 use crate::optimization::population::PopulationManager;
 use crate::optimization::sds::StochasticDiffusionSearch;
@@ -9,15 +9,14 @@ use crate::optimization::types::{
     EvaluatedStrategy, GeneticAlgorithmConfig, GeneticIndividual, Population,
 };
 use crate::strategy::types::{ConditionOperator, PriceField, StrategyParameterMap};
-use rand::Rng;
 use rand::seq::SliceRandom;
+use rand::Rng;
 use std::collections::HashMap;
 
 pub struct GeneticAlgorithmV3 {
     config: GeneticAlgorithmConfig,
     population_manager: PopulationManager,
     evaluator: StrategyEvaluationRunner,
-    discovery_engine: StrategyDiscoveryEngine,
     available_indicators: Vec<crate::discovery::IndicatorInfo>,
     price_fields: Vec<PriceField>,
     operators: Vec<ConditionOperator>,
@@ -29,7 +28,7 @@ impl GeneticAlgorithmV3 {
         config: GeneticAlgorithmConfig,
         frames: HashMap<TimeFrame, QuoteFrame>,
         base_timeframe: TimeFrame,
-        discovery_config: crate::discovery::StrategyDiscoveryConfig,
+        _discovery_config: crate::discovery::StrategyDiscoveryConfig,
     ) -> Self {
         let population_config = crate::optimization::population::PopulationConfig {
             size: config.population_size,
@@ -37,8 +36,6 @@ impl GeneticAlgorithmV3 {
             crossover_rate: config.crossover_rate,
             mutation_rate: config.mutation_rate,
         };
-
-        let discovery_engine = StrategyDiscoveryEngine::new(discovery_config.clone());
 
         use crate::discovery::IndicatorInfoCollector;
         use crate::indicators::registry::IndicatorRegistry;
@@ -63,7 +60,6 @@ impl GeneticAlgorithmV3 {
             config,
             population_manager: PopulationManager::new(population_config),
             evaluator: StrategyEvaluationRunner::new(frames, base_timeframe),
-            discovery_engine,
             available_indicators,
             price_fields,
             operators,
@@ -91,8 +87,11 @@ impl GeneticAlgorithmV3 {
             let parent2_candidate = parents[1].strategy.candidate.clone();
 
             if let (Some(cand1), Some(cand2)) = (parent1_candidate, parent2_candidate) {
+                let fitness1 = parents[0].strategy.fitness;
+                let fitness2 = parents[1].strategy.fitness;
+
                 let (mut child1_candidate, mut child2_candidate) =
-                    self.crossover_structure(&cand1, &cand2);
+                    self.crossover_structure_hybrid(&cand1, &cand2, fitness1, fitness2);
 
                 let (child1_params, child2_params) = if let Some(params) =
                     self.population_manager.crossover(parents[0], parents[1])
@@ -137,6 +136,10 @@ impl GeneticAlgorithmV3 {
                     evaluated_count, lambda, progress
                 );
 
+                let child1_candidate_clone = child1_candidate.clone();
+                let child1_params_clone = child1_params.clone();
+                Self::log_strategy_details(&child1_candidate_clone, &child1_params_clone, "Child1");
+
                 match self
                     .create_individual(
                         child1_candidate,
@@ -154,6 +157,12 @@ impl GeneticAlgorithmV3 {
                         if let Some(source) = e.source() {
                             eprintln!("      Источник ошибки: {:?}", source);
                         }
+                        eprintln!("      🔍 Детали стратегии, вызвавшей ошибку:");
+                        Self::log_strategy_details(
+                            &child1_candidate_clone,
+                            &child1_params_clone,
+                            "ERROR",
+                        );
                         continue;
                     }
                 }
@@ -164,6 +173,14 @@ impl GeneticAlgorithmV3 {
                     println!(
                         "      [{}/{}] ({:.1}%) Оценка новой особи...",
                         evaluated_count, lambda, progress
+                    );
+
+                    let child2_candidate_clone = child2_candidate.clone();
+                    let child2_params_clone = child2_params.clone();
+                    Self::log_strategy_details(
+                        &child2_candidate_clone,
+                        &child2_params_clone,
+                        "Child2",
                     );
 
                     match self
@@ -183,6 +200,12 @@ impl GeneticAlgorithmV3 {
                             if let Some(source) = e.source() {
                                 eprintln!("      Источник ошибки: {:?}", source);
                             }
+                            eprintln!("      🔍 Детали стратегии, вызвавшей ошибку:");
+                            Self::log_strategy_details(
+                                &child2_candidate_clone,
+                                &child2_params_clone,
+                                "ERROR",
+                            );
                         }
                     }
                 }
@@ -217,74 +240,121 @@ impl GeneticAlgorithmV3 {
         Ok(())
     }
 
-    fn crossover_structure(
+    fn crossover_structure_hybrid(
         &self,
         parent1: &StrategyCandidate,
         parent2: &StrategyCandidate,
+        fitness1: Option<f64>,
+        fitness2: Option<f64>,
     ) -> (StrategyCandidate, StrategyCandidate) {
         let mut rng = rand::thread_rng();
+
+        let max_entry = self
+            .config
+            .candidate_builder_config
+            .as_ref()
+            .map(|c| c.constraints.max_entry_conditions)
+            .unwrap_or(4);
+
+        let max_exit = self
+            .config
+            .candidate_builder_config
+            .as_ref()
+            .map(|c| c.constraints.max_exit_conditions)
+            .unwrap_or(2);
+
+        let min_entry = self
+            .config
+            .candidate_builder_config
+            .as_ref()
+            .map(|c| c.constraints.min_entry_conditions)
+            .unwrap_or(1);
+
+        let max_indicators = self
+            .config
+            .candidate_builder_config
+            .as_ref()
+            .map(|c| c.constraints.max_indicators)
+            .unwrap_or(4);
 
         let mut child1 = parent1.clone();
         let mut child2 = parent2.clone();
 
         if rng.gen::<f64>() < self.config.crossover_rate {
-            let cond1 = child1.conditions.clone();
-            let exit1 = child1.exit_conditions.clone();
-            let cond2 = child2.conditions.clone();
-            let exit2 = child2.exit_conditions.clone();
+            let f1 = fitness1.unwrap_or(0.0);
+            let f2 = fitness2.unwrap_or(0.0);
+            let total_fitness = f1 + f2;
+
+            let relative_diff = if total_fitness > 0.001 {
+                (f1 - f2).abs() / total_fitness
+            } else {
+                0.0
+            };
+
+            let use_weighted = relative_diff > 0.15 && fitness1.is_some() && fitness2.is_some();
+
+            let (weight1, weight2) = if use_weighted && total_fitness > 0.0 {
+                (f1 / total_fitness, f2 / total_fitness)
+            } else {
+                (0.5, 0.5)
+            };
+
+            println!(
+                "      [Crossover] {} | P1: {:.3} ({} cond) | P2: {:.3} ({} cond) | w1={:.2} w2={:.2}",
+                if use_weighted { "WEIGHTED" } else { "UNIFORM" },
+                f1,
+                parent1.conditions.len(),
+                f2,
+                parent2.conditions.len(),
+                weight1,
+                weight2
+            );
 
             if rng.gen::<f64>() < 0.5 {
-                if rng.gen::<f64>() < 0.5 {
-                    let (new_cond1, new_indicators1, new_nested1, new_tf1) = 
-                        Self::extract_conditions_with_indicators(&cond2, parent2);
-                    child1.conditions.extend(new_cond1);
-                    Self::add_indicators_if_missing(&mut child1, &new_indicators1, &new_nested1, &new_tf1);
+                let (child1_entry, child2_entry) = Self::crossover_conditions_hybrid(
+                    &parent1.conditions,
+                    &parent2.conditions,
+                    parent1,
+                    parent2,
+                    max_entry,
+                    min_entry,
+                    weight1,
+                    weight2,
+                    use_weighted,
+                );
 
-                    let (new_cond2, new_indicators2, new_nested2, new_tf2) = 
-                        Self::extract_conditions_with_indicators(&cond1, parent1);
-                    child2.conditions.extend(new_cond2);
-                    Self::add_indicators_if_missing(&mut child2, &new_indicators2, &new_nested2, &new_tf2);
-                }
+                child1.conditions = child1_entry;
+                child2.conditions = child2_entry;
 
-                if rng.gen::<f64>() < 0.5 {
-                    let (new_exit1, new_indicators1, new_nested1, new_tf1) = 
-                        Self::extract_conditions_with_indicators(&exit2, parent2);
-                    child1.exit_conditions.extend(new_exit1);
-                    Self::add_indicators_if_missing(&mut child1, &new_indicators1, &new_nested1, &new_tf1);
+                Self::sync_indicators_with_conditions(&mut child1, parent1, parent2);
+                Self::sync_indicators_with_conditions(&mut child2, parent1, parent2);
+            }
 
-                    let (new_exit2, new_indicators2, new_nested2, new_tf2) = 
-                        Self::extract_conditions_with_indicators(&exit1, parent1);
-                    child2.exit_conditions.extend(new_exit2);
-                    Self::add_indicators_if_missing(&mut child2, &new_indicators2, &new_nested2, &new_tf2);
-                }
-            } else {
-                if rng.gen::<f64>() < 0.5 {
-                    let (new_cond1, new_indicators1, new_nested1, new_tf1) = 
-                        Self::extract_conditions_with_indicators(&cond2, parent2);
-                    child1.conditions.extend(new_cond1);
-                    Self::add_indicators_if_missing(&mut child1, &new_indicators1, &new_nested1, &new_tf1);
+            if rng.gen::<f64>() < 0.5 {
+                let (child1_exit, child2_exit) = Self::crossover_conditions_hybrid(
+                    &parent1.exit_conditions,
+                    &parent2.exit_conditions,
+                    parent1,
+                    parent2,
+                    max_exit,
+                    0,
+                    weight1,
+                    weight2,
+                    use_weighted,
+                );
 
-                    let (new_cond2, new_indicators2, new_nested2, new_tf2) = 
-                        Self::extract_conditions_with_indicators(&cond1, parent1);
-                    child2.conditions.extend(new_cond2);
-                    Self::add_indicators_if_missing(&mut child2, &new_indicators2, &new_nested2, &new_tf2);
-                }
+                child1.exit_conditions = child1_exit;
+                child2.exit_conditions = child2_exit;
 
-                if rng.gen::<f64>() < 0.5 {
-                    let (new_exit1, new_indicators1, new_nested1, new_tf1) = 
-                        Self::extract_conditions_with_indicators(&exit2, parent2);
-                    child1.exit_conditions.extend(new_exit1);
-                    Self::add_indicators_if_missing(&mut child1, &new_indicators1, &new_nested1, &new_tf1);
-
-                    let (new_exit2, new_indicators2, new_nested2, new_tf2) = 
-                        Self::extract_conditions_with_indicators(&exit1, parent1);
-                    child2.exit_conditions.extend(new_exit2);
-                    Self::add_indicators_if_missing(&mut child2, &new_indicators2, &new_nested2, &new_tf2);
-                }
+                Self::sync_indicators_with_conditions(&mut child1, parent1, parent2);
+                Self::sync_indicators_with_conditions(&mut child2, parent1, parent2);
             }
 
             Self::remove_unused_indicators(&mut child1);
             Self::remove_unused_indicators(&mut child2);
+
+            Self::enforce_indicator_limits(&mut child1, max_indicators);
+            Self::enforce_indicator_limits(&mut child2, max_indicators);
 
             if rng.gen::<f64>() < 0.5 {
                 std::mem::swap(&mut child1.stop_handlers, &mut child2.stop_handlers);
@@ -297,116 +367,234 @@ impl GeneticAlgorithmV3 {
             if rng.gen::<f64>() < 0.5 {
                 std::mem::swap(&mut child1.timeframes, &mut child2.timeframes);
             }
+
+            Self::ensure_minimum_conditions(&mut child1, parent1, min_entry);
+            Self::ensure_minimum_conditions(&mut child2, parent2, min_entry);
+
+            println!(
+                "      [Crossover Result] C1: {} entry, {} exit, {} ind | C2: {} entry, {} exit, {} ind",
+                child1.conditions.len(),
+                child1.exit_conditions.len(),
+                child1.indicators.len() + child1.nested_indicators.len(),
+                child2.conditions.len(),
+                child2.exit_conditions.len(),
+                child2.indicators.len() + child2.nested_indicators.len()
+            );
         }
 
         (child1, child2)
     }
 
-    fn get_all_indicator_aliases(
-        candidate: &StrategyCandidate,
-    ) -> std::collections::HashSet<String> {
-        let mut aliases = std::collections::HashSet::new();
-        for ind in &candidate.indicators {
-            aliases.insert(ind.alias.clone());
-        }
-        for nested in &candidate.nested_indicators {
-            aliases.insert(nested.indicator.alias.clone());
-        }
-        aliases
-    }
-
-    fn extract_conditions_with_indicators(
-        conditions: &[crate::discovery::ConditionInfo],
-        parent: &StrategyCandidate,
+    fn crossover_conditions_hybrid(
+        conditions1: &[crate::discovery::ConditionInfo],
+        conditions2: &[crate::discovery::ConditionInfo],
+        parent1: &StrategyCandidate,
+        parent2: &StrategyCandidate,
+        max_conditions: usize,
+        min_conditions: usize,
+        weight1: f64,
+        weight2: f64,
+        use_weighted: bool,
     ) -> (
         Vec<crate::discovery::ConditionInfo>,
-        Vec<crate::discovery::IndicatorInfo>,
-        Vec<crate::discovery::NestedIndicator>,
-        Vec<TimeFrame>,
+        Vec<crate::discovery::ConditionInfo>,
     ) {
-        let mut new_conditions = Vec::new();
-        let mut new_indicators = Vec::new();
-        let mut new_nested = Vec::new();
-        let mut new_timeframes = Vec::new();
-        let mut added_aliases = std::collections::HashSet::new();
-        let mut added_timeframes = std::collections::HashSet::new();
+        let mut rng = rand::thread_rng();
 
-        for condition in conditions {
-            let mut condition_aliases = Vec::new();
-            
-            if let Some(alias) = Self::extract_indicator_alias_from_condition_id(&condition.id) {
-                condition_aliases.push(alias);
+        let mut all_conditions: Vec<(crate::discovery::ConditionInfo, &StrategyCandidate, f64)> =
+            Vec::new();
+
+        for cond in conditions1 {
+            all_conditions.push((cond.clone(), parent1, weight1));
+        }
+        for cond in conditions2 {
+            all_conditions.push((cond.clone(), parent2, weight2));
+        }
+
+        let mut unique_conditions: Vec<(crate::discovery::ConditionInfo, &StrategyCandidate, f64)> =
+            Vec::new();
+        let mut seen_ids = std::collections::HashSet::new();
+
+        for (cond, parent, weight) in all_conditions {
+            if !seen_ids.contains(&cond.id) {
+                seen_ids.insert(cond.id.clone());
+                unique_conditions.push((cond, parent, weight));
             }
-            
-            if let Some(aliases) = Self::extract_indicator_aliases_from_condition_id(&condition.id) {
-                condition_aliases.extend(aliases);
+        }
+
+        unique_conditions.shuffle(&mut rng);
+
+        let mut child1_conditions: Vec<crate::discovery::ConditionInfo> = Vec::new();
+        let mut child2_conditions: Vec<crate::discovery::ConditionInfo> = Vec::new();
+
+        if use_weighted {
+            for (cond, _parent, weight) in &unique_conditions {
+                if child1_conditions.len() < max_conditions && rng.gen::<f64>() < *weight {
+                    child1_conditions.push(cond.clone());
+                }
             }
 
-            let mut condition_valid = true;
-            for alias in &condition_aliases {
-                if !Self::has_indicator_alias(parent, alias) {
-                    condition_valid = false;
+            for (cond, _parent, weight) in &unique_conditions {
+                let inverse_weight = 1.0 - weight;
+                if child2_conditions.len() < max_conditions && rng.gen::<f64>() < inverse_weight {
+                    child2_conditions.push(cond.clone());
+                }
+            }
+        } else {
+            for (_i, (cond, _parent, _weight)) in unique_conditions.iter().enumerate() {
+                if child1_conditions.len() >= max_conditions
+                    && child2_conditions.len() >= max_conditions
+                {
                     break;
                 }
-            }
 
-            if condition_valid {
-                new_conditions.push(condition.clone());
-                
-                if let Some(tf) = &condition.primary_timeframe {
-                    if !added_timeframes.contains(tf) {
-                        new_timeframes.push(tf.clone());
-                        added_timeframes.insert(tf.clone());
+                if rng.gen::<f64>() < 0.5 {
+                    if child1_conditions.len() < max_conditions {
+                        child1_conditions.push(cond.clone());
+                    } else if child2_conditions.len() < max_conditions {
+                        child2_conditions.push(cond.clone());
+                    }
+                } else {
+                    if child2_conditions.len() < max_conditions {
+                        child2_conditions.push(cond.clone());
+                    } else if child1_conditions.len() < max_conditions {
+                        child1_conditions.push(cond.clone());
                     }
                 }
-                
-                if let Some(tf) = &condition.secondary_timeframe {
-                    if !added_timeframes.contains(tf) {
-                        new_timeframes.push(tf.clone());
-                        added_timeframes.insert(tf.clone());
+            }
+        }
+
+        while child1_conditions.len() < min_conditions && !unique_conditions.is_empty() {
+            let idx = rng.gen_range(0..unique_conditions.len());
+            let (cond, _, _) = &unique_conditions[idx];
+            if !child1_conditions.iter().any(|c| c.id == cond.id) {
+                child1_conditions.push(cond.clone());
+            }
+        }
+
+        while child2_conditions.len() < min_conditions && !unique_conditions.is_empty() {
+            let idx = rng.gen_range(0..unique_conditions.len());
+            let (cond, _, _) = &unique_conditions[idx];
+            if !child2_conditions.iter().any(|c| c.id == cond.id) {
+                child2_conditions.push(cond.clone());
+            }
+        }
+
+        child1_conditions.truncate(max_conditions);
+        child2_conditions.truncate(max_conditions);
+
+        (child1_conditions, child2_conditions)
+    }
+
+    fn sync_indicators_with_conditions(
+        child: &mut StrategyCandidate,
+        parent1: &StrategyCandidate,
+        parent2: &StrategyCandidate,
+    ) {
+        let mut required_aliases = std::collections::HashSet::new();
+
+        for cond in child.conditions.iter().chain(child.exit_conditions.iter()) {
+            let aliases = Self::extract_all_indicator_aliases_from_condition(&cond.id);
+            for alias in aliases {
+                required_aliases.insert(alias);
+            }
+        }
+
+        for nested in &child.nested_indicators {
+            required_aliases.insert(nested.input_indicator_alias.clone());
+        }
+
+        for alias in &required_aliases {
+            let has_indicator = child.indicators.iter().any(|i| &i.alias == alias)
+                || child
+                    .nested_indicators
+                    .iter()
+                    .any(|n| &n.indicator.alias == alias);
+
+            if !has_indicator {
+                if let Some(ind) = parent1.indicators.iter().find(|i| &i.alias == alias) {
+                    child.indicators.push(ind.clone());
+                } else if let Some(ind) = parent2.indicators.iter().find(|i| &i.alias == alias) {
+                    child.indicators.push(ind.clone());
+                } else if let Some(nested) = parent1
+                    .nested_indicators
+                    .iter()
+                    .find(|n| &n.indicator.alias == alias)
+                {
+                    child.nested_indicators.push(nested.clone());
+                } else if let Some(nested) = parent2
+                    .nested_indicators
+                    .iter()
+                    .find(|n| &n.indicator.alias == alias)
+                {
+                    child.nested_indicators.push(nested.clone());
+                }
+            }
+        }
+    }
+
+    fn enforce_indicator_limits(child: &mut StrategyCandidate, max_indicators: usize) {
+        let total_indicators = child.indicators.len() + child.nested_indicators.len();
+
+        if total_indicators > max_indicators {
+            let used_aliases = Self::get_used_indicator_aliases(child);
+
+            child
+                .indicators
+                .retain(|ind| used_aliases.contains(&ind.alias));
+            child
+                .nested_indicators
+                .retain(|nested| used_aliases.contains(&nested.indicator.alias));
+
+            let remaining = child.indicators.len() + child.nested_indicators.len();
+            if remaining > max_indicators {
+                let excess = remaining - max_indicators;
+                for _ in 0..excess {
+                    if !child.nested_indicators.is_empty() {
+                        child.nested_indicators.pop();
+                    } else if child.indicators.len() > 1 {
+                        child.indicators.pop();
                     }
                 }
-                
-                for alias in condition_aliases {
-                    if !added_aliases.contains(&alias) {
-                        if let Some(ind) = parent.indicators.iter().find(|i| i.alias == alias) {
-                            new_indicators.push(ind.clone());
-                            added_aliases.insert(alias.clone());
-                        } else if let Some(nested) = parent.nested_indicators.iter().find(|n| n.indicator.alias == alias) {
-                            new_nested.push(nested.clone());
-                            added_aliases.insert(alias.clone());
+            }
+        }
+    }
+
+    fn ensure_minimum_conditions(
+        child: &mut StrategyCandidate,
+        fallback_parent: &StrategyCandidate,
+        min_conditions: usize,
+    ) {
+        if child.conditions.len() < min_conditions && !fallback_parent.conditions.is_empty() {
+            let mut rng = rand::thread_rng();
+            while child.conditions.len() < min_conditions {
+                let idx = rng.gen_range(0..fallback_parent.conditions.len());
+                let cond = &fallback_parent.conditions[idx];
+                if !child.conditions.iter().any(|c| c.id == cond.id) {
+                    child.conditions.push(cond.clone());
+
+                    let aliases = Self::extract_all_indicator_aliases_from_condition(&cond.id);
+                    for alias in aliases {
+                        if !child.indicators.iter().any(|i| i.alias == alias)
+                            && !child
+                                .nested_indicators
+                                .iter()
+                                .any(|n| n.indicator.alias == alias)
+                        {
+                            if let Some(ind) =
+                                fallback_parent.indicators.iter().find(|i| i.alias == alias)
+                            {
+                                child.indicators.push(ind.clone());
+                            } else if let Some(nested) = fallback_parent
+                                .nested_indicators
+                                .iter()
+                                .find(|n| n.indicator.alias == alias)
+                            {
+                                child.nested_indicators.push(nested.clone());
+                            }
                         }
                     }
                 }
-            }
-        }
-
-        (new_conditions, new_indicators, new_nested, new_timeframes)
-    }
-
-    fn add_indicators_if_missing(
-        candidate: &mut StrategyCandidate,
-        indicators: &[crate::discovery::IndicatorInfo],
-        nested: &[crate::discovery::NestedIndicator],
-        timeframes: &[TimeFrame],
-    ) {
-        let existing_aliases = Self::get_all_indicator_aliases(candidate);
-
-        for ind in indicators {
-            if !existing_aliases.contains(&ind.alias) {
-                candidate.indicators.push(ind.clone());
-            }
-        }
-
-        for nested_ind in nested {
-            if !existing_aliases.contains(&nested_ind.indicator.alias) {
-                candidate.nested_indicators.push(nested_ind.clone());
-            }
-        }
-
-        for tf in timeframes {
-            if !candidate.timeframes.contains(tf) {
-                candidate.timeframes.push(tf.clone());
             }
         }
     }
@@ -415,15 +603,25 @@ impl GeneticAlgorithmV3 {
         let used_aliases = Self::get_used_indicator_aliases(candidate);
         let used_timeframes = Self::get_used_timeframes(candidate);
 
-        candidate.indicators.retain(|ind| used_aliases.contains(&ind.alias));
-        candidate.nested_indicators.retain(|nested| used_aliases.contains(&nested.indicator.alias));
-        candidate.timeframes.retain(|tf| used_timeframes.contains(tf));
+        candidate
+            .indicators
+            .retain(|ind| used_aliases.contains(&ind.alias));
+        candidate
+            .nested_indicators
+            .retain(|nested| used_aliases.contains(&nested.indicator.alias));
+        candidate
+            .timeframes
+            .retain(|tf| used_timeframes.contains(tf));
     }
 
     fn get_used_timeframes(candidate: &StrategyCandidate) -> std::collections::HashSet<TimeFrame> {
         let mut used_timeframes = std::collections::HashSet::new();
 
-        for condition in candidate.conditions.iter().chain(candidate.exit_conditions.iter()) {
+        for condition in candidate
+            .conditions
+            .iter()
+            .chain(candidate.exit_conditions.iter())
+        {
             if let Some(tf) = &condition.primary_timeframe {
                 used_timeframes.insert(tf.clone());
             }
@@ -435,18 +633,19 @@ impl GeneticAlgorithmV3 {
         used_timeframes
     }
 
-    fn get_used_indicator_aliases(candidate: &StrategyCandidate) -> std::collections::HashSet<String> {
+    fn get_used_indicator_aliases(
+        candidate: &StrategyCandidate,
+    ) -> std::collections::HashSet<String> {
         let mut used_aliases = std::collections::HashSet::new();
 
-        for condition in candidate.conditions.iter().chain(candidate.exit_conditions.iter()) {
-            if let Some(alias) = Self::extract_indicator_alias_from_condition_id(&condition.id) {
+        for condition in candidate
+            .conditions
+            .iter()
+            .chain(candidate.exit_conditions.iter())
+        {
+            let aliases = Self::extract_all_indicator_aliases_from_condition(&condition.id);
+            for alias in aliases {
                 used_aliases.insert(alias);
-            }
-            
-            if let Some(aliases) = Self::extract_indicator_aliases_from_condition_id(&condition.id) {
-                for alias in aliases {
-                    used_aliases.insert(alias);
-                }
             }
         }
 
@@ -459,254 +658,73 @@ impl GeneticAlgorithmV3 {
 
     fn remove_conditions_with_indicator(candidate: &mut StrategyCandidate, alias: &str) {
         candidate.conditions.retain(|cond| {
-            let cond_uses_alias = Self::extract_indicator_alias_from_condition_id(&cond.id)
-                .map(|a| a == alias)
-                .unwrap_or(false)
-                || Self::extract_indicator_aliases_from_condition_id(&cond.id)
-                    .map(|aliases| aliases.contains(&alias.to_string()))
-                    .unwrap_or(false);
-            !cond_uses_alias
+            let aliases = Self::extract_all_indicator_aliases_from_condition(&cond.id);
+            !aliases.contains(&alias.to_string())
         });
 
         candidate.exit_conditions.retain(|cond| {
-            let cond_uses_alias = Self::extract_indicator_alias_from_condition_id(&cond.id)
-                .map(|a| a == alias)
-                .unwrap_or(false)
-                || Self::extract_indicator_aliases_from_condition_id(&cond.id)
-                    .map(|aliases| aliases.contains(&alias.to_string()))
-                    .unwrap_or(false);
-            !cond_uses_alias
+            let aliases = Self::extract_all_indicator_aliases_from_condition(&cond.id);
+            !aliases.contains(&alias.to_string())
         });
     }
 
-    fn has_indicator_alias(candidate: &StrategyCandidate, alias: &str) -> bool {
-        candidate.indicators.iter().any(|ind| ind.alias == alias)
-            || candidate
-                .nested_indicators
-                .iter()
-                .any(|nested| nested.indicator.alias == alias)
-    }
-
-    fn extract_indicator_alias_from_condition_id(condition_id: &str) -> Option<String> {
-        if condition_id.starts_with("ind_price_") {
-            let rest = condition_id.strip_prefix("ind_price_")?;
-            if let Some(tf_pos) = rest.find("_tf") {
-                let before_tf = &rest[..tf_pos];
-                let parts: Vec<&str> = before_tf.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
+    fn extract_all_indicator_aliases_from_condition(condition_id: &str) -> Vec<String> {
+        if condition_id.starts_with("ind_ind_") {
+            let rest = condition_id.strip_prefix("ind_ind_").unwrap_or("");
+            let parts: Vec<&str> = if let Some(tf_pos) = rest.find("_tf") {
+                rest[..tf_pos].split('_').collect()
             } else {
-                let parts: Vec<&str> = rest.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
+                rest.split('_').collect()
+            };
+            if parts.len() >= 2 {
+                return vec![parts[0].to_string(), parts[1].to_string()];
+            }
+        } else if condition_id.starts_with("entry_") {
+            let rest = condition_id.strip_prefix("entry_").unwrap_or("");
+            let parts: Vec<&str> = rest.split('_').collect();
+            if parts.len() >= 3 {
+                let last_part = parts[parts.len() - 1];
+                if last_part.parse::<u32>().is_ok() {
+                    return vec![parts[0].to_string(), parts[1].to_string()];
                 }
+            }
+            if parts.len() >= 1 {
+                return vec![parts[0].to_string()];
+            }
+        } else if condition_id.starts_with("exit_") {
+            let rest = condition_id.strip_prefix("exit_").unwrap_or("");
+            let parts: Vec<&str> = rest.split('_').collect();
+            if parts.len() >= 3 {
+                let last_part = parts[parts.len() - 1];
+                if last_part.parse::<u32>().is_ok() {
+                    return vec![parts[0].to_string(), parts[1].to_string()];
+                }
+            }
+            if parts.len() >= 1 {
+                return vec![parts[0].to_string()];
+            }
+        } else if condition_id.starts_with("ind_price_") {
+            let rest = condition_id.strip_prefix("ind_price_").unwrap_or("");
+            let parts: Vec<&str> = if let Some(tf_pos) = rest.find("_tf") {
+                rest[..tf_pos].split('_').collect()
+            } else {
+                rest.split('_').collect()
+            };
+            if !parts.is_empty() {
+                return vec![parts[0].to_string()];
             }
         } else if condition_id.starts_with("ind_const_") {
-            let rest = condition_id.strip_prefix("ind_const_")?;
-            if let Some(tf_pos) = rest.find("_tf") {
-                let before_tf = &rest[..tf_pos];
-                let parts: Vec<&str> = before_tf.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
+            let rest = condition_id.strip_prefix("ind_const_").unwrap_or("");
+            let parts: Vec<&str> = if let Some(tf_pos) = rest.find("_tf") {
+                rest[..tf_pos].split('_').collect()
             } else {
-                let parts: Vec<&str> = rest.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
+                rest.split('_').collect()
+            };
+            if !parts.is_empty() {
+                return vec![parts[0].to_string()];
             }
         }
-        None
-    }
-
-    fn extract_indicator_aliases_from_condition_id(condition_id: &str) -> Option<Vec<String>> {
-        if condition_id.starts_with("ind_ind_") {
-            let rest = condition_id.strip_prefix("ind_ind_")?;
-            if let Some(tf_pos) = rest.find("_tf") {
-                let before_tf = &rest[..tf_pos];
-                let parts: Vec<&str> = before_tf.split('_').collect();
-                if parts.len() >= 2 {
-                    return Some(vec![parts[0].to_string(), parts[1].to_string()]);
-                }
-            } else {
-                let parts: Vec<&str> = rest.split('_').collect();
-                if parts.len() >= 2 {
-                    return Some(vec![parts[0].to_string(), parts[1].to_string()]);
-                }
-            }
-        }
-        None
-    }
-
-    fn condition_uses_indicators(
-        condition: &crate::discovery::ConditionInfo,
-        available_aliases: &std::collections::HashSet<String>,
-    ) -> bool {
-        match condition.condition_type.as_str() {
-            "indicator_price" | "indicator_constant" => {
-                if let Some(indicator_alias) =
-                    Self::extract_indicator_alias_from_condition_id(&condition.id)
-                {
-                    available_aliases.contains(&indicator_alias)
-                } else {
-                    false
-                }
-            }
-            "indicator_indicator" => {
-                if let Some(aliases) =
-                    Self::extract_indicator_aliases_from_condition_id(&condition.id)
-                {
-                    aliases.len() >= 2
-                        && available_aliases.contains(&aliases[0])
-                        && available_aliases.contains(&aliases[1])
-                } else {
-                    false
-                }
-            }
-            _ => false,
-        }
-    }
-
-    fn filter_conditions_by_indicators(
-        conditions: &[crate::discovery::ConditionInfo],
-        available_aliases: &std::collections::HashSet<String>,
-    ) -> Vec<crate::discovery::ConditionInfo> {
-        conditions
-            .iter()
-            .filter(|cond| Self::condition_uses_indicators(cond, available_aliases))
-            .cloned()
-            .collect()
-    }
-
-    fn merge_conditions_with_indicators(
-        existing: &[crate::discovery::ConditionInfo],
-        new: &[crate::discovery::ConditionInfo],
-        available_aliases: &std::collections::HashSet<String>,
-    ) -> Vec<crate::discovery::ConditionInfo> {
-        let mut result: Vec<crate::discovery::ConditionInfo> = existing
-            .iter()
-            .filter(|cond| Self::condition_uses_indicators(cond, available_aliases))
-            .cloned()
-            .collect();
-
-        let filtered_new: Vec<crate::discovery::ConditionInfo> = new
-            .iter()
-            .filter(|cond| Self::condition_uses_indicators(cond, available_aliases))
-            .cloned()
-            .collect();
-
-        result.extend(filtered_new);
-        result
-    }
-
-    fn extract_timeframes_with_indicators(
-        candidate: &StrategyCandidate,
-    ) -> (
-        Vec<TimeFrame>,
-        Vec<(TimeFrame, Vec<crate::discovery::IndicatorInfo>)>,
-    ) {
-        let total_conditions = candidate.conditions.len() + candidate.exit_conditions.len();
-        let mut tf_indicators: std::collections::HashMap<
-            TimeFrame,
-            std::collections::HashSet<String>,
-        > = std::collections::HashMap::with_capacity(total_conditions / 2 + 1);
-
-        for condition in candidate
-            .conditions
-            .iter()
-            .chain(candidate.exit_conditions.iter())
-        {
-            if let Some(tf) = condition.primary_timeframe.as_ref() {
-                if let Some(alias) = Self::extract_indicator_alias_from_condition_id(&condition.id)
-                {
-                    tf_indicators
-                        .entry(tf.clone())
-                        .or_insert_with(std::collections::HashSet::new)
-                        .insert(alias);
-                }
-                if let Some(aliases) =
-                    Self::extract_indicator_aliases_from_condition_id(&condition.id)
-                {
-                    for alias in aliases {
-                        tf_indicators
-                            .entry(tf.clone())
-                            .or_insert_with(std::collections::HashSet::new)
-                            .insert(alias);
-                    }
-                }
-            }
-            if let Some(tf) = condition.secondary_timeframe.as_ref() {
-                if let Some(alias) = Self::extract_indicator_alias_from_condition_id(&condition.id)
-                {
-                    tf_indicators
-                        .entry(tf.clone())
-                        .or_insert_with(std::collections::HashSet::new)
-                        .insert(alias);
-                }
-                if let Some(aliases) =
-                    Self::extract_indicator_aliases_from_condition_id(&condition.id)
-                {
-                    for alias in aliases {
-                        tf_indicators
-                            .entry(tf.clone())
-                            .or_insert_with(std::collections::HashSet::new)
-                            .insert(alias);
-                    }
-                }
-            }
-        }
-
-        let mut result: Vec<(TimeFrame, Vec<crate::discovery::IndicatorInfo>)> =
-            Vec::with_capacity(tf_indicators.len());
-        for (tf, aliases) in tf_indicators {
-            let mut indicators = Vec::with_capacity(aliases.len());
-            for alias in aliases {
-                if let Some(ind) = candidate.indicators.iter().find(|i| i.alias == alias) {
-                    indicators.push(ind.clone());
-                }
-                if let Some(nested) = candidate
-                    .nested_indicators
-                    .iter()
-                    .find(|n| n.indicator.alias == alias)
-                {
-                    indicators.push(nested.indicator.clone());
-                }
-            }
-            if !indicators.is_empty() {
-                result.push((tf, indicators));
-            }
-        }
-
-        (candidate.timeframes.clone(), result)
-    }
-
-    fn get_timeframe_range(
-        timeframes: &[TimeFrame],
-    ) -> Option<(chrono::Duration, chrono::Duration)> {
-        let durations: Vec<chrono::Duration> =
-            timeframes.iter().filter_map(|tf| tf.duration()).collect();
-
-        if durations.is_empty() {
-            return None;
-        }
-
-        let min_duration = durations.iter().min().copied()?;
-        let max_duration = durations.iter().max().copied()?;
-
-        Some((min_duration, max_duration))
-    }
-
-    fn is_timeframe_in_range(
-        tf: &TimeFrame,
-        range: &Option<(chrono::Duration, chrono::Duration)>,
-    ) -> bool {
-        if let Some((min_dur, max_dur)) = range {
-            if let Some(tf_dur) = tf.duration() {
-                return tf_dur >= *min_dur && tf_dur <= *max_dur;
-            }
-        }
-        false
+        Vec::new()
     }
 
     fn create_condition_for_indicator(
@@ -715,10 +733,9 @@ impl GeneticAlgorithmV3 {
         is_entry: bool,
         config: &GeneticAlgorithmConfig,
         price_fields: &[PriceField],
-        operators: &[ConditionOperator],
+        _operators: &[ConditionOperator],
     ) -> Option<crate::discovery::ConditionInfo> {
         use crate::optimization::candidate_builder_config::ConditionProbabilities;
-        use crate::indicators::implementations::get_oscillator_threshold_range;
         let mut rng = rand::thread_rng();
 
         let default_probabilities = ConditionProbabilities::default();
@@ -751,25 +768,26 @@ impl GeneticAlgorithmV3 {
             .iter()
             .any(|nested| nested.input_indicator_alias == indicator.alias);
 
-        let condition_type = if indicator.indicator_type == "oscillator" && !is_oscillator_used_in_nested {
-            "indicator_constant"
-        } else if indicator.indicator_type == "volatility" {
-            "indicator_constant"
-        } else if is_built_on_oscillator {
-            "indicator_indicator"
-        } else if rng.gen::<f64>() < probabilities.use_trend_condition {
-            "trend_condition"
-        } else if indicator.indicator_type == "trend" || indicator.indicator_type == "channel" {
-            if rng.gen::<f64>() < probabilities.use_indicator_indicator_condition {
+        let condition_type =
+            if indicator.indicator_type == "oscillator" && !is_oscillator_used_in_nested {
+                "indicator_constant"
+            } else if indicator.indicator_type == "volatility" {
+                "indicator_constant"
+            } else if is_built_on_oscillator {
+                "indicator_indicator"
+            } else if rng.gen::<f64>() < probabilities.use_trend_condition {
+                "trend_condition"
+            } else if indicator.indicator_type == "trend" || indicator.indicator_type == "channel" {
+                if rng.gen::<f64>() < probabilities.use_indicator_indicator_condition {
+                    "indicator_indicator"
+                } else {
+                    "indicator_price"
+                }
+            } else if rng.gen::<f64>() < probabilities.use_indicator_indicator_condition {
                 "indicator_indicator"
             } else {
                 "indicator_price"
-            }
-        } else if rng.gen::<f64>() < probabilities.use_indicator_indicator_condition {
-            "indicator_indicator"
-        } else {
-            "indicator_price"
-        };
+            };
 
         let operator = if condition_type == "trend_condition" {
             if rng.gen::<f64>() < 0.5 {
@@ -789,7 +807,7 @@ impl GeneticAlgorithmV3 {
             ConditionOperator::LessThan
         };
 
-        let (condition_id, condition_name, constant_value, price_field, optimization_params) = 
+        let (condition_id, condition_name, constant_value, price_field, optimization_params) =
             if condition_type == "indicator_constant" {
                 let const_val = if indicator.indicator_type == "volatility" {
                     rng.gen_range(0.2..=10.0)
@@ -816,7 +834,10 @@ impl GeneticAlgorithmV3 {
                     rng.gen::<u32>()
                 );
                 let name = if indicator.indicator_type == "volatility" {
-                    format!("{} {:?} Close * {:.2}%", indicator.name, operator, const_val)
+                    format!(
+                        "{} {:?} Close * {:.2}%",
+                        indicator.name, operator, const_val
+                    )
                 } else {
                     format!("{} {:?} {:.1}", indicator.name, operator, const_val)
                 };
@@ -881,19 +902,20 @@ impl GeneticAlgorithmV3 {
                         rng.gen::<u32>()
                     );
                     let name = format!("{} {:?} {}", indicator.name, operator, secondary.name);
-                    let (opt_params, percent_val) = if rng.gen::<f64>() < probabilities.use_percent_condition {
-                        let percent = rng.gen_range(0.1..=5.0);
-                        (
-                            vec![crate::discovery::ConditionParamInfo {
-                                name: "percentage".to_string(),
-                                optimizable: true,
-                                global_param_name: None,
-                            }],
-                            Some(percent),
-                        )
-                    } else {
-                        (Vec::new(), None)
-                    };
+                    let (opt_params, percent_val) =
+                        if rng.gen::<f64>() < probabilities.use_percent_condition {
+                            let percent = rng.gen_range(0.1..=5.0);
+                            (
+                                vec![crate::discovery::ConditionParamInfo {
+                                    name: "percentage".to_string(),
+                                    optimizable: true,
+                                    global_param_name: None,
+                                }],
+                                Some(percent),
+                            )
+                        } else {
+                            (Vec::new(), None)
+                        };
                     let final_name = if let Some(percent) = percent_val {
                         format!("{} на {:.2}%", name, percent)
                     } else {
@@ -907,22 +929,26 @@ impl GeneticAlgorithmV3 {
                 let price_field_str = if price_fields.len() == 1 {
                     format!("{:?}", price_fields[0])
                 } else {
-                    format!("{:?}", price_fields.choose(&mut rng).unwrap_or(&PriceField::Close))
+                    format!(
+                        "{:?}",
+                        price_fields.choose(&mut rng).unwrap_or(&PriceField::Close)
+                    )
                 };
 
-                let (opt_params, percent_val) = if rng.gen::<f64>() < probabilities.use_percent_condition {
-                    let percent = rng.gen_range(0.1..=5.0);
-                    (
-                        vec![crate::discovery::ConditionParamInfo {
-                            name: "percentage".to_string(),
-                            optimizable: true,
-                            global_param_name: None,
-                        }],
-                        Some(percent),
-                    )
-                } else {
-                    (Vec::new(), None)
-                };
+                let (opt_params, percent_val) =
+                    if rng.gen::<f64>() < probabilities.use_percent_condition {
+                        let percent = rng.gen_range(0.1..=5.0);
+                        (
+                            vec![crate::discovery::ConditionParamInfo {
+                                name: "percentage".to_string(),
+                                optimizable: true,
+                                global_param_name: None,
+                            }],
+                            Some(percent),
+                        )
+                    } else {
+                        (Vec::new(), None)
+                    };
 
                 let id = format!(
                     "{}_{}_{}",
@@ -931,7 +957,10 @@ impl GeneticAlgorithmV3 {
                     rng.gen::<u32>()
                 );
                 let name = if let Some(percent) = percent_val {
-                    format!("{} {:?} {} на {:.2}%", indicator.name, operator, "target", percent)
+                    format!(
+                        "{} {:?} {} на {:.2}%",
+                        indicator.name, operator, "target", percent
+                    )
                 } else {
                     format!("{} {:?} {}", indicator.name, operator, "target")
                 };
@@ -949,6 +978,16 @@ impl GeneticAlgorithmV3 {
             secondary_timeframe: None,
             price_field,
         })
+    }
+
+    fn flip_operator(operator: &ConditionOperator) -> ConditionOperator {
+        match operator {
+            ConditionOperator::GreaterThan => ConditionOperator::LessThan,
+            ConditionOperator::LessThan => ConditionOperator::GreaterThan,
+            ConditionOperator::CrossesAbove => ConditionOperator::CrossesBelow,
+            ConditionOperator::CrossesBelow => ConditionOperator::CrossesAbove,
+            ConditionOperator::Between => ConditionOperator::Between,
+        }
     }
 
     fn can_compare_indicators_for_mutation(
@@ -1006,16 +1045,40 @@ impl GeneticAlgorithmV3 {
         if rng.gen::<f64>() < config.mutation_rate {
             if rng.gen::<f64>() < 0.3 && !candidate.indicators.is_empty() {
                 let idx = rng.gen_range(0..candidate.indicators.len());
-                let removed_alias = candidate.indicators[idx].alias.clone();
+                let removed_indicator = &candidate.indicators[idx];
+                let removed_type = removed_indicator.indicator_type.clone();
+                let removed_alias = removed_indicator.alias.clone();
                 candidate.indicators.remove(idx);
-                
+
                 Self::remove_conditions_with_indicator(candidate, &removed_alias);
                 Self::remove_unused_indicators(candidate);
+
+                let same_type_indicators: Vec<_> = available_indicators
+                    .iter()
+                    .filter(|ind| ind.indicator_type == removed_type)
+                    .collect();
+
+                if !same_type_indicators.is_empty() {
+                    let new_indicator =
+                        same_type_indicators[rng.gen_range(0..same_type_indicators.len())].clone();
+                    candidate.indicators.push(new_indicator.clone());
+
+                    if let Some(condition) = Self::create_condition_for_indicator(
+                        &new_indicator,
+                        candidate,
+                        true,
+                        config,
+                        price_fields,
+                        operators,
+                    ) {
+                        candidate.conditions.push(condition);
+                    }
+                }
             } else if !available_indicators.is_empty() {
                 let new_indicator =
                     available_indicators[rng.gen_range(0..available_indicators.len())].clone();
                 candidate.indicators.push(new_indicator.clone());
-                
+
                 if let Some(condition) = Self::create_condition_for_indicator(
                     &new_indicator,
                     candidate,
@@ -1036,9 +1099,14 @@ impl GeneticAlgorithmV3 {
                 let idx = rng.gen_range(0..candidate.conditions.len());
                 candidate.conditions.remove(idx);
                 Self::remove_unused_indicators(candidate);
+            } else if rng.gen::<f64>() < 0.3 && !candidate.conditions.is_empty() {
+                let idx = rng.gen_range(0..candidate.conditions.len());
+                let condition = &mut candidate.conditions[idx];
+                condition.operator = Self::flip_operator(&condition.operator);
             } else {
                 if !available_indicators.is_empty() && !candidate.indicators.is_empty() {
-                    let indicator = &candidate.indicators[rng.gen_range(0..candidate.indicators.len())];
+                    let indicator =
+                        &candidate.indicators[rng.gen_range(0..candidate.indicators.len())];
                     if let Some(condition) = Self::create_condition_for_indicator(
                         indicator,
                         candidate,
@@ -1065,16 +1133,21 @@ impl GeneticAlgorithmV3 {
             if rng.gen::<f64>() < 0.3 && can_remove_exit {
                 let idx = rng.gen_range(0..candidate.exit_conditions.len());
                 let removed_condition = &candidate.exit_conditions[idx];
-                if let Some(alias) = Self::extract_indicator_alias_from_condition_id(&removed_condition.id) {
-                    candidate.exit_conditions.remove(idx);
+                let aliases =
+                    Self::extract_all_indicator_aliases_from_condition(&removed_condition.id);
+                candidate.exit_conditions.remove(idx);
+                for alias in aliases {
                     Self::remove_conditions_with_indicator(candidate, &alias);
-                    Self::remove_unused_indicators(candidate);
-                } else {
-                    candidate.exit_conditions.remove(idx);
                 }
+                Self::remove_unused_indicators(candidate);
+            } else if rng.gen::<f64>() < 0.3 && !candidate.exit_conditions.is_empty() {
+                let idx = rng.gen_range(0..candidate.exit_conditions.len());
+                let condition = &mut candidate.exit_conditions[idx];
+                condition.operator = Self::flip_operator(&condition.operator);
             } else {
                 if !available_indicators.is_empty() && !candidate.indicators.is_empty() {
-                    let indicator = &candidate.indicators[rng.gen_range(0..candidate.indicators.len())];
+                    let indicator =
+                        &candidate.indicators[rng.gen_range(0..candidate.indicators.len())];
                     if let Some(condition) = Self::create_condition_for_indicator(
                         indicator,
                         candidate,
@@ -1118,6 +1191,40 @@ impl GeneticAlgorithmV3 {
                         priority: stop_config.priority,
                     };
                     candidate.stop_handlers.push(stop);
+                }
+            }
+        }
+
+        let mut rng = rand::thread_rng();
+
+        if rng.gen::<f64>() < config.mutation_rate {
+            if rng.gen::<f64>() < 0.2 && !candidate.nested_indicators.is_empty() {
+                let idx = rng.gen_range(0..candidate.nested_indicators.len());
+                let removed_nested = &candidate.nested_indicators[idx];
+                let removed_type = removed_nested.indicator.indicator_type.clone();
+                let removed_alias = removed_nested.indicator.alias.clone();
+                candidate.nested_indicators.remove(idx);
+
+                Self::remove_conditions_with_indicator(candidate, &removed_alias);
+                Self::remove_unused_indicators(candidate);
+
+                let same_type_indicators: Vec<_> = available_indicators
+                    .iter()
+                    .filter(|ind| ind.indicator_type == removed_type)
+                    .collect();
+
+                if !same_type_indicators.is_empty() && !candidate.indicators.is_empty() {
+                    let new_indicator =
+                        same_type_indicators[rng.gen_range(0..same_type_indicators.len())].clone();
+                    let input_indicator =
+                        &candidate.indicators[rng.gen_range(0..candidate.indicators.len())];
+
+                    let new_nested = crate::discovery::NestedIndicator {
+                        indicator: new_indicator,
+                        input_indicator_alias: input_indicator.alias.clone(),
+                        depth: 1,
+                    };
+                    candidate.nested_indicators.push(new_nested);
                 }
             }
         }
@@ -1203,6 +1310,83 @@ impl GeneticAlgorithmV3 {
         }
     }
 
+    fn log_strategy_details(
+        candidate: &StrategyCandidate,
+        parameters: &StrategyParameterMap,
+        label: &str,
+    ) {
+        println!("      📋 [{}] Детали стратегии:", label);
+        println!("         Индикаторы ({}):", candidate.indicators.len());
+        for ind in &candidate.indicators {
+            println!("           - {} (alias: {})", ind.name, ind.alias);
+            for param in &ind.parameters {
+                let param_key = format!("{}_{}", ind.alias, param.name);
+                if let Some(value) = parameters.get(&param_key) {
+                    println!("             {}: {:?}", param.name, value);
+                }
+            }
+        }
+        if !candidate.nested_indicators.is_empty() {
+            println!(
+                "         Вложенные индикаторы ({}):",
+                candidate.nested_indicators.len()
+            );
+            for nested in &candidate.nested_indicators {
+                println!(
+                    "           - {} (alias: {}) <- {} (depth: {})",
+                    nested.indicator.name,
+                    nested.indicator.alias,
+                    nested.input_indicator_alias,
+                    nested.depth
+                );
+            }
+        }
+        println!("         Условия входа ({}):", candidate.conditions.len());
+        for cond in &candidate.conditions {
+            let tf_info = if let Some(tf) = &cond.primary_timeframe {
+                format!(" [TF: {:?}]", tf)
+            } else {
+                " [TF: base]".to_string()
+            };
+            println!("           - {} ({}){}", cond.name, cond.id, tf_info);
+        }
+        if !candidate.exit_conditions.is_empty() {
+            println!(
+                "         Условия выхода ({}):",
+                candidate.exit_conditions.len()
+            );
+            for cond in &candidate.exit_conditions {
+                let tf_info = if let Some(tf) = &cond.primary_timeframe {
+                    format!(" [TF: {:?}]", tf)
+                } else {
+                    " [TF: base]".to_string()
+                };
+                println!("           - {} ({}){}", cond.name, cond.id, tf_info);
+            }
+        }
+        if !candidate.timeframes.is_empty() {
+            println!("         Таймфреймы: {:?}", candidate.timeframes);
+        }
+        if !candidate.stop_handlers.is_empty() {
+            println!(
+                "         Stop handlers ({}):",
+                candidate.stop_handlers.len()
+            );
+            for handler in &candidate.stop_handlers {
+                println!("           - {} ({})", handler.name, handler.handler_name);
+            }
+        }
+        if !candidate.take_handlers.is_empty() {
+            println!(
+                "         Take handlers ({}):",
+                candidate.take_handlers.len()
+            );
+            for handler in &candidate.take_handlers {
+                println!("           - {} ({})", handler.name, handler.handler_name);
+            }
+        }
+    }
+
     fn select_elites(&self, population: &Population) -> Vec<GeneticIndividual> {
         let mut sorted: Vec<&GeneticIndividual> = population.individuals.iter().collect();
         sorted.sort_by(|a, b| {
@@ -1261,10 +1445,10 @@ impl GeneticAlgorithmV3 {
         target_size: usize,
     ) -> Vec<GeneticIndividual> {
         use std::collections::HashMap;
-        
+
         // Группируем особи по стратегиям
         let mut strategy_groups: HashMap<String, Vec<GeneticIndividual>> = HashMap::new();
-        
+
         for individual in individuals {
             // Создаем уникальный идентификатор стратегии на основе её структуры
             let strategy_id = if let Some(ref candidate) = individual.strategy.candidate {
@@ -1273,13 +1457,13 @@ impl GeneticAlgorithmV3 {
                 // Если нет кандидата, используем хеш параметров как идентификатор
                 format!("no_candidate_{:?}", individual.strategy.parameters)
             };
-            
+
             strategy_groups
                 .entry(strategy_id)
                 .or_insert_with(Vec::new)
                 .push(individual);
         }
-        
+
         // Сортируем каждую группу по fitness (от лучшего к худшему)
         for group in strategy_groups.values_mut() {
             group.sort_by(|a, b| {
@@ -1290,27 +1474,27 @@ impl GeneticAlgorithmV3 {
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
         }
-        
+
         // Round-robin отбор: по очереди берем по одной особи от каждой стратегии
         let mut selected = Vec::with_capacity(target_size);
         let mut strategy_indices: HashMap<String, usize> = HashMap::new();
-        
+
         // Инициализируем индексы для каждой стратегии
         for strategy_id in strategy_groups.keys() {
             strategy_indices.insert(strategy_id.clone(), 0);
         }
-        
+
         while selected.len() < target_size {
             let mut found_any = false;
-            
+
             // Проходим по всем стратегиям в каждом раунде
             for (strategy_id, group) in &strategy_groups {
                 if selected.len() >= target_size {
                     break;
                 }
-                
+
                 let index = strategy_indices.get(strategy_id).copied().unwrap_or(0);
-                
+
                 // Если в этой стратегии еще есть особи
                 if index < group.len() {
                     selected.push(group[index].clone());
@@ -1318,69 +1502,74 @@ impl GeneticAlgorithmV3 {
                     found_any = true;
                 }
             }
-            
+
             // Если не нашли ни одной особи в этом раунде, значит все стратегии исчерпаны
             if !found_any {
                 break;
             }
         }
-        
+
         println!(
             "      [Отбор с разнообразием] Выбрано {} особей из {} уникальных стратегий (round-robin)",
             selected.len(),
             strategy_groups.len()
         );
-        
+
         selected
     }
 
     /// Создает уникальный идентификатор стратегии на основе её структуры
     fn get_strategy_signature(candidate: &StrategyCandidate) -> String {
         use std::collections::BTreeSet;
-        
+
         // Сортируем индикаторы по alias для стабильности
-        let mut indicator_aliases: BTreeSet<String> = candidate
+        let indicator_aliases: BTreeSet<String> = candidate
             .indicators
             .iter()
             .map(|ind| ind.alias.clone())
             .collect();
-        
-        let mut nested_aliases: BTreeSet<String> = candidate
+
+        let nested_aliases: BTreeSet<String> = candidate
             .nested_indicators
             .iter()
-            .map(|nested| format!("{}->{}", nested.input_indicator_alias, nested.indicator.alias))
+            .map(|nested| {
+                format!(
+                    "{}->{}",
+                    nested.input_indicator_alias, nested.indicator.alias
+                )
+            })
             .collect();
-        
-        let mut condition_ids: BTreeSet<String> = candidate
+
+        let condition_ids: BTreeSet<String> = candidate
             .conditions
             .iter()
             .map(|cond| format!("{}:{}:{:?}", cond.condition_type, cond.id, cond.operator))
             .collect();
-        
-        let mut exit_condition_ids: BTreeSet<String> = candidate
+
+        let exit_condition_ids: BTreeSet<String> = candidate
             .exit_conditions
             .iter()
             .map(|cond| format!("{}:{}:{:?}", cond.condition_type, cond.id, cond.operator))
             .collect();
-        
-        let mut stop_handler_names: BTreeSet<String> = candidate
+
+        let stop_handler_names: BTreeSet<String> = candidate
             .stop_handlers
             .iter()
             .map(|h| h.handler_name.clone())
             .collect();
-        
-        let mut take_handler_names: BTreeSet<String> = candidate
+
+        let take_handler_names: BTreeSet<String> = candidate
             .take_handlers
             .iter()
             .map(|h| h.handler_name.clone())
             .collect();
-        
-        let mut timeframe_strings: BTreeSet<String> = candidate
+
+        let timeframe_strings: BTreeSet<String> = candidate
             .timeframes
             .iter()
             .map(|tf| format!("{:?}", tf))
             .collect();
-        
+
         format!(
             "indicators:{:?}|nested:{:?}|conditions:{:?}|exit:{:?}|stops:{:?}|takes:{:?}|timeframes:{:?}",
             indicator_aliases,

@@ -1,13 +1,9 @@
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
 use crate::discovery::StrategyCandidate;
-use crate::optimization::evaluator::StrategyEvaluationRunner;
-use crate::optimization::fitness::{FitnessFunction, FitnessThresholds};
 use crate::optimization::genetic::GeneticAlgorithmV3;
 use crate::optimization::initial_population::InitialPopulationGenerator;
-use crate::optimization::types::{
-    EvaluatedStrategy, GeneticAlgorithmConfig, GeneticIndividual, Population,
-};
+use crate::optimization::types::GeneticAlgorithmConfig;
 use crate::strategy::types::StrategyParameterMap;
 use std::collections::HashMap;
 

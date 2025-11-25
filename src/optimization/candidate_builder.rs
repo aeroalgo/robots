@@ -5,10 +5,9 @@ use crate::discovery::types::{
 use crate::strategy::types::ConditionOperator;
 use rand::seq::SliceRandom;
 use rand::Rng;
-use std::collections::{HashMap, HashSet};
 
 use super::candidate_builder_config::{
-    BuildRules, CandidateBuilderConfig, ElementConstraints, ElementProbabilities, ElementSelector,
+    CandidateBuilderConfig, ElementConstraints, ElementProbabilities, ElementSelector,
 };
 
 pub struct CandidateBuilder {
@@ -22,10 +21,6 @@ impl CandidateBuilder {
             config,
             rng: rand::thread_rng(),
         }
-    }
-
-    pub fn with_default_config() -> Self {
-        Self::new(CandidateBuilderConfig::default())
     }
 
     pub fn build_candidate(
@@ -167,7 +162,7 @@ impl CandidateBuilder {
         &mut self,
         candidate: &mut CandidateElements,
         available_indicators: &[IndicatorInfo],
-        available_stop_handlers: &[StopHandlerConfig],
+        _available_stop_handlers: &[StopHandlerConfig],
         available_timeframes: &[TimeFrame],
         constraints: &ElementConstraints,
         probabilities: &ElementProbabilities,
@@ -548,36 +543,6 @@ impl CandidateBuilder {
             .map(|ind| (*ind).clone())
     }
 
-    fn select_single_stop_handler(
-        &mut self,
-        available: &[StopHandlerConfig],
-        probabilities: &super::candidate_builder_config::StopHandlerProbabilities,
-    ) -> Option<StopHandlerInfo> {
-        if !self.should_add(probabilities.add_stop_loss) {
-            return None;
-        }
-
-        let stop_loss_configs: Vec<&StopHandlerConfig> = available
-            .iter()
-            .filter(|c| c.stop_type == "stop_loss")
-            .collect();
-
-        if stop_loss_configs.is_empty() {
-            return None;
-        }
-
-        stop_loss_configs
-            .choose(&mut self.rng)
-            .map(|config| StopHandlerInfo {
-                id: format!("stop_{}", self.rng.gen::<u32>()),
-                name: config.handler_name.clone(),
-                handler_name: config.handler_name.clone(),
-                stop_type: config.stop_type.clone(),
-                optimization_params: Vec::new(),
-                priority: config.priority,
-            })
-    }
-
     fn select_single_stop_handler_required(
         &mut self,
         available: &[StopHandlerConfig],
@@ -843,7 +808,7 @@ impl CandidateBuilder {
         &mut self,
         candidate: &mut CandidateElements,
         available_timeframes: &[TimeFrame],
-        probabilities: &super::candidate_builder_config::ConditionProbabilities,
+        _probabilities: &super::candidate_builder_config::ConditionProbabilities,
         constraints: &ElementConstraints,
     ) {
         if available_timeframes.is_empty() || candidate.timeframes.is_empty() {
@@ -1466,27 +1431,6 @@ impl CandidateBuilder {
         self.rng.gen_bool(probability.clamp(0.0, 1.0))
     }
 
-    fn weighted_random_choice<'a, T>(&mut self, items: &'a [T], weights: &[f64]) -> Option<&'a T> {
-        if items.is_empty() || items.len() != weights.len() {
-            return None;
-        }
-
-        let total_weight: f64 = weights.iter().sum();
-        if total_weight <= 0.0 {
-            return items.choose(&mut self.rng);
-        }
-
-        let mut random = self.rng.gen::<f64>() * total_weight;
-        for (item, &weight) in items.iter().zip(weights.iter()) {
-            random -= weight;
-            if random <= 0.0 {
-                return Some(item);
-            }
-        }
-
-        items.last()
-    }
-
     fn is_oscillator_used_in_nested(
         indicator: &crate::discovery::IndicatorInfo,
         nested_indicators: &[crate::discovery::NestedIndicator],
@@ -1680,35 +1624,6 @@ impl CandidateBuilder {
 
         // Если оба не осцилляторы, можно сравнивать
         true
-    }
-
-    fn check_volatility_indicator_constraint(
-        &self,
-        indicator: &crate::discovery::IndicatorInfo,
-        price_field: &str,
-    ) -> bool {
-        let rules = &self.config.rules.indicator_parameter_rules;
-
-        for rule in rules {
-            if rule.indicator_type == "volatility" {
-                if !rule.indicator_names.is_empty() {
-                    if rule.indicator_names.contains(&indicator.name) {
-                        if let Some(constraint) = &rule.price_field_constraint {
-                            if constraint.required_price_field == price_field {
-                                return true;
-                            }
-                        }
-                    }
-                } else if indicator.indicator_type == "volatility" {
-                    if let Some(constraint) = &rule.price_field_constraint {
-                        if constraint.required_price_field == price_field {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        false
     }
 
     fn ensure_minimum_requirements(

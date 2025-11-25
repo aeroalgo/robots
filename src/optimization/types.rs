@@ -2,7 +2,6 @@ use crate::discovery::StrategyCandidate;
 use crate::optimization::fitness::{FitnessThresholds, FitnessWeights};
 use crate::optimization::candidate_builder_config::CandidateBuilderConfig;
 use crate::strategy::types::StrategyParameterMap;
-use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct EvaluatedStrategy {

@@ -288,52 +288,89 @@ impl StrategyConverter {
         base_timeframe: TimeFrame,
     ) -> Result<Vec<IndicatorBindingSpec>, StrategyConversionError> {
         let mut bindings = Vec::new();
+        let mut binding_keys = std::collections::HashSet::new();
+
+        let mut required_timeframes = std::collections::HashSet::new();
+        required_timeframes.insert(base_timeframe.clone());
+
+        for condition in candidate
+            .conditions
+            .iter()
+            .chain(candidate.exit_conditions.iter())
+        {
+            let primary_tf = condition
+                .primary_timeframe
+                .as_ref()
+                .unwrap_or(&base_timeframe);
+            required_timeframes.insert(primary_tf.clone());
+
+            let secondary_tf = condition
+                .secondary_timeframe
+                .as_ref()
+                .unwrap_or(&base_timeframe);
+            required_timeframes.insert(secondary_tf.clone());
+        }
 
         for indicator in &candidate.indicators {
             let params = Self::extract_indicator_params(indicator)?;
-            bindings.push(IndicatorBindingSpec {
-                alias: indicator.alias.clone(),
-                timeframe: base_timeframe.clone(),
-                source: IndicatorSourceSpec::Registry {
-                    name: indicator.name.clone(),
-                    parameters: params,
-                },
-                tags: vec!["base".to_string()],
-            });
+            for timeframe in &required_timeframes {
+                let key = format!("{}:{:?}", indicator.alias, timeframe);
+                if !binding_keys.contains(&key) {
+                    binding_keys.insert(key.clone());
+                    bindings.push(IndicatorBindingSpec {
+                        alias: indicator.alias.clone(),
+                        timeframe: timeframe.clone(),
+                        source: IndicatorSourceSpec::Registry {
+                            name: indicator.name.clone(),
+                            parameters: params.clone(),
+                        },
+                        tags: vec!["base".to_string()],
+                    });
+                }
+            }
         }
 
         for nested in &candidate.nested_indicators {
             let params = Self::extract_indicator_params(&nested.indicator)?;
-            bindings.push(IndicatorBindingSpec {
-                alias: nested.indicator.alias.clone(),
-                timeframe: base_timeframe.clone(),
-                source: IndicatorSourceSpec::Registry {
-                    name: nested.indicator.name.clone(),
-                    parameters: params,
-                },
-                tags: vec!["nested".to_string(), format!("depth_{}", nested.depth)],
-            });
+            for timeframe in &required_timeframes {
+                let key = format!("{}:{:?}", nested.indicator.alias, timeframe);
+                if !binding_keys.contains(&key) {
+                    binding_keys.insert(key.clone());
+                    bindings.push(IndicatorBindingSpec {
+                        alias: nested.indicator.alias.clone(),
+                        timeframe: timeframe.clone(),
+                        source: IndicatorSourceSpec::Registry {
+                            name: nested.indicator.name.clone(),
+                            parameters: params.clone(),
+                        },
+                        tags: vec!["nested".to_string(), format!("depth_{}", nested.depth)],
+                    });
+                }
+            }
         }
 
         Ok(bindings)
     }
 
-    fn extract_indicator_params(indicator: &IndicatorInfo) -> Result<HashMap<String, f32>, StrategyConversionError> {
+    fn extract_indicator_params(
+        indicator: &IndicatorInfo,
+    ) -> Result<HashMap<String, f32>, StrategyConversionError> {
         use crate::indicators::parameters::ParameterPresets;
         let mut rng = rand::thread_rng();
         let mut params = HashMap::new();
-        
+
         for param in &indicator.parameters {
             let range = ParameterPresets::get_range_for_parameter(
                 &indicator.name,
                 &param.name,
                 &param.param_type,
-            ).ok_or_else(|| StrategyConversionError::MissingParameterRange {
+            )
+            .ok_or_else(|| StrategyConversionError::MissingParameterRange {
                 indicator_name: indicator.name.clone(),
                 parameter_name: param.name.clone(),
                 parameter_type: format!("{:?}", param.param_type),
             })?;
-            
+
             let steps = ((range.end - range.start) / range.step) as usize;
             let step_index = rng.gen_range(0..=steps);
             let value = range.start + (step_index as f32 * range.step);
@@ -415,9 +452,11 @@ impl StrategyConverter {
                 };
 
                 // Проверяем, есть ли процент в optimization_params для создания DualWithPercent
-                let percent_param = condition.optimization_params.iter()
+                let percent_param = condition
+                    .optimization_params
+                    .iter()
                     .find(|p| p.name == "percent" || p.name == "percentage");
-                
+
                 if let Some(_percent_param) = percent_param {
                     // Используем constant_value из ConditionInfo для процента, если оно есть
                     // Иначе используем значение по умолчанию 1.0%
@@ -462,9 +501,11 @@ impl StrategyConverter {
                 };
 
                 // Проверяем, есть ли процент в optimization_params для создания DualWithPercent
-                let percent_param = condition.optimization_params.iter()
+                let percent_param = condition
+                    .optimization_params
+                    .iter()
                     .find(|p| p.name == "percent" || p.name == "percentage");
-                
+
                 if let Some(_percent_param) = percent_param {
                     // Используем constant_value из ConditionInfo для процента, если оно есть
                     // Иначе используем значение по умолчанию 1.0%
