@@ -1382,24 +1382,24 @@ impl CandidateBuilder {
 
         // Обновляем имя условия, если добавлен процент
         // Для trend_condition не добавляем процент, так как это период, а не процент
-        let final_condition_name =
-            if !optimization_params.is_empty() 
-                && final_condition_type != "indicator_constant"
-                && final_condition_type != "trend_condition" {
-                if let Some(percent) = constant_value_for_percent {
-                    if final_condition_type == "indicator_indicator" {
-                        // Для indicator_indicator: "SMA GreaterThan EMA на 2.5%"
-                        format!("{} на {:.2}%", condition_name, percent)
-                    } else {
-                        // Для indicator_price: "SMA GreaterThan Close на 2.5%"
-                        format!("{} на {:.2}%", condition_name, percent)
-                    }
+        let final_condition_name = if !optimization_params.is_empty()
+            && final_condition_type != "indicator_constant"
+            && final_condition_type != "trend_condition"
+        {
+            if let Some(percent) = constant_value_for_percent {
+                if final_condition_type == "indicator_indicator" {
+                    // Для indicator_indicator: "SMA GreaterThan EMA на 2.5%"
+                    format!("{} на {:.2}%", condition_name, percent)
                 } else {
-                    condition_name
+                    // Для indicator_price: "SMA GreaterThan Close на 2.5%"
+                    format!("{} на {:.2}%", condition_name, percent)
                 }
             } else {
                 condition_name
-            };
+            }
+        } else {
+            condition_name
+        };
 
         Some(ConditionInfo {
             id: condition_id,

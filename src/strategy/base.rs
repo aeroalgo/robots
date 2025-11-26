@@ -3,6 +3,7 @@ use super::types::{
     IndicatorBindingSpec, PreparedCondition, StopSignal, StrategyDecision, StrategyError,
     StrategyId, StrategyMetadata, StrategyParameterMap, StrategyRuleSpec, TimeframeRequirement,
 };
+use crate::risk::stops::AuxiliaryIndicatorSpec;
 
 pub trait Strategy: Send + Sync {
     fn id(&self) -> &StrategyId;
@@ -21,4 +22,9 @@ pub trait Strategy: Send + Sync {
         Ok(Vec::new())
     }
     fn clone_box(&self) -> Box<dyn Strategy>;
+
+    /// Возвращает спецификации служебных индикаторов, необходимых для стоп-обработчиков
+    fn auxiliary_indicator_specs(&self) -> &[AuxiliaryIndicatorSpec] {
+        &[]
+    }
 }

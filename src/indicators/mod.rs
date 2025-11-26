@@ -1,4 +1,5 @@
 pub mod base;
+pub mod build_rules;
 pub mod formula;
 pub mod implementations;
 pub mod parameters;
@@ -14,6 +15,7 @@ mod factory_test;
 
 // Публичный экспорт для удобства
 pub use base::*;
+pub use build_rules::*;
 pub use formula::*;
 pub use implementations::*;
 pub use parameters::*;

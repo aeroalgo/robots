@@ -182,18 +182,20 @@ impl InitialPopulationGenerator {
             }
         }
 
+        let total_tested = all_strategy_candidates.len() * param_variants_count;
         println!(
-            "\n   [Этап 2] Протестировано {} стратегий ({} кандидатов × {} вариантов параметров)",
-            individuals.len(),
+            "\n   [Этап 2] Выполнено {} тестов ({} кандидатов × {} вариантов параметров), прошло фильтр: {} стратегий",
+            total_tested,
             all_strategy_candidates.len(),
-            param_variants_count
+            param_variants_count,
+            individuals.len()
         );
 
         // Этап 3: Отбор лучших особей
-        let total_tested = individuals.len();
+        let passed_filter = individuals.len();
         println!(
-            "\n   [Этап 3] Отбор лучших {} особей из {} протестированных...",
-            self.config.population_size, total_tested
+            "\n   [Этап 3] Отбор лучших {} особей из {} прошедших фильтр...",
+            self.config.population_size, passed_filter
         );
 
         // Round-robin отбор с группировкой по стратегиям для поддержания разнообразия
@@ -201,9 +203,9 @@ impl InitialPopulationGenerator {
             Self::select_with_diversity(individuals, self.config.population_size);
 
         println!(
-            "\n   ✅ Генерация завершена: отобрано {} особей из {} протестированных",
+            "\n   ✅ Генерация завершена: отобрано {} особей из {} прошедших фильтр",
             final_individuals.len(),
-            total_tested
+            passed_filter
         );
 
         if !final_individuals.is_empty() {

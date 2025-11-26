@@ -66,6 +66,9 @@ pub struct TimeframeData {
     condition_id_to_index: HashMap<String, usize>,
     ohlc: Option<Arc<OHLCData>>,
     timestamps: Option<Arc<Vec<i64>>>,
+    /// Служебные индикаторы для стоп-обработчиков (ATR, MINFOR, MAXFOR и т.д.)
+    /// Эти индикаторы не являются частью торговой логики стратегии
+    auxiliary_indicators: HashMap<String, Arc<Vec<f32>>>,
 }
 
 impl TimeframeData {
@@ -82,6 +85,7 @@ impl TimeframeData {
             condition_id_to_index: HashMap::new(),
             ohlc: None,
             timestamps: None,
+            auxiliary_indicators: HashMap::with_capacity(4),
         }
     }
 
@@ -253,6 +257,53 @@ impl TimeframeData {
 
     pub fn current_timestamp(&self) -> Option<chrono::DateTime<chrono::Utc>> {
         self.timestamp_at(self.index)
+    }
+
+    // ===== Методы для служебных индикаторов (auxiliary) =====
+
+    /// Добавить служебный индикатор (для стоп-обработчиков)
+    pub fn insert_auxiliary(&mut self, alias: impl Into<String>, series: Vec<f32>) {
+        self.auxiliary_indicators
+            .insert(alias.into(), Arc::new(series));
+    }
+
+    /// Добавить служебный индикатор (Arc версия)
+    pub fn insert_auxiliary_arc(&mut self, alias: impl Into<String>, series: Arc<Vec<f32>>) {
+        self.auxiliary_indicators.insert(alias.into(), series);
+    }
+
+    /// Получить слайс служебного индикатора
+    pub fn auxiliary_series_slice(&self, alias: &str) -> Option<&[f32]> {
+        self.auxiliary_indicators
+            .get(alias)
+            .map(|data| data.as_ref().as_slice())
+    }
+
+    /// Получить значение служебного индикатора по индексу
+    pub fn auxiliary_value_at(&self, alias: &str, candle_index: usize) -> Option<f32> {
+        self.auxiliary_indicators
+            .get(alias)
+            .and_then(|data| data.get(candle_index).copied())
+    }
+
+    /// Проверить наличие служебного индикатора
+    pub fn has_auxiliary(&self, alias: &str) -> bool {
+        self.auxiliary_indicators.contains_key(alias)
+    }
+
+    /// Удалить служебный индикатор
+    pub fn remove_auxiliary(&mut self, alias: &str) -> Option<Arc<Vec<f32>>> {
+        self.auxiliary_indicators.remove(alias)
+    }
+
+    /// Очистить все служебные индикаторы
+    pub fn clear_auxiliary(&mut self) {
+        self.auxiliary_indicators.clear();
+    }
+
+    /// Получить список всех алиасов служебных индикаторов
+    pub fn auxiliary_aliases(&self) -> Vec<&String> {
+        self.auxiliary_indicators.keys().collect()
     }
 
     pub fn insert_condition_result(

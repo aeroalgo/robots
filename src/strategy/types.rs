@@ -3,7 +3,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::condition::types::{
-    ConditionConfig, ConditionError, ConditionResultData, SignalStrength,
+    ConditionCategory, ConditionConfig, ConditionError, ConditionResultData, SignalStrength,
 };
 use crate::data_model::types::TimeFrame;
 use crate::risk::stops::StopHandler;
@@ -672,6 +672,58 @@ pub enum StrategyError {
     #[error("strategy definition error: {0}")]
     DefinitionError(String),
 }
+
+// =============================================================================
+// User Input Types - для динамического создания стратегий из пользовательского ввода
+// НЕ УДАЛЯТЬ: Этот функционал используется для создания кастомных стратегий,
+// формул (например, разница скользящих средних), парсинга условий и т.д.
+// Позволяет создавать стратегии без написания кода через API/UI.
+// =============================================================================
+
+/// Шаг создания индикатора из пользовательского ввода
+#[derive(Clone, Debug)]
+pub struct UserIndicatorStep {
+    pub alias: String,
+    pub expression: String,
+    pub timeframe: String,
+    pub parameters: HashMap<String, StrategyParamValue>,
+}
+
+/// Шаг создания условия из пользовательского ввода
+#[derive(Clone, Debug)]
+pub struct UserConditionStep {
+    pub id: String,
+    pub expression: String,
+    pub category: ConditionCategory,
+    pub timeframe: String,
+    pub parameters: HashMap<String, StrategyParamValue>,
+}
+
+/// Шаг создания действия/правила из пользовательского ввода
+#[derive(Clone, Debug)]
+pub struct UserActionStep {
+    pub rule_id: String,
+    pub logic: RuleLogic,
+    pub condition_ids: Vec<String>,
+    pub signal: StrategySignalType,
+    pub direction: PositionDirection,
+    pub quantity: Option<f64>,
+    pub tags: Vec<String>,
+}
+
+/// Полный пользовательский ввод для создания стратегии
+#[derive(Clone, Debug)]
+pub struct StrategyUserInput {
+    pub name: String,
+    pub description: Option<String>,
+    pub indicators: Vec<UserIndicatorStep>,
+    pub conditions: Vec<UserConditionStep>,
+    pub actions: Vec<UserActionStep>,
+    pub parameters: StrategyParameterMap,
+    pub metadata: HashMap<String, String>,
+}
+
+// =============================================================================
 
 #[derive(Clone, Debug)]
 pub struct ConditionEvaluation {

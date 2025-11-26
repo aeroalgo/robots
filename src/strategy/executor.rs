@@ -331,6 +331,7 @@ impl BacktestExecutor {
             }
         }
         self.populate_indicators()?;
+        self.populate_auxiliary_indicators()?;
         self.populate_custom_data()?;
         self.populate_conditions()?;
         self.initial_capital = self
@@ -558,6 +559,49 @@ impl BacktestExecutor {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Вычисляет служебные индикаторы для стоп-обработчиков (ATR, MINFOR, MAXFOR)
+    fn populate_auxiliary_indicators(&mut self) -> Result<(), StrategyExecutionError> {
+        let auxiliary_specs = self.strategy.auxiliary_indicator_specs();
+        if auxiliary_specs.is_empty() {
+            return Ok(());
+        }
+
+        // Получаем первый доступный таймфрейм для OHLC данных
+        // (служебные индикаторы вычисляются на базовом таймфрейме)
+        let timeframe = self
+            .feed
+            .frames
+            .keys()
+            .next()
+            .cloned()
+            .ok_or_else(|| StrategyExecutionError::Feed("No frames available".to_string()))?;
+
+        let frame = self.feed.frames.get(&timeframe).ok_or_else(|| {
+            StrategyExecutionError::Feed(format!(
+                "timeframe {:?} not available in feed",
+                timeframe
+            ))
+        })?;
+
+        let ohlc = frame.to_indicator_ohlc();
+
+        // Вычисляем auxiliary индикаторы
+        let computed = crate::risk::stops::compute_auxiliary_indicators(auxiliary_specs, &ohlc)
+            .map_err(|e| StrategyExecutionError::Feed(format!("Auxiliary indicator error: {}", e)))?;
+
+        // Сохраняем в TimeframeData
+        let data = self
+            .context
+            .timeframe_mut(&timeframe)
+            .map_err(StrategyExecutionError::Strategy)?;
+
+        for (alias, values) in computed {
+            data.insert_auxiliary(alias, values);
+        }
+
         Ok(())
     }
 
