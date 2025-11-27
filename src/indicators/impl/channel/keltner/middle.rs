@@ -85,3 +85,4 @@ impl Indicator for KCMiddle {
 }
 
 impl OHLCIndicator for KCMiddle {}
+

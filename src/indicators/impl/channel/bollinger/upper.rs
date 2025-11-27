@@ -97,3 +97,4 @@ impl Indicator for BBUpper {
 }
 
 impl SimpleIndicator for BBUpper {}
+

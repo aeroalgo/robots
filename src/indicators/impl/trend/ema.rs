@@ -100,3 +100,4 @@ impl TrendIndicator for EMA {
         default_trend_direction(values)
     }
 }
+

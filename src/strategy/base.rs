@@ -3,7 +3,7 @@ use super::types::{
     IndicatorBindingSpec, PreparedCondition, StopSignal, StrategyDecision, StrategyError,
     StrategyId, StrategyMetadata, StrategyParameterMap, StrategyRuleSpec, TimeframeRequirement,
 };
-use crate::risk::stops::AuxiliaryIndicatorSpec;
+use crate::risk::AuxiliaryIndicatorSpec;
 
 pub trait Strategy: Send + Sync {
     fn id(&self) -> &StrategyId;

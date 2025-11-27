@@ -99,3 +99,4 @@ impl TrendIndicator for SINEWMA {
         default_trend_direction(values)
     }
 }
+

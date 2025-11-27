@@ -109,3 +109,4 @@ impl OscillatorIndicator for Stochastic {
         }
     }
 }
+

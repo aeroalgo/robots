@@ -96,3 +96,4 @@ impl TrendIndicator for ZLEMA {
         default_trend_direction(values)
     }
 }
+

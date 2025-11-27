@@ -83,3 +83,4 @@ impl VolatilityIndicator for WATR {
         Err(IndicatorError::OHLCDataRequired)
     }
 }
+

@@ -70,3 +70,4 @@ impl Indicator for VTRAND {
         Box::new(Self::new(self.parameters.get_value("period").unwrap()).unwrap())
     }
 }
+

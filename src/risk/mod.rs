@@ -1,13 +1,30 @@
+pub mod auxiliary;
+pub mod context;
+pub mod errors;
+pub mod factory;
+pub mod parameters;
+pub mod registry;
 pub mod stops;
 pub mod takes;
-pub mod registry;
+pub mod traits;
+pub mod utils;
 
-pub use stops::{
-    AuxiliaryIndicatorSpec, StopEvaluationContext, StopValidationContext,
-    StopValidationResult, StopOutcome, StopHandler, StopHandlerFactory, StopHandlerError,
-    get_default_indicator_params, fill_missing_indicator_params, normalize_indicator_params,
+pub use auxiliary::{
+    AuxiliaryIndicatorSpec, collect_auxiliary_specs_from_stop_handlers,
     collect_required_auxiliary_indicators, compute_auxiliary_indicators,
-    get_auxiliary_specs_from_handler_spec, collect_auxiliary_specs_from_stop_handlers,
+    fill_missing_indicator_params, get_auxiliary_specs_from_handler_spec,
+    get_default_indicator_params, normalize_indicator_params,
 };
-pub use takes::{TakeEvaluationContext, TakeOutcome, TakeHandler, TakeHandlerFactory, TakeHandlerError};
-pub use registry::*;
+pub use context::{StopEvaluationContext, StopValidationContext, TakeEvaluationContext};
+pub use errors::{StopHandlerError, TakeHandlerError};
+pub use factory::{
+    StopHandlerFactory, TakeHandlerFactory, get_stop_optimization_range,
+    get_take_optimization_range,
+};
+pub use stops::{
+    ATRTrailStopHandler, HILOTrailingStopHandler, IndicatorStopHandler,
+    PercentTrailingStopHandler, StopLossPctHandler,
+};
+pub use parameters::StopParameterPresets;
+pub use takes::TakeProfitPctHandler;
+pub use traits::{StopHandler, StopOutcome, StopValidationResult, TakeHandler, TakeOutcome};

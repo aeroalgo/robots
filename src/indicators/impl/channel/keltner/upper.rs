@@ -103,3 +103,4 @@ impl Indicator for KCUpper {
 }
 
 impl OHLCIndicator for KCUpper {}
+

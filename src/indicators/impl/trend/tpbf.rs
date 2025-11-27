@@ -124,3 +124,4 @@ impl TrendIndicator for TPBF {
         default_trend_direction(values)
     }
 }
+

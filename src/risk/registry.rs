@@ -1,7 +1,6 @@
 use crate::discovery::types::StopHandlerConfig;
 use crate::indicators::types::ParameterRange;
-use crate::risk::stops;
-use crate::risk::takes;
+use crate::risk::factory::{get_stop_optimization_range, get_take_optimization_range};
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
 
@@ -27,7 +26,7 @@ impl StopHandlerRegistry {
     }
 
     fn register_all_handlers(&mut self) {
-        if let Some(range) = stops::get_optimization_range("StopLossPct", "percentage") {
+        if let Some(range) = get_stop_optimization_range("StopLossPct", "percentage") {
             println!("      [StopHandlerRegistry] Зарегистрирован StopLossPct (диапазон: {:.1}-{:.1}, шаг: {:.2})", 
                      range.start, range.end, range.step);
             self.handlers.push(HandlerInfo {
@@ -43,7 +42,7 @@ impl StopHandlerRegistry {
             );
         }
 
-        if let Some(range) = takes::get_optimization_range("TakeProfitPct", "percentage") {
+        if let Some(range) = get_take_optimization_range("TakeProfitPct", "percentage") {
             println!("      [StopHandlerRegistry] Зарегистрирован TakeProfitPct (диапазон: {:.1}-{:.1}, шаг: {:.2})", 
                      range.start, range.end, range.step);
             self.handlers.push(HandlerInfo {
@@ -59,7 +58,7 @@ impl StopHandlerRegistry {
             );
         }
 
-        if let Some(range) = stops::get_optimization_range("ATRTrailStop", "coeff_atr") {
+        if let Some(range) = get_stop_optimization_range("ATRTrailStop", "coeff_atr") {
             println!("      [StopHandlerRegistry] Зарегистрирован ATRTrailStop (диапазон coeff_atr: {:.1}-{:.1}, шаг: {:.2})", 
                      range.start, range.end, range.step);
             self.handlers.push(HandlerInfo {
@@ -75,7 +74,7 @@ impl StopHandlerRegistry {
             );
         }
 
-        if let Some(range) = stops::get_optimization_range("HILOTrailingStop", "period") {
+        if let Some(range) = get_stop_optimization_range("HILOTrailingStop", "period") {
             println!("      [StopHandlerRegistry] Зарегистрирован HILOTrailingStop (диапазон period: {:.1}-{:.1}, шаг: {:.2})", 
                      range.start, range.end, range.step);
             self.handlers.push(HandlerInfo {
@@ -91,7 +90,7 @@ impl StopHandlerRegistry {
             );
         }
 
-        if let Some(range) = stops::get_optimization_range("PercentTrailingStop", "percentage") {
+        if let Some(range) = get_stop_optimization_range("PercentTrailingStop", "percentage") {
             println!("      [StopHandlerRegistry] Зарегистрирован PercentTrailingStop (диапазон: {:.1}-{:.1}, шаг: {:.2})", 
                      range.start, range.end, range.step);
             self.handlers.push(HandlerInfo {

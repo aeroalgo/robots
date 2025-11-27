@@ -153,8 +153,8 @@ impl PopulationManager {
         candidate: &StrategyCandidate,
     ) -> Option<crate::indicators::types::ParameterRange> {
         use crate::indicators::parameters::ParameterPresets;
-        use crate::risk::stops::get_optimization_range as get_stop_optimization_range;
         use crate::indicators::types::ParameterType;
+        use crate::risk::get_stop_optimization_range;
 
         if key.starts_with("stop_") {
             let parts: Vec<&str> = key.strip_prefix("stop_")?.split('_').collect();
@@ -168,10 +168,18 @@ impl PopulationManager {
             if parts.len() >= 2 {
                 let indicator_name = parts[0];
                 let param_name = parts[1..].join("_");
-                if let Some(nested) = candidate.nested_indicators.iter().find(|n| n.indicator.name == indicator_name) {
+                if let Some(nested) = candidate
+                    .nested_indicators
+                    .iter()
+                    .find(|n| n.indicator.name == indicator_name)
+                {
                     for param in &nested.indicator.parameters {
                         if param.name == param_name {
-                            return ParameterPresets::get_optimization_range(&nested.indicator.name, &param_name, &param.param_type);
+                            return ParameterPresets::get_optimization_range(
+                                &nested.indicator.name,
+                                &param_name,
+                                &param.param_type,
+                            );
                         }
                     }
                 }
@@ -181,24 +189,41 @@ impl PopulationManager {
             if parts.len() >= 3 {
                 let condition_id = parts[1];
                 let param_name = parts[2..].join("_");
-                if let Some(condition) = candidate.conditions.iter().find(|c| c.id == condition_id) {
-                    if let Some(indicator_name) = Self::extract_indicator_name_from_condition(candidate, condition) {
+                if let Some(condition) = candidate.conditions.iter().find(|c| c.id == condition_id)
+                {
+                    if let Some(indicator_name) =
+                        Self::extract_indicator_name_from_condition(candidate, condition)
+                    {
                         let param_type = match param_name.to_lowercase().as_str() {
                             "threshold" => ParameterType::Threshold,
                             "percentage" | "percent" => ParameterType::Multiplier,
                             _ => ParameterType::Threshold,
                         };
-                        return ParameterPresets::get_optimization_range(&indicator_name, &param_name, &param_type);
+                        return ParameterPresets::get_optimization_range(
+                            &indicator_name,
+                            &param_name,
+                            &param_type,
+                        );
                     }
                 }
-                if let Some(condition) = candidate.exit_conditions.iter().find(|c| c.id == condition_id) {
-                    if let Some(indicator_name) = Self::extract_indicator_name_from_condition(candidate, condition) {
+                if let Some(condition) = candidate
+                    .exit_conditions
+                    .iter()
+                    .find(|c| c.id == condition_id)
+                {
+                    if let Some(indicator_name) =
+                        Self::extract_indicator_name_from_condition(candidate, condition)
+                    {
                         let param_type = match param_name.to_lowercase().as_str() {
                             "threshold" => ParameterType::Threshold,
                             "percentage" | "percent" => ParameterType::Multiplier,
                             _ => ParameterType::Threshold,
                         };
-                        return ParameterPresets::get_optimization_range(&indicator_name, &param_name, &param_type);
+                        return ParameterPresets::get_optimization_range(
+                            &indicator_name,
+                            &param_name,
+                            &param_type,
+                        );
                     }
                 }
             }
@@ -207,10 +232,18 @@ impl PopulationManager {
             if parts.len() >= 2 {
                 let indicator_name = parts[0];
                 let param_name = parts[1..].join("_");
-                if let Some(indicator) = candidate.indicators.iter().find(|i| i.name == indicator_name) {
+                if let Some(indicator) = candidate
+                    .indicators
+                    .iter()
+                    .find(|i| i.name == indicator_name)
+                {
                     for param in &indicator.parameters {
                         if param.name == param_name {
-                            return ParameterPresets::get_optimization_range(&indicator.name, &param_name, &param.param_type);
+                            return ParameterPresets::get_optimization_range(
+                                &indicator.name,
+                                &param_name,
+                                &param.param_type,
+                            );
                         }
                     }
                 }
@@ -224,15 +257,19 @@ impl PopulationManager {
         condition: &crate::discovery::ConditionInfo,
     ) -> Option<String> {
         let alias = Self::extract_indicator_alias_from_condition_id(&condition.id)?;
-        
+
         if let Some(ind) = candidate.indicators.iter().find(|i| i.alias == alias) {
             return Some(ind.name.clone());
         }
-        
-        if let Some(nested) = candidate.nested_indicators.iter().find(|n| n.indicator.alias == alias) {
+
+        if let Some(nested) = candidate
+            .nested_indicators
+            .iter()
+            .find(|n| n.indicator.alias == alias)
+        {
             return Some(nested.indicator.name.clone());
         }
-        
+
         None
     }
 
@@ -277,7 +314,7 @@ impl PopulationManager {
     ) {
         use crate::strategy::types::StrategyParamValue;
         let mut rng = rand::thread_rng();
-        
+
         let range_size = (range.end - range.start) as f64;
         let mutation_percent = rng.gen_range(min_percent..=max_percent);
         let mutation_amount = range_size * mutation_percent;
@@ -287,13 +324,13 @@ impl PopulationManager {
                 let current = *n;
                 let range_start = range.start as f64;
                 let range_end = range.end as f64;
-                
+
                 let distance_to_start = current - range_start;
                 let distance_to_end = range_end - current;
-                
+
                 let max_mutation_up = distance_to_end.min(mutation_amount);
                 let max_mutation_down = distance_to_start.min(mutation_amount);
-                
+
                 let mutation = if max_mutation_up > 0.0 && max_mutation_down > 0.0 {
                     rng.gen_range(-max_mutation_down..=max_mutation_up)
                 } else if max_mutation_up > 0.0 {
@@ -303,20 +340,20 @@ impl PopulationManager {
                 } else {
                     0.0
                 };
-                
+
                 *n = (current + mutation).max(range_start).min(range_end);
             }
             StrategyParamValue::Integer(i) => {
                 let current = *i as f64;
                 let range_start = range.start as f64;
                 let range_end = range.end as f64;
-                
+
                 let distance_to_start = current - range_start;
                 let distance_to_end = range_end - current;
-                
+
                 let max_mutation_up = distance_to_end.min(mutation_amount);
                 let max_mutation_down = distance_to_start.min(mutation_amount);
-                
+
                 let mutation = if max_mutation_up > 0.0 && max_mutation_down > 0.0 {
                     rng.gen_range(-max_mutation_down..=max_mutation_up)
                 } else if max_mutation_up > 0.0 {
@@ -326,7 +363,7 @@ impl PopulationManager {
                 } else {
                     0.0
                 };
-                
+
                 let new_value = (current + mutation).max(range_start).min(range_end);
                 *i = new_value as i64;
             }
@@ -372,5 +409,4 @@ impl PopulationManager {
             }
         }
     }
-
 }

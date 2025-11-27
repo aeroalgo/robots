@@ -6,8 +6,7 @@ use crate::condition::types::{
     ConditionCategory, ConditionConfig, ConditionError, ConditionResultData, SignalStrength,
 };
 use crate::data_model::types::TimeFrame;
-use crate::risk::stops::StopHandler;
-use crate::risk::takes::TakeHandler;
+use crate::risk::{StopHandler, TakeHandler};
 use serde::{Deserialize, Serialize};
 
 pub type StrategyId = String;

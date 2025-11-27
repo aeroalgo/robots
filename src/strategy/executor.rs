@@ -589,7 +589,7 @@ impl BacktestExecutor {
         let ohlc = frame.to_indicator_ohlc();
 
         // Вычисляем auxiliary индикаторы
-        let computed = crate::risk::stops::compute_auxiliary_indicators(auxiliary_specs, &ohlc)
+        let computed = crate::risk::compute_auxiliary_indicators(auxiliary_specs, &ohlc)
             .map_err(|e| StrategyExecutionError::Feed(format!("Auxiliary indicator error: {}", e)))?;
 
         // Сохраняем в TimeframeData

@@ -105,3 +105,4 @@ impl TrendIndicator for SQWMA {
         default_trend_direction(values)
     }
 }
+

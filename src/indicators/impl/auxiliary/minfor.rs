@@ -83,3 +83,4 @@ impl Indicator for MINFOR {
         Box::new(Self::new(self.parameters.get_value("period").unwrap()).unwrap())
     }
 }
+

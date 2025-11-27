@@ -15,8 +15,11 @@ use super::types::{
     StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyRuleSpec, StrategySignal,
     StrategySignalType, StrategyUserInput, TimeframeRequirement, UserFormulaMetadata,
 };
-use crate::risk::stops::{StopEvaluationContext, StopHandlerError, StopHandlerFactory};
-use crate::risk::takes::{TakeEvaluationContext, TakeHandlerError, TakeHandlerFactory};
+use crate::risk::{
+    get_auxiliary_specs_from_handler_spec, AuxiliaryIndicatorSpec, StopEvaluationContext,
+    StopHandlerError, StopHandlerFactory, TakeEvaluationContext, TakeHandlerError,
+    TakeHandlerFactory,
+};
 
 #[derive(Clone)]
 struct OptimizedRule {
@@ -37,7 +40,7 @@ pub struct DynamicStrategy {
     timeframe_requirements: Vec<TimeframeRequirement>,
     parameters: StrategyParameterMap,
     /// Служебные индикаторы для стоп-обработчиков (ATR, MINFOR, MAXFOR)
-    auxiliary_specs: Vec<crate::risk::stops::AuxiliaryIndicatorSpec>,
+    auxiliary_specs: Vec<AuxiliaryIndicatorSpec>,
 }
 
 impl DynamicStrategy {
@@ -52,7 +55,7 @@ impl DynamicStrategy {
         take_handlers: Vec<PreparedTakeHandler>,
         timeframe_requirements: Vec<TimeframeRequirement>,
         parameters: StrategyParameterMap,
-        auxiliary_specs: Vec<crate::risk::stops::AuxiliaryIndicatorSpec>,
+        auxiliary_specs: Vec<AuxiliaryIndicatorSpec>,
     ) -> Self {
         let condition_lookup: HashMap<String, usize> = conditions
             .iter()
@@ -654,7 +657,7 @@ impl Strategy for DynamicStrategy {
         Box::new(self.clone())
     }
 
-    fn auxiliary_indicator_specs(&self) -> &[crate::risk::stops::AuxiliaryIndicatorSpec] {
+    fn auxiliary_indicator_specs(&self) -> &[AuxiliaryIndicatorSpec] {
         &self.auxiliary_specs
     }
 }
@@ -791,10 +794,9 @@ impl StrategyBuilder {
             }
 
             // Собираем auxiliary specs с учетом примененных параметров
-            for spec in crate::risk::stops::get_auxiliary_specs_from_handler_spec(
-                &handler.handler_name,
-                &handler_params,
-            ) {
+            for spec in
+                get_auxiliary_specs_from_handler_spec(&handler.handler_name, &handler_params)
+            {
                 if !seen_auxiliary_aliases.contains(&spec.alias) {
                     seen_auxiliary_aliases.insert(spec.alias.clone());
                     auxiliary_specs_collector.push(spec);

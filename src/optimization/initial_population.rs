@@ -317,7 +317,7 @@ impl InitialPopulationGenerator {
 
     fn generate_random_parameters(&self, candidate: &StrategyCandidate) -> StrategyParameterMap {
         use crate::indicators::parameters::ParameterPresets;
-        use crate::risk::stops::get_optimization_range as get_stop_optimization_range;
+        use crate::risk::get_stop_optimization_range;
         use crate::strategy::types::StrategyParamValue;
 
         let mut rng = rand::thread_rng();
