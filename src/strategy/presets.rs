@@ -11,7 +11,11 @@ use super::types::{
 };
 
 pub fn default_strategy_definitions() -> Vec<StrategyDefinition> {
-    vec![sma_crossover_definition(), bollinger_bands_definition()]
+    vec![
+        sma_crossover_definition(),
+        bollinger_bands_definition(),
+        supertrend_atr_trailing_definition(),
+    ]
 }
 
 fn sma_crossover_definition() -> StrategyDefinition {
@@ -500,18 +504,7 @@ fn bollinger_bands_definition() -> StrategyDefinition {
         target_entry_ids: Vec::new(),
     }];
 
-    let exit_rules = vec![StrategyRuleSpec {
-        id: "exit_long_bb".to_string(),
-        name: "Exit long on BB Upper touch".to_string(),
-        logic: super::types::RuleLogic::All,
-        conditions: vec!["price_above_upper".to_string()],
-        signal: StrategySignalType::Exit,
-        direction: PositionDirection::Long,
-        quantity: None,
-        tags: vec!["bb".to_string(), "exit".to_string()],
-        position_group: None,
-        target_entry_ids: vec!["enter_long_bb".to_string()],
-    }];
+    let exit_rules = vec![];
 
     let mut stop_loss_params = StrategyParameterMap::new();
     stop_loss_params.insert("percentage".to_string(), StrategyParamValue::Number(1.0));
@@ -555,6 +548,113 @@ fn bollinger_bands_definition() -> StrategyDefinition {
             author: Some("System".to_string()),
             categories: vec![super::types::StrategyCategory::MeanReversion],
             tags: vec!["bb".to_string(), "test".to_string()],
+            created_at: None,
+            updated_at: None,
+        },
+        Vec::new(),
+        indicator_bindings,
+        Vec::new(),
+        condition_bindings,
+        entry_rules,
+        exit_rules,
+        stop_handlers,
+        take_handlers,
+        StrategyParameterMap::new(),
+        BTreeMap::new(),
+    )
+}
+
+fn supertrend_atr_trailing_definition() -> StrategyDefinition {
+    let timeframe = TimeFrame::minutes(60);
+
+    let supertrend_alias = "supertrend".to_string();
+
+    let indicator_bindings = vec![IndicatorBindingSpec {
+        alias: supertrend_alias.clone(),
+        timeframe: timeframe.clone(),
+        source: IndicatorSourceSpec::Registry {
+            name: "SUPERTREND".to_string(),
+            parameters: HashMap::from([
+                ("period".to_string(), 60.0),
+                ("coeff_atr".to_string(), 6.5),
+            ]),
+        },
+        tags: vec!["trend".to_string(), "supertrend".to_string()],
+    }];
+
+    let supertrend_below_close = ConditionInputSpec::Dual {
+        primary: DataSeriesSource::indicator(supertrend_alias.clone()),
+        secondary: DataSeriesSource::price(PriceField::Close),
+    };
+
+    let condition_bindings = vec![ConditionBindingSpec {
+        id: "supertrend_below_close".to_string(),
+        name: "SuperTrend < Close".to_string(),
+        timeframe: timeframe.clone(),
+        declarative: ConditionDeclarativeSpec::from_input(
+            ConditionOperator::LessThan,
+            &supertrend_below_close,
+        ),
+        parameters: HashMap::new(),
+        input: supertrend_below_close,
+        weight: 1.0,
+        tags: vec!["entry".to_string(), "trend".to_string()],
+        user_formula: None,
+    }];
+
+    let entry_rules = vec![StrategyRuleSpec {
+        id: "enter_long_supertrend".to_string(),
+        name: "Enter long when SuperTrend < Close".to_string(),
+        logic: super::types::RuleLogic::All,
+        conditions: vec!["supertrend_below_close".to_string()],
+        signal: StrategySignalType::Entry,
+        direction: PositionDirection::Long,
+        quantity: None,
+        tags: vec!["supertrend".to_string(), "entry".to_string()],
+        position_group: Some("supertrend_long".to_string()),
+        target_entry_ids: Vec::new(),
+    }];
+
+    let exit_rules = vec![];
+
+    let mut atr_trail_params = StrategyParameterMap::new();
+    atr_trail_params.insert("period".to_string(), StrategyParamValue::Number(30.0));
+    atr_trail_params.insert("coeff_atr".to_string(), StrategyParamValue::Number(7.0));
+
+    let stop_handlers = vec![StopHandlerSpec {
+        id: "atr_trailing_stop".to_string(),
+        name: "ATR Trailing Stop".to_string(),
+        handler_name: "ATRTrailStop".to_string(),
+        timeframe: timeframe.clone(),
+        price_field: PriceField::Close,
+        parameters: atr_trail_params,
+        direction: PositionDirection::Long,
+        priority: 10,
+        tags: vec![
+            "stop".to_string(),
+            "trailing".to_string(),
+            "atr".to_string(),
+        ],
+        target_entry_ids: vec!["enter_long_supertrend".to_string()],
+    }];
+
+    let take_handlers = vec![];
+
+    StrategyDefinition::new(
+        StrategyMetadata {
+            id: "SUPERTREND_ATR_TRAILING".to_string(),
+            name: "SuperTrend with ATR Trailing Stop".to_string(),
+            description: Some(
+                "Стратегия на основе SuperTrend с выходом по ATR Trailing Stop".to_string(),
+            ),
+            version: Some("1.0.0".to_string()),
+            author: Some("System".to_string()),
+            categories: vec![super::types::StrategyCategory::TrendFollowing],
+            tags: vec![
+                "supertrend".to_string(),
+                "atr".to_string(),
+                "trailing".to_string(),
+            ],
             created_at: None,
             updated_at: None,
         },

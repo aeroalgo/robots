@@ -309,7 +309,7 @@ impl PositionManager {
         for entry in &decision.entries {
             self.handle_entry_signal(context, entry, &mut report)?;
         }
-        let snapshot = self.snapshot_active_positions();
+        let snapshot = self.snapshot_active_positions_with_context(context);
         context.set_active_positions(snapshot);
         Ok(report)
     }
@@ -730,24 +730,34 @@ impl PositionManager {
         Ok(())
     }
 
-    fn snapshot_active_positions(&self) -> PositionBook {
+    fn snapshot_active_positions_with_context(&self, context: &StrategyContext) -> PositionBook {
+        let existing_positions = context.active_positions();
+        
         let entries: Vec<ActivePosition> = self
             .open_index
             .values()
             .filter_map(|position_id| self.positions.get(position_id))
-            .map(|state| ActivePosition {
-                id: state.id.clone(),
-                symbol: state.key.symbol.clone(),
-                timeframe: state.key.timeframe.clone(),
-                direction: state.key.direction.clone(),
-                entry_price: state.average_price,
-                quantity: state.quantity,
-                opened_at: Some(state.opened_at),
-                last_price: Some(state.current_price),
-                metadata: state.metadata.clone(),
-                insights: PositionInsights::default(),
-                position_group: state.key.position_group.clone(),
-                entry_rule_id: state.key.entry_rule_id.clone(),
+            .map(|state| {
+                let existing = existing_positions.get(&state.id);
+                
+                ActivePosition {
+                    id: state.id.clone(),
+                    symbol: state.key.symbol.clone(),
+                    timeframe: state.key.timeframe.clone(),
+                    direction: state.key.direction.clone(),
+                    entry_price: state.average_price,
+                    quantity: state.quantity,
+                    opened_at: Some(state.opened_at),
+                    last_price: Some(state.current_price),
+                    metadata: state.metadata.clone(),
+                    insights: PositionInsights::default(),
+                    position_group: state.key.position_group.clone(),
+                    entry_rule_id: state.key.entry_rule_id.clone(),
+                    max_high_since_entry: existing.and_then(|p| p.max_high_since_entry),
+                    min_low_since_entry: existing.and_then(|p| p.min_low_since_entry),
+                    current_stop: existing.and_then(|p| p.current_stop),
+                    entry_bar_index: existing.and_then(|p| p.entry_bar_index),
+                }
             })
             .collect();
         PositionBook::new(entries)

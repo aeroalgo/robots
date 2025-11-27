@@ -31,6 +31,15 @@ pub trait StopHandler: Send + Sync {
     fn required_auxiliary_indicators(&self) -> Vec<AuxiliaryIndicatorSpec> {
         vec![]
     }
+
+    fn get_trailing_updates(&self, _ctx: &StopEvaluationContext<'_>) -> HashMap<String, String> {
+        HashMap::new()
+    }
+
+    /// Вычисляет текущий уровень стопа (для trailing)
+    fn compute_stop_level(&self, _ctx: &StopEvaluationContext<'_>) -> Option<f64> {
+        None
+    }
 }
 
 pub struct TakeOutcome {

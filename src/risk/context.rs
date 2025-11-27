@@ -8,6 +8,9 @@ pub struct StopEvaluationContext<'a> {
     pub price_field: PriceField,
     pub index: usize,
     pub current_price: f64,
+    pub max_high_since_entry: f64,
+    pub min_low_since_entry: f64,
+    pub current_stop: Option<f64>,
 }
 
 impl<'a> StopEvaluationContext<'a> {

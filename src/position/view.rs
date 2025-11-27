@@ -7,8 +7,6 @@ use crate::strategy::types::PositionDirection;
 
 #[derive(Clone, Debug, Default)]
 pub struct PositionInsights {
-    pub mae: Option<f64>,
-    pub mfe: Option<f64>,
     pub bars_held: Option<u32>,
     pub custom: HashMap<String, String>,
 }
@@ -27,6 +25,13 @@ pub struct ActivePosition {
     pub insights: PositionInsights,
     pub position_group: Option<String>,
     pub entry_rule_id: Option<String>,
+
+    pub max_high_since_entry: Option<f64>,
+    pub min_low_since_entry: Option<f64>,
+
+    // Trailing stop
+    pub current_stop: Option<f64>,      // Текущий уровень стопа
+    pub entry_bar_index: Option<usize>, // Индекс бара входа
 }
 
 impl ActivePosition {
@@ -53,6 +58,10 @@ impl ActivePosition {
             insights: PositionInsights::default(),
             position_group,
             entry_rule_id,
+            max_high_since_entry: None,
+            min_low_since_entry: None,
+            current_stop: None,
+            entry_bar_index: None,
         }
     }
 }

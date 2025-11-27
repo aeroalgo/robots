@@ -2,8 +2,10 @@ pub mod auxiliary;
 pub mod context;
 pub mod errors;
 pub mod factory;
+pub mod manager;
 pub mod parameters;
 pub mod registry;
+pub mod state;
 pub mod stops;
 pub mod takes;
 pub mod traits;
@@ -21,6 +23,8 @@ pub use factory::{
     StopHandlerFactory, TakeHandlerFactory, get_stop_optimization_range,
     get_take_optimization_range,
 };
+pub use manager::{RiskManager, StopHandlerEntry};
+pub use state::{PositionRiskState, RiskStateBook};
 pub use stops::{
     ATRTrailStopHandler, HILOTrailingStopHandler, IndicatorStopHandler,
     PercentTrailingStopHandler, StopLossPctHandler,

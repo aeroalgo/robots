@@ -15,11 +15,12 @@ use super::base::Strategy;
 use super::builder::StrategyBuilder;
 use super::context::{StrategyContext, TimeframeData};
 use super::types::{
-    IndicatorBindingSpec, IndicatorSourceSpec, StrategyDecision, StrategyDefinition,
-    StrategyError, StrategyParameterMap,
+    IndicatorBindingSpec, IndicatorSourceSpec, StrategyDecision, StrategyDefinition, StrategyError,
+    StrategyParameterMap,
 };
 use crate::metrics::{BacktestAnalytics, BacktestReport};
 use crate::position::{ExecutionReport, PositionBook, PositionError, PositionManager};
+use crate::risk::{RiskManager, StopHandlerEntry};
 
 #[derive(Debug, Error)]
 pub enum StrategyExecutionError {
@@ -34,6 +35,7 @@ pub enum StrategyExecutionError {
 pub struct BacktestExecutor {
     strategy: Box<dyn Strategy>,
     position_manager: PositionManager,
+    risk_manager: RiskManager,
     feed: HistoricalFeed,
     context: StrategyContext,
     analytics: BacktestAnalytics,
@@ -203,6 +205,7 @@ impl BacktestExecutor {
 
         let context = feed.initialize_context_ordered(&timeframe_order);
         let position_manager = PositionManager::new(strategy.id().to_string());
+        let risk_manager = Self::build_risk_manager(&*strategy);
         let cached_session_duration = feed.primary_timeframe.as_ref().and_then(|tf| tf.duration());
         let initial_capital = position_manager
             .portfolio_snapshot()
@@ -211,6 +214,7 @@ impl BacktestExecutor {
         Ok(Self {
             strategy,
             position_manager,
+            risk_manager,
             feed,
             context,
             analytics: BacktestAnalytics::new(),
@@ -221,6 +225,28 @@ impl BacktestExecutor {
             last_equity_bar: 0,
             initial_capital,
         })
+    }
+
+    fn build_risk_manager(strategy: &dyn Strategy) -> RiskManager {
+        let mut risk_manager = RiskManager::new();
+
+        for spec in strategy.stop_handler_specs() {
+            if let Ok(handler) = crate::risk::factory::StopHandlerFactory::create(
+                &spec.handler_name,
+                &spec.parameters,
+            ) {
+                let entry = StopHandlerEntry {
+                    handler: Arc::from(handler),
+                    timeframe: spec.timeframe.clone(),
+                    price_field: spec.price_field.clone(),
+                    direction: spec.direction.clone(),
+                    priority: spec.priority,
+                };
+                risk_manager.add_handler(entry);
+            }
+        }
+
+        risk_manager
     }
 
     fn compute_warmup_bars(&self) -> usize {
@@ -316,6 +342,7 @@ impl BacktestExecutor {
             self.warmup_bars = self.compute_warmup_bars();
         }
         self.position_manager.reset();
+        self.risk_manager.reset();
         self.context.set_active_positions(PositionBook::default());
         self.feed.reset();
         self.analytics.reset();
@@ -381,6 +408,11 @@ impl BacktestExecutor {
             //         }
             //     }
             // }
+            // Обновляем MFE и trailing stops на КАЖДОМ баре (ДО evaluate и проверки стопов)
+            if self.position_manager.open_position_count() > 0 {
+                self.update_trailing_stops();
+            }
+
             let mut decision = self
                 .strategy
                 .evaluate(&self.context)
@@ -391,6 +423,7 @@ impl BacktestExecutor {
             }
 
             let equity_changed = !decision.is_empty();
+            let had_new_entries = !decision.entries.is_empty();
             if equity_changed {
                 let report = self
                     .position_manager
@@ -398,9 +431,14 @@ impl BacktestExecutor {
                     .map_err(StrategyExecutionError::Position)?;
                 self.collect_report(&report);
                 self.cached_equity = None;
-                if self.position_manager.open_position_count() > 0 {
-                    self.process_immediate_stop_checks()?;
+
+                if had_new_entries && self.position_manager.open_position_count() > 0 {
+                    self.update_trailing_stops();
                 }
+            }
+
+            if self.position_manager.open_position_count() > 0 {
+                self.process_immediate_stop_checks()?;
             }
 
             let equity = {
@@ -580,17 +618,16 @@ impl BacktestExecutor {
             .ok_or_else(|| StrategyExecutionError::Feed("No frames available".to_string()))?;
 
         let frame = self.feed.frames.get(&timeframe).ok_or_else(|| {
-            StrategyExecutionError::Feed(format!(
-                "timeframe {:?} not available in feed",
-                timeframe
-            ))
+            StrategyExecutionError::Feed(format!("timeframe {:?} not available in feed", timeframe))
         })?;
 
         let ohlc = frame.to_indicator_ohlc();
 
         // Вычисляем auxiliary индикаторы
-        let computed = crate::risk::compute_auxiliary_indicators(auxiliary_specs, &ohlc)
-            .map_err(|e| StrategyExecutionError::Feed(format!("Auxiliary indicator error: {}", e)))?;
+        let computed =
+            crate::risk::compute_auxiliary_indicators(auxiliary_specs, &ohlc).map_err(|e| {
+                StrategyExecutionError::Feed(format!("Auxiliary indicator error: {}", e))
+            })?;
 
         // Сохраняем в TimeframeData
         let data = self
@@ -881,15 +918,23 @@ impl BacktestExecutor {
         self.analytics.absorb_execution_report(report);
     }
 
+    fn update_trailing_stops(&mut self) {
+        self.risk_manager.sync_with_positions(&self.context);
+        self.risk_manager.on_new_bar(&self.context);
+    }
+
     fn process_immediate_stop_checks(&mut self) -> Result<(), StrategyExecutionError> {
         loop {
-            let stop_signals = self
-                .strategy
-                .evaluate_stop_signals(&self.context)
-                .map_err(StrategyExecutionError::Strategy)?;
+            let stop_signals = self.risk_manager.check_stops(&self.context);
             if stop_signals.is_empty() {
                 break;
             }
+
+            let closed_ids: Vec<String> = stop_signals
+                .iter()
+                .map(|s| s.signal.rule_id.clone())
+                .collect();
+
             let mut decision = StrategyDecision::empty();
             decision.stop_signals = stop_signals;
             let report = self
@@ -897,6 +942,10 @@ impl BacktestExecutor {
                 .process_decision(&mut self.context, &decision)
                 .map_err(StrategyExecutionError::Position)?;
             self.collect_report(&report);
+
+            for position_id in &closed_ids {
+                self.risk_manager.on_position_closed(position_id);
+            }
         }
         Ok(())
     }
@@ -1234,7 +1283,6 @@ impl<'a> IndicatorComputationPlan<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::condition::types::SignalStrength;
     use crate::data_model::quote::Quote;
     use crate::data_model::quote_frame::QuoteFrame;
@@ -1245,6 +1293,7 @@ mod tests {
         StrategyId, StrategyMetadata, StrategyParameterMap, StrategyRuleSpec, StrategySignal,
         StrategySignalType, TimeframeRequirement,
     };
+    use chrono::Utc;
 
     #[derive(Clone)]
     struct SimpleStrategy {

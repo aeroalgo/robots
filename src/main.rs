@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 #[cfg(feature = "profiling")]
 use pprof::ProfilerGuard;
 use robots::candles::aggregator::TimeFrameAggregator;
@@ -16,6 +16,14 @@ use robots::optimization::*;
 use robots::strategy::executor::BacktestExecutor;
 use robots::strategy::presets::default_strategy_definitions;
 use robots::strategy::types::PriceField;
+
+fn parse_date(s: &str) -> chrono::DateTime<Utc> {
+    NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .expect(&format!("Invalid date format: {}", s))
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc()
+}
 
 #[tokio::main]
 async fn main() {
@@ -37,8 +45,9 @@ async fn run() -> Result<()> {
 
     let symbol = Symbol::from_descriptor("AFLT.MM");
     let timeframe = TimeFrame::from_identifier("60");
-    let start = Utc::now() - chrono::Duration::days(5000);
-    let end = Utc::now() + chrono::Duration::hours(3);
+
+    let start = parse_date("2020-01-01");
+    let end = parse_date("2025-10-01");
 
     let candles: Vec<_> = connector
         .get_ohlcv_typed(&symbol, &timeframe, start, end, None)
@@ -83,11 +92,140 @@ async fn run() -> Result<()> {
 
     let definition = default_strategy_definitions()
         .into_iter()
-        .find(|def| def.metadata.id == "SMA_CROSSOVER_LONG")
+        .find(|def| def.metadata.id == "SUPERTREND_ATR_TRAILING")
         .context("Стратегия SMA_CROSSOVER_LONG не найдена")?;
 
     let mut executor =
         BacktestExecutor::from_definition(definition, None, frames).map_err(anyhow::Error::new)?;
+
+    // Проверка SuperTrend индикатора
+    println!("\n=== ПРОВЕРКА SUPERTREND ИНДИКАТОРА ===");
+    let supertrend = IndicatorFactory::create_indicator(
+        "SUPERTREND",
+        HashMap::from([("period".to_string(), 60.0), ("coeff_atr".to_string(), 6.5)]),
+    )?;
+
+    let ohlc_data = robots::indicators::types::OHLCData {
+        open: source_frame.opens().iter().collect(),
+        high: source_frame.highs().iter().collect(),
+        low: source_frame.lows().iter().collect(),
+        close: source_frame.closes().iter().collect(),
+        volume: Some(source_frame.volumes().iter().collect()),
+        timestamp: Some(
+            source_frame
+                .timestamps()
+                .iter()
+                .map(|t| t.timestamp())
+                .collect(),
+        ),
+    };
+
+    let supertrend_values = supertrend.calculate_ohlc(&ohlc_data)?;
+    let close_vec: Vec<f32> = source_frame.closes().iter().collect();
+
+    println!("Всего значений SuperTrend: {}", supertrend_values.len());
+    println!("Всего значений Close: {}", close_vec.len());
+
+    // Последние 20 значений для проверки
+    let last_n = 20;
+    let start_idx = supertrend_values.len().saturating_sub(last_n);
+    println!("\nПоследние {} значений SuperTrend vs Close:", last_n);
+    println!(
+        "{:>6} | {:>12} | {:>12} | {:>10}",
+        "Index", "SuperTrend", "Close", "ST > Close"
+    );
+    println!("{}", "-".repeat(50));
+    for i in start_idx..supertrend_values.len() {
+        let st = supertrend_values[i];
+        let cl = close_vec[i];
+        let condition = if st > cl { "YES ✓" } else { "NO" };
+        println!("{:>6} | {:>12.4} | {:>12.4} | {:>10}", i, st, cl, condition);
+    }
+
+    // Статистика условия supertrend > close за последние 1000 баров
+    let check_count = 1000.min(supertrend_values.len());
+    let check_start = supertrend_values.len().saturating_sub(check_count);
+    let mut condition_true_count = 0;
+    for i in check_start..supertrend_values.len() {
+        if supertrend_values[i] > close_vec[i] {
+            condition_true_count += 1;
+        }
+    }
+    println!("\nСтатистика за последние {} баров:", check_count);
+    println!(
+        "SuperTrend > Close: {} раз ({:.1}%)",
+        condition_true_count,
+        (condition_true_count as f64 / check_count as f64) * 100.0
+    );
+
+    // Проверка ATRTrailStop
+    println!("\n=== ПРОВЕРКА ATR TRAILING STOP ===");
+    use robots::risk::StopHandlerFactory;
+    use robots::strategy::types::StrategyParamValue;
+
+    let mut atr_params = std::collections::HashMap::new();
+    atr_params.insert("period".to_string(), StrategyParamValue::Number(30.0));
+    atr_params.insert("coeff_atr".to_string(), StrategyParamValue::Number(7.0));
+
+    match StopHandlerFactory::create("ATRTrailStop", &atr_params) {
+        Ok(handler) => {
+            println!("✓ ATRTrailStop создан успешно");
+            println!("  Handler name: {}", handler.name());
+            let aux_specs = handler.required_auxiliary_indicators();
+            println!(
+                "  Required auxiliary indicators: {:?}",
+                aux_specs.iter().map(|s| &s.alias).collect::<Vec<_>>()
+            );
+        }
+        Err(e) => {
+            println!("✗ Ошибка создания ATRTrailStop: {:?}", e);
+        }
+    }
+
+    // Проверка диапазонов параметров
+    println!("\nДиапазоны параметров из StopParameterPresets:");
+    if let Some(range) = robots::risk::get_stop_optimization_range("ATRTrailStop", "period") {
+        println!(
+            "  period: {:.1} - {:.1}, step {:.1}",
+            range.start, range.end, range.step
+        );
+    }
+    if let Some(range) = robots::risk::get_stop_optimization_range("ATRTrailStop", "coeff_atr") {
+        println!(
+            "  coeff_atr: {:.1} - {:.1}, step {:.1}",
+            range.start, range.end, range.step
+        );
+    }
+
+    // Проверяем есть ли aux_ATR_30 в timeframe_data
+    println!("\n=== ПРОВЕРКА AUXILIARY ИНДИКАТОРОВ ===");
+    if let Ok(tf_data) = executor.context().timeframe(&timeframe) {
+        let aux_alias = "aux_ATR_30";
+        if let Some(atr_val) = tf_data.auxiliary_value_at(aux_alias, 1000) {
+            println!(
+                "✓ {} найден, значение на баре 1000: {:.4}",
+                aux_alias, atr_val
+            );
+        } else {
+            println!("✗ {} НЕ найден в timeframe_data!", aux_alias);
+        }
+
+        // Проверим ATR отдельно
+        let atr = IndicatorFactory::create_indicator(
+            "ATR",
+            HashMap::from([("period".to_string(), 30.0)]),
+        )?;
+        let atr_values = atr.calculate_ohlc(&ohlc_data)?;
+        let last_atr = atr_values.last().copied().unwrap_or(0.0);
+        let last_close = close_vec.last().copied().unwrap_or(0.0);
+        println!("\nATR(30) последнее значение: {:.4}", last_atr);
+        println!("Close последнее значение: {:.4}", last_close);
+        println!("ATR * 7.0 (coeff): {:.4}", last_atr * 7.0);
+        println!(
+            "Stop level для Long: Close - ATR*7 = {:.4}",
+            last_close as f64 - (last_atr * 7.0) as f64
+        );
+    }
 
     #[cfg(feature = "profiling")]
     let _guard = {

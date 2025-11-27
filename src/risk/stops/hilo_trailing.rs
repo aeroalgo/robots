@@ -5,7 +5,7 @@ use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 use crate::risk::auxiliary::AuxiliaryIndicatorSpec;
 use crate::risk::context::{StopEvaluationContext, StopValidationContext};
 use crate::risk::traits::{StopHandler, StopOutcome, StopValidationResult};
-use crate::risk::utils::{compute_trailing_stop, get_price_at_index, is_stop_triggered};
+use crate::risk::utils::{calculate_stop_exit_price, compute_trailing_stop, get_price_at_index, is_stop_triggered};
 
 pub struct HILOTrailingStopHandler {
     pub period: f64,
@@ -148,14 +148,23 @@ impl StopHandler for HILOTrailingStopHandler {
         let high_price = get_price_at_index(ctx.timeframe_data, &PriceField::High, ctx.index, ctx.current_price);
 
         if is_stop_triggered(&ctx.position.direction, low_price, high_price, current_stop) {
+            let open_price = get_price_at_index(
+                ctx.timeframe_data,
+                &PriceField::Open,
+                ctx.index,
+                ctx.current_price,
+            );
+            
+            let exit_price = calculate_stop_exit_price(
+                &ctx.position.direction,
+                current_stop,
+                open_price,
+                ctx.current_price,
+            );
+            
             let mut metadata = HashMap::new();
             metadata.insert("level".to_string(), current_stop.to_string());
-            let triggered_price = match ctx.position.direction {
-                PositionDirection::Long => low_price,
-                PositionDirection::Short => high_price,
-                _ => ctx.current_price,
-            };
-            metadata.insert("triggered_price".to_string(), triggered_price.to_string());
+            metadata.insert("triggered_price".to_string(), exit_price.to_string());
 
             if let Some(minfor) = self.get_minfor_value(ctx) {
                 metadata.insert("minfor_value".to_string(), minfor.to_string());
@@ -166,7 +175,7 @@ impl StopHandler for HILOTrailingStopHandler {
 
             metadata.insert(format!("{}_current_stop", self.name()), current_stop.to_string());
             return Some(StopOutcome {
-                exit_price: current_stop,
+                exit_price,
                 kind: StopSignalKind::StopLoss,
                 metadata,
             });

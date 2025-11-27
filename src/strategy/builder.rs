@@ -11,9 +11,10 @@ use super::types::{
     ConditionBindingSpec, ConditionDeclarativeSpec, ConditionEvaluation, ConditionInputSpec,
     ConditionOperator, DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec,
     PositionDirection, PreparedCondition, PreparedStopHandler, PreparedTakeHandler, PriceField,
-    RuleLogic, StopSignal, StrategyDecision, StrategyDefinition, StrategyError, StrategyId,
-    StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyRuleSpec, StrategySignal,
-    StrategySignalType, StrategyUserInput, TimeframeRequirement, UserFormulaMetadata,
+    RuleLogic, StopHandlerSpec, StopSignal, StrategyDecision, StrategyDefinition, StrategyError,
+    StrategyId, StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyRuleSpec,
+    StrategySignal, StrategySignalType, StrategyUserInput, TimeframeRequirement,
+    UserFormulaMetadata,
 };
 use crate::risk::{
     get_auxiliary_specs_from_handler_spec, AuxiliaryIndicatorSpec, StopEvaluationContext,
@@ -36,10 +37,10 @@ pub struct DynamicStrategy {
     entry_rules: Vec<OptimizedRule>,
     exit_rules: Vec<OptimizedRule>,
     stop_handlers: Vec<PreparedStopHandler>,
+    stop_handler_specs: Vec<StopHandlerSpec>,
     take_handlers: Vec<PreparedTakeHandler>,
     timeframe_requirements: Vec<TimeframeRequirement>,
     parameters: StrategyParameterMap,
-    /// Служебные индикаторы для стоп-обработчиков (ATR, MINFOR, MAXFOR)
     auxiliary_specs: Vec<AuxiliaryIndicatorSpec>,
 }
 
@@ -81,6 +82,8 @@ impl DynamicStrategy {
                     .collect()
             };
 
+        let stop_handler_specs = definition.stop_handlers.clone();
+
         Self {
             metadata,
             definition,
@@ -89,6 +92,7 @@ impl DynamicStrategy {
             entry_rules: optimize_rules(entry_rules, &condition_lookup),
             exit_rules: optimize_rules(exit_rules, &condition_lookup),
             stop_handlers,
+            stop_handler_specs,
             take_handlers,
             timeframe_requirements,
             parameters,
@@ -282,102 +286,6 @@ impl DynamicStrategy {
         }
     }
 
-    fn evaluate_stop_handlers(
-        &self,
-        context: &StrategyContext,
-    ) -> Result<Vec<StopSignal>, StrategyError> {
-        if context.active_positions().is_empty() {
-            return Ok(Vec::new());
-        }
-        let positions_count = context.active_positions().len();
-        let handlers_count = self.stop_handlers.len();
-        let mut signals = Vec::with_capacity(positions_count * handlers_count);
-        for handler in &self.stop_handlers {
-            let timeframe_data = context.timeframe(&handler.timeframe)?;
-            let series = timeframe_data
-                .price_series_slice(&handler.price_field)
-                .ok_or_else(|| StrategyError::MissingPriceSeries {
-                    field: handler.price_field.clone(),
-                    timeframe: handler.timeframe.clone(),
-                })?;
-            if series.is_empty() {
-                continue;
-            }
-            let index = timeframe_data.index().min(series.len().saturating_sub(1));
-            let current_price = series[index] as f64;
-            for position in context.active_positions().values() {
-                if position.timeframe != handler.timeframe {
-                    continue;
-                }
-                if !self.stop_direction_matches(&handler.direction, &position.direction) {
-                    continue;
-                }
-                if !handler.target_entry_ids.is_empty() {
-                    let mut matches_target = false;
-                    if let Some(group) = position.position_group.as_ref() {
-                        if handler.target_entry_ids.iter().any(|id| id == group) {
-                            matches_target = true;
-                        }
-                    }
-                    if !matches_target {
-                        if let Some(entry_id) = position.entry_rule_id.as_ref() {
-                            if handler.target_entry_ids.iter().any(|id| id == entry_id) {
-                                matches_target = true;
-                            }
-                        }
-                    }
-                    if !matches_target {
-                        continue;
-                    }
-                }
-                let eval_ctx = StopEvaluationContext {
-                    position,
-                    timeframe_data,
-                    price_field: handler.price_field.clone(),
-                    index,
-                    current_price,
-                };
-                if let Some(outcome) = handler.handler.evaluate(&eval_ctx) {
-                    let mut signal = StrategySignal {
-                        rule_id: handler.id.clone(),
-                        signal_type: StrategySignalType::Exit,
-                        direction: position.direction.clone(),
-                        timeframe: handler.timeframe.clone(),
-                        strength: SignalStrength::VeryStrong,
-                        quantity: Some(position.quantity),
-                        entry_rule_id: position.entry_rule_id.clone(),
-                        tags: handler.tags.clone(),
-                        position_group: None,
-                        target_entry_ids: Vec::with_capacity(handler.target_entry_ids.len() + 1),
-                    };
-                    if let Some(group) = position.position_group.as_ref() {
-                        signal.target_entry_ids.push(group.clone());
-                    }
-                    if let Some(entry_id) = position.entry_rule_id.as_ref() {
-                        if !signal.target_entry_ids.iter().any(|id| id == entry_id) {
-                            signal.target_entry_ids.push(entry_id.clone());
-                        }
-                    }
-                    if !signal.tags.iter().any(|tag| tag == "stop") {
-                        signal.tags.push("stop".to_string());
-                    }
-                    let mut metadata = outcome.metadata;
-                    metadata.insert("handler_name".to_string(), handler.name.clone());
-                    signals.push(StopSignal {
-                        handler_id: handler.id.clone(),
-                        signal,
-                        exit_price: outcome.exit_price,
-                        kind: outcome.kind,
-                        priority: handler.priority,
-                        metadata,
-                    });
-                }
-            }
-        }
-        signals.sort_by(|a, b| a.priority.cmp(&b.priority));
-        Ok(signals)
-    }
-
     fn evaluate_take_handlers(
         &self,
         context: &StrategyContext,
@@ -561,26 +469,13 @@ impl Strategy for DynamicStrategy {
     fn evaluate(&self, context: &StrategyContext) -> Result<StrategyDecision, StrategyError> {
         let evaluations = self.evaluate_conditions(context)?;
         let has_active_positions = !context.active_positions().is_empty();
-        let (stop_signals, take_signals) = if has_active_positions {
-            (
-                self.evaluate_stop_handlers(context)?,
-                self.evaluate_take_handlers(context)?,
-            )
+        let take_signals = if has_active_positions {
+            self.evaluate_take_handlers(context)?
         } else {
-            (Vec::new(), Vec::new())
+            Vec::new()
         };
         let mut decision = StrategyDecision::empty();
         let mut metadata_key_buf = String::with_capacity(32);
-        for stop in &stop_signals {
-            decision.exits.push(stop.signal.clone());
-            metadata_key_buf.clear();
-            metadata_key_buf.push_str("stop.");
-            metadata_key_buf.push_str(&stop.handler_id);
-            metadata_key_buf.push_str(".exit_price");
-            decision
-                .metadata
-                .insert(metadata_key_buf.clone(), stop.exit_price.to_string());
-        }
         for take in &take_signals {
             decision.exits.push(take.signal.clone());
             metadata_key_buf.clear();
@@ -591,8 +486,7 @@ impl Strategy for DynamicStrategy {
                 .metadata
                 .insert(metadata_key_buf.clone(), take.exit_price.to_string());
         }
-        let mut all_stop_signals = stop_signals;
-        all_stop_signals.extend(take_signals);
+        let mut all_stop_signals = take_signals;
         all_stop_signals.sort_by(|a, b| a.priority.cmp(&b.priority));
 
         let mut has_exit_rule_signals = false;
@@ -638,27 +532,16 @@ impl Strategy for DynamicStrategy {
         Ok(decision)
     }
 
-    fn evaluate_stop_signals(
-        &self,
-        context: &StrategyContext,
-    ) -> Result<Vec<StopSignal>, StrategyError> {
-        if context.active_positions().is_empty() {
-            return Ok(Vec::new());
-        }
-        let stop_signals = self.evaluate_stop_handlers(context)?;
-        let take_signals = self.evaluate_take_handlers(context)?;
-        let mut all_stop_signals = stop_signals;
-        all_stop_signals.extend(take_signals);
-        all_stop_signals.sort_by(|a, b| a.priority.cmp(&b.priority));
-        Ok(all_stop_signals)
-    }
-
     fn clone_box(&self) -> Box<dyn Strategy> {
         Box::new(self.clone())
     }
 
     fn auxiliary_indicator_specs(&self) -> &[AuxiliaryIndicatorSpec] {
         &self.auxiliary_specs
+    }
+
+    fn stop_handler_specs(&self) -> &[StopHandlerSpec] {
+        &self.stop_handler_specs
     }
 }
 

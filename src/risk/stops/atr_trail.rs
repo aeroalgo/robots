@@ -5,9 +5,7 @@ use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 use crate::risk::auxiliary::AuxiliaryIndicatorSpec;
 use crate::risk::context::StopEvaluationContext;
 use crate::risk::traits::{StopHandler, StopOutcome};
-use crate::risk::utils::{
-    compute_trailing_stop, get_bar_extremes, get_price_at_index, is_stop_triggered,
-};
+use crate::risk::utils::{calculate_stop_exit_price, get_price_at_index, is_stop_triggered};
 
 pub struct ATRTrailStopHandler {
     pub period: f64,
@@ -34,24 +32,6 @@ impl ATRTrailStopHandler {
             .indicator_value_at(&atr_alias, ctx.index)
             .or_else(|| ctx.timeframe_data.indicator_value_at("ATR", ctx.index))
     }
-
-    fn calculate_stop_level(
-        &self,
-        direction: &PositionDirection,
-        min_price: f64,
-        max_price: f64,
-        atr: f32,
-        current_price: f64,
-    ) -> f64 {
-        let atr_f64 = atr as f64;
-        let offset = atr_f64 * self.coeff_atr;
-
-        match direction {
-            PositionDirection::Long => min_price - offset,
-            PositionDirection::Short => max_price + offset,
-            _ => current_price,
-        }
-    }
 }
 
 impl StopHandler for ATRTrailStopHandler {
@@ -61,19 +41,31 @@ impl StopHandler for ATRTrailStopHandler {
 
     fn evaluate(&self, ctx: &StopEvaluationContext<'_>) -> Option<StopOutcome> {
         let atr_value = self.get_atr_value(ctx)?;
-        let (min_price, max_price) =
-            get_bar_extremes(ctx.timeframe_data, ctx.index, ctx.current_price);
 
-        let new_stop = self.calculate_stop_level(
-            &ctx.position.direction,
-            min_price,
-            max_price,
-            atr_value,
-            ctx.current_price,
-        );
+        let max_high = ctx.max_high_since_entry;
+        let min_low = ctx.min_low_since_entry;
 
-        let current_stop =
-            compute_trailing_stop(ctx.position, new_stop, &ctx.position.direction, self.name());
+        let offset = atr_value as f64 * self.coeff_atr;
+        let new_stop = match ctx.position.direction {
+            PositionDirection::Long => max_high - offset,
+            PositionDirection::Short => min_low + offset,
+            _ => ctx.current_price,
+        };
+
+        let prev_stop = ctx.current_stop;
+
+        // Trailing: стоп может только улучшаться
+        let effective_stop = match ctx.position.direction {
+            PositionDirection::Long => {
+                // Для Long стоп растёт (подтягивается вверх)
+                prev_stop.map(|p| new_stop.max(p)).unwrap_or(new_stop)
+            }
+            PositionDirection::Short => {
+                // Для Short стоп падает (подтягивается вниз)
+                prev_stop.map(|p| new_stop.min(p)).unwrap_or(new_stop)
+            }
+            _ => new_stop,
+        };
 
         let low_price = get_price_at_index(
             ctx.timeframe_data,
@@ -88,26 +80,35 @@ impl StopHandler for ATRTrailStopHandler {
             ctx.current_price,
         );
 
-        if is_stop_triggered(&ctx.position.direction, low_price, high_price, current_stop) {
-            let mut metadata = HashMap::new();
-            metadata.insert("level".to_string(), current_stop.to_string());
-            let triggered_price = match ctx.position.direction {
-                PositionDirection::Long => low_price,
-                PositionDirection::Short => high_price,
-                _ => ctx.current_price,
-            };
-            metadata.insert("triggered_price".to_string(), triggered_price.to_string());
-            metadata.insert("atr_value".to_string(), atr_value.to_string());
-            metadata.insert("min_price".to_string(), min_price.to_string());
-            metadata.insert("max_price".to_string(), max_price.to_string());
-            metadata.insert(
-                format!("{}_current_stop", self.name()),
-                current_stop.to_string(),
+        if is_stop_triggered(
+            &ctx.position.direction,
+            low_price,
+            high_price,
+            effective_stop,
+        ) {
+            let open_price = get_price_at_index(
+                ctx.timeframe_data,
+                &PriceField::Open,
+                ctx.index,
+                ctx.current_price,
             );
-            metadata.insert(format!("{}_min_price", self.name()), min_price.to_string());
-            metadata.insert(format!("{}_max_price", self.name()), max_price.to_string());
+
+            let exit_price = calculate_stop_exit_price(
+                &ctx.position.direction,
+                effective_stop,
+                open_price,
+                ctx.current_price,
+            );
+
+            let mut metadata = HashMap::new();
+            metadata.insert("level".to_string(), effective_stop.to_string());
+            metadata.insert("triggered_price".to_string(), exit_price.to_string());
+            metadata.insert("atr_value".to_string(), atr_value.to_string());
+            metadata.insert("max_high".to_string(), max_high.to_string());
+            metadata.insert("min_low".to_string(), min_low.to_string());
+
             return Some(StopOutcome {
-                exit_price: current_stop,
+                exit_price,
                 kind: StopSignalKind::StopLoss,
                 metadata,
             });
@@ -117,5 +118,25 @@ impl StopHandler for ATRTrailStopHandler {
 
     fn required_auxiliary_indicators(&self) -> Vec<AuxiliaryIndicatorSpec> {
         vec![AuxiliaryIndicatorSpec::atr(self.period as u32)]
+    }
+
+    fn get_trailing_updates(&self, _ctx: &StopEvaluationContext<'_>) -> HashMap<String, String> {
+        HashMap::new()
+    }
+
+    fn compute_stop_level(&self, ctx: &StopEvaluationContext<'_>) -> Option<f64> {
+        let atr_value = self.get_atr_value(ctx)?;
+
+        let max_high = ctx.max_high_since_entry;
+        let min_low = ctx.min_low_since_entry;
+
+        let offset = atr_value as f64 * self.coeff_atr;
+        let new_stop = match ctx.position.direction {
+            PositionDirection::Long => max_high - offset,
+            PositionDirection::Short => min_low + offset,
+            _ => return None,
+        };
+
+        Some(new_stop)
     }
 }

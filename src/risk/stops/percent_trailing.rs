@@ -4,7 +4,7 @@ use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 
 use crate::risk::context::StopEvaluationContext;
 use crate::risk::traits::{StopHandler, StopOutcome};
-use crate::risk::utils::{compute_trailing_stop, get_bar_extremes, get_price_at_index, is_stop_triggered};
+use crate::risk::utils::{calculate_stop_exit_price, compute_trailing_stop, get_bar_extremes, get_price_at_index, is_stop_triggered};
 
 pub struct PercentTrailingStopHandler {
     pub percentage: f64,
@@ -58,14 +58,23 @@ impl StopHandler for PercentTrailingStopHandler {
         let high_price = get_price_at_index(ctx.timeframe_data, &PriceField::High, ctx.index, ctx.current_price);
 
         if is_stop_triggered(&ctx.position.direction, low_price, high_price, current_stop) {
+            let open_price = get_price_at_index(
+                ctx.timeframe_data,
+                &PriceField::Open,
+                ctx.index,
+                ctx.current_price,
+            );
+            
+            let exit_price = calculate_stop_exit_price(
+                &ctx.position.direction,
+                current_stop,
+                open_price,
+                ctx.current_price,
+            );
+            
             let mut metadata = HashMap::new();
             metadata.insert("level".to_string(), current_stop.to_string());
-            let triggered_price = match ctx.position.direction {
-                PositionDirection::Long => low_price,
-                PositionDirection::Short => high_price,
-                _ => ctx.current_price,
-            };
-            metadata.insert("triggered_price".to_string(), triggered_price.to_string());
+            metadata.insert("triggered_price".to_string(), exit_price.to_string());
             metadata.insert("percentage".to_string(), self.percentage.to_string());
             metadata.insert("min_price".to_string(), min_price.to_string());
             metadata.insert("max_price".to_string(), max_price.to_string());
@@ -73,7 +82,7 @@ impl StopHandler for PercentTrailingStopHandler {
             metadata.insert(format!("{}_min_price", self.name()), min_price.to_string());
             metadata.insert(format!("{}_max_price", self.name()), max_price.to_string());
             return Some(StopOutcome {
-                exit_price: current_stop,
+                exit_price,
                 kind: StopSignalKind::StopLoss,
                 metadata,
             });

@@ -5,7 +5,7 @@ use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 
 use crate::risk::context::StopEvaluationContext;
 use crate::risk::traits::{StopHandler, StopOutcome};
-use crate::risk::utils::get_price_at_index;
+use crate::risk::utils::{calculate_stop_exit_price, get_price_at_index};
 
 pub struct StopLossPctHandler {
     pub percentage: f64,
@@ -55,16 +55,25 @@ impl StopHandler for StopLossPctHandler {
         };
 
         if triggered {
+            let open_price = get_price_at_index(
+                ctx.timeframe_data,
+                &PriceField::Open,
+                ctx.index,
+                ctx.current_price,
+            );
+            
+            let exit_price = calculate_stop_exit_price(
+                &ctx.position.direction,
+                level,
+                open_price,
+                ctx.current_price,
+            );
+            
             let mut metadata = HashMap::new();
             metadata.insert("level".to_string(), level.to_string());
-            let triggered_price = match ctx.position.direction {
-                PositionDirection::Long => low_price,
-                PositionDirection::Short => high_price,
-                _ => ctx.current_price,
-            };
-            metadata.insert("triggered_price".to_string(), triggered_price.to_string());
+            metadata.insert("triggered_price".to_string(), exit_price.to_string());
             return Some(StopOutcome {
-                exit_price: level,
+                exit_price,
                 kind: StopSignalKind::StopLoss,
                 metadata,
             });

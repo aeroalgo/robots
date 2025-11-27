@@ -159,3 +159,28 @@ pub fn is_stop_triggered(
     }
 }
 
+pub fn calculate_stop_exit_price(
+    direction: &PositionDirection,
+    stop_level: f64,
+    open_price: f64,
+    fallback_price: f64,
+) -> f64 {
+    match direction {
+        PositionDirection::Long => {
+            if open_price < stop_level {
+                open_price
+            } else {
+                stop_level
+            }
+        }
+        PositionDirection::Short => {
+            if open_price > stop_level {
+                open_price
+            } else {
+                stop_level
+            }
+        }
+        _ => fallback_price,
+    }
+}
+

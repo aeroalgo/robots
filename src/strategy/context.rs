@@ -664,6 +664,10 @@ impl StrategyContext {
         &self.active_positions
     }
 
+    pub fn active_positions_mut(&mut self) -> &mut HashMap<String, ActivePosition> {
+        &mut self.active_positions
+    }
+
     pub fn set_active_positions(&mut self, book: PositionBook) {
         let entries = book.entries();
         self.active_positions = entries
@@ -678,5 +682,15 @@ impl StrategyContext {
 
     pub fn remove_active_position(&mut self, position_id: &str) -> Option<ActivePosition> {
         self.active_positions.remove(position_id)
+    }
+
+    pub fn update_position_metadata(
+        &mut self,
+        position_id: &str,
+        updates: HashMap<String, String>,
+    ) {
+        if let Some(position) = self.active_positions.get_mut(position_id) {
+            position.metadata.extend(updates);
+        }
     }
 }
