@@ -1,8 +1,9 @@
 use crate::data_model::vector_ops::unsafe_ops;
 use crate::indicators::{
     base::{
-        Indicator, OHLCIndicator, OscillatorIndicator, OverboughtOversoldZones, SimpleIndicator,
-        TrendDirection, TrendIndicator, VolatilityIndicator,
+        Indicator, IndicatorBuildRules, IndicatorCompareConfig, NestingConfig, OHLCIndicator,
+        OscillatorIndicator, OverboughtOversoldZones, PriceCompareConfig, SimpleIndicator,
+        ThresholdType, TrendDirection, TrendIndicator, VolatilityIndicator,
     },
     parameters::*,
     types::{
@@ -326,6 +327,30 @@ impl Indicator for ATR {
         }
 
         Ok(atr_values)
+    }
+
+    fn build_rules(&self) -> IndicatorBuildRules {
+        IndicatorBuildRules {
+            allowed_conditions: &["Above", "Below"],
+            price_compare: PriceCompareConfig::DISABLED,
+            threshold_type: ThresholdType::PercentOfPrice {
+                base_price_fields: &["Close"],
+            },
+            indicator_compare: IndicatorCompareConfig::DISABLED,
+            nesting: NestingConfig::VOLATILITY,
+            phase_1_allowed: false,
+            supports_percent_condition: false,
+            can_compare_with_input_source: false,
+            can_compare_with_nested_result: true,
+            nested_compare_conditions: &[
+                "Above",
+                "Below",
+                "CrossesAbove",
+                "CrossesBelow",
+                "GreaterPercent",
+                "LowerPercent",
+            ],
+        }
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
@@ -984,6 +1009,30 @@ impl Indicator for SMA {
         self.calculate_simple(&data.close)
     }
 
+    fn build_rules(&self) -> IndicatorBuildRules {
+        IndicatorBuildRules {
+            allowed_conditions: &[
+                "Above",
+                "Below",
+                "CrossesAbove",
+                "CrossesBelow",
+                "RisingTrend",
+                "FallingTrend",
+                "GreaterPercent",
+                "LowerPercent",
+            ],
+            price_compare: PriceCompareConfig::STANDARD,
+            threshold_type: ThresholdType::None,
+            indicator_compare: IndicatorCompareConfig::TREND_AND_CHANNEL,
+            nesting: NestingConfig::TREND,
+            phase_1_allowed: true,
+            supports_percent_condition: true,
+            can_compare_with_input_source: true,
+            can_compare_with_nested_result: true,
+            nested_compare_conditions: &[],
+        }
+    }
+
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
         Box::new(Self::new(self.parameters.get_value("period").unwrap()).unwrap())
     }
@@ -1220,6 +1269,28 @@ impl Indicator for RSI {
     fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         // Для RSI используем close цены
         self.calculate_simple(&data.close)
+    }
+
+    fn build_rules(&self) -> IndicatorBuildRules {
+        IndicatorBuildRules {
+            allowed_conditions: &[
+                "Above",
+                "Below",
+                "CrossesAbove",
+                "CrossesBelow",
+                "RisingTrend",
+                "FallingTrend",
+            ],
+            price_compare: PriceCompareConfig::DISABLED,
+            threshold_type: ThresholdType::Absolute,
+            indicator_compare: IndicatorCompareConfig::DISABLED,
+            nesting: NestingConfig::OSCILLATOR,
+            phase_1_allowed: true,
+            supports_percent_condition: false,
+            can_compare_with_input_source: false,
+            can_compare_with_nested_result: true,
+            nested_compare_conditions: &[],
+        }
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
