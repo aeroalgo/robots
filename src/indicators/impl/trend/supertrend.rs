@@ -1,11 +1,9 @@
 use crate::indicators::{
-    base::{
-        Indicator, TrendDirection, TrendIndicator,
-    },
-    parameters::{create_period_parameter, create_multiplier_parameter},
-    types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
+    base::{Indicator, TrendDirection, TrendIndicator},
     impl_::common::{adjust_period, default_trend_direction},
     impl_::volatility::{ATR, WATR},
+    parameters::{create_multiplier_parameter, create_period_parameter},
+    types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
 };
 
 pub struct SuperTrend {

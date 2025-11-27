@@ -1,12 +1,12 @@
 use crate::data_model::vector_ops::unsafe_ops;
 use crate::indicators::{
     base::{
-        Indicator, IndicatorBuildRules, IndicatorCompareConfig, NestingConfig,
-        PriceCompareConfig, ThresholdType, VolatilityIndicator,
+        Indicator, IndicatorBuildRules, IndicatorCompareConfig, NestingConfig, PriceCompareConfig,
+        ThresholdType, VolatilityIndicator,
     },
+    impl_::common::adjust_period,
     parameters::create_period_parameter,
     types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
-    impl_::common::adjust_period,
 };
 
 pub struct ATR {

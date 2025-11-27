@@ -1,37 +1,26 @@
 use crate::indicators::types::{IndicatorParameter, ParameterRange, ParameterType};
-use std::collections::HashMap;
 
 pub struct ParameterPresets;
 
 impl ParameterPresets {
-    fn standard_period() -> ParameterRange {
-        ParameterRange::new(5.0, 200.0, 1.0)
+    pub fn standard_period() -> ParameterRange {
+        ParameterRange::new(10.0, 200.0, 10.0)
     }
 
-    fn standard_multiplier() -> ParameterRange {
+    pub fn standard_multiplier() -> ParameterRange {
         ParameterRange::new(0.5, 5.0, 0.1)
     }
 
     fn atr_multiplier() -> ParameterRange {
-        ParameterRange::new(1.0, 10.0, 0.5)
+        ParameterRange::new(2.0, 10.0, 0.5)
     }
 
     fn deviation() -> ParameterRange {
-        ParameterRange::new(0.5, 4.0, 0.5)
+        ParameterRange::new(1.5, 4.0, 0.5)
     }
 
     fn smoothing_coefficient() -> ParameterRange {
         ParameterRange::new(0.1, 1.0, 0.05)
-    }
-
-    fn default_for_type(param_type: &ParameterType) -> ParameterRange {
-        match param_type {
-            ParameterType::Period => Self::standard_period(),
-            ParameterType::Multiplier => Self::standard_multiplier(),
-            ParameterType::Threshold => ParameterRange::new(20.0, 80.0, 5.0),
-            ParameterType::Coefficient => Self::smoothing_coefficient(),
-            ParameterType::Custom => ParameterRange::new(0.0, 100.0, 1.0),
-        }
     }
 
     pub fn get_range_for_parameter(
@@ -41,18 +30,18 @@ impl ParameterPresets {
     ) -> Option<ParameterRange> {
         match param_type {
             ParameterType::Period => Some(Self::standard_period()),
-            ParameterType::Multiplier => Self::get_multiplier_range(param_name),
+            ParameterType::Multiplier => Some(Self::get_multiplier_range(param_name)),
             ParameterType::Threshold => Self::get_threshold_range(indicator_name, param_name),
             ParameterType::Coefficient => Some(Self::smoothing_coefficient()),
             ParameterType::Custom => Self::get_custom_range(param_name),
         }
     }
 
-    fn get_multiplier_range(param_name: &str) -> Option<ParameterRange> {
+    pub fn get_multiplier_range(param_name: &str) -> ParameterRange {
         match param_name.to_lowercase().as_str() {
-            "deviation" => Some(Self::deviation()),
-            "coeff_atr" | "atr_multiplier" | "atr_coefficient" => Some(Self::atr_multiplier()),
-            _ => Some(Self::standard_multiplier()),
+            "deviation" => Self::deviation(),
+            "coeff_atr" | "atr_multiplier" | "atr_coefficient" => Self::atr_multiplier(),
+            _ => Self::standard_multiplier(),
         }
     }
 
@@ -90,37 +79,25 @@ impl ParameterPresets {
         param_name: &str,
         param_type: &ParameterType,
     ) -> Option<ParameterRange> {
-        Self::get_range_for_parameter(indicator_name, param_name, param_type).map(|range| {
-            let step = match param_type {
-                ParameterType::Period => 10.0,
-                ParameterType::Multiplier => {
-                    if matches!(
-                        param_name.to_lowercase().as_str(),
-                        "coeff_atr" | "atr_multiplier" | "atr_coefficient"
-                    ) {
-                        0.2
-                    } else {
-                        0.2
-                    }
-                }
-                _ => range.step,
-            };
-            ParameterRange::new(range.start, range.end, step)
-        })
+        Self::get_range_for_parameter(indicator_name, param_name, param_type)
     }
 
     pub fn get_oscillator_threshold_range(
         indicator_name: &str,
         param_name: &str,
     ) -> Option<ParameterRange> {
-        Self::get_range_for_parameter(indicator_name, param_name, &ParameterType::Threshold)
+        Self::get_threshold_range(indicator_name, param_name)
     }
 }
 
 pub fn create_period_parameter(name: &str, value: f32, description: &str) -> IndicatorParameter {
-    let range = ParameterPresets::get_range_for_parameter("", name, &ParameterType::Period)
-        .unwrap_or_else(|| ParameterPresets::default_for_type(&ParameterType::Period));
-    IndicatorParameter::new(name, value, range, description, ParameterType::Period)
+    IndicatorParameter::new(
+        name,
+        value,
+        ParameterPresets::standard_period(),
+        description,
+        ParameterType::Period,
+    )
 }
 
 pub fn create_multiplier_parameter(
@@ -128,7 +105,11 @@ pub fn create_multiplier_parameter(
     value: f32,
     description: &str,
 ) -> IndicatorParameter {
-    let range = ParameterPresets::get_range_for_parameter("", name, &ParameterType::Multiplier)
-        .unwrap_or_else(|| ParameterPresets::default_for_type(&ParameterType::Multiplier));
-    IndicatorParameter::new(name, value, range, description, ParameterType::Multiplier)
+    IndicatorParameter::new(
+        name,
+        value,
+        ParameterPresets::get_multiplier_range(name),
+        description,
+        ParameterType::Multiplier,
+    )
 }
