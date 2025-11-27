@@ -1,5 +1,5 @@
 use crate::discovery::types::StopHandlerConfig;
-use crate::indicators::implementations::OptimizationRange;
+use crate::indicators::types::ParameterRange;
 use crate::risk::stops;
 use crate::risk::takes;
 use std::sync::OnceLock;
@@ -13,7 +13,7 @@ struct HandlerInfo {
     handler_name: String,
     stop_type: String,
     parameter_name: String,
-    optimization_range: OptimizationRange,
+    optimization_range: ParameterRange,
     priority: i32,
 }
 

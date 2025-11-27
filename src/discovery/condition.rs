@@ -191,7 +191,7 @@ impl ConditionCombinationGenerator {
         operators: &[ConditionOperator],
         timeframes: Option<&[TimeFrame]>,
     ) -> Vec<ConditionInfo> {
-        use crate::indicators::implementations::get_oscillator_threshold_range;
+        use crate::indicators::parameters::ParameterPresets;
         
         let mut conditions = Vec::new();
 
@@ -206,7 +206,7 @@ impl ConditionCombinationGenerator {
                 // Для условий индикатор-константа обычно используются только > и <
                 if Self::is_valid_operator_for_indicator_constant(operator) {
                     // Получаем диапазон оптимизации для этого осциллятора
-                    if let Some(range) = get_oscillator_threshold_range(&oscillator.name, "threshold") {
+                    if let Some(range) = ParameterPresets::get_oscillator_threshold_range(&oscillator.name, "threshold") {
                         // Генерируем значения из диапазона с шагом
                         let mut constant = range.start;
                         while constant <= range.end {

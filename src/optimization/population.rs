@@ -151,8 +151,8 @@ impl PopulationManager {
     fn get_parameter_range(
         key: &str,
         candidate: &StrategyCandidate,
-    ) -> Option<crate::indicators::implementations::OptimizationRange> {
-        use crate::indicators::implementations::get_optimization_range;
+    ) -> Option<crate::indicators::types::ParameterRange> {
+        use crate::indicators::parameters::ParameterPresets;
         use crate::risk::stops::get_optimization_range as get_stop_optimization_range;
         use crate::indicators::types::ParameterType;
 
@@ -171,7 +171,7 @@ impl PopulationManager {
                 if let Some(nested) = candidate.nested_indicators.iter().find(|n| n.indicator.name == indicator_name) {
                     for param in &nested.indicator.parameters {
                         if param.name == param_name {
-                            return get_optimization_range(&nested.indicator.name, &param_name, &param.param_type);
+                            return ParameterPresets::get_optimization_range(&nested.indicator.name, &param_name, &param.param_type);
                         }
                     }
                 }
@@ -188,7 +188,7 @@ impl PopulationManager {
                             "percentage" | "percent" => ParameterType::Multiplier,
                             _ => ParameterType::Threshold,
                         };
-                        return get_optimization_range(&indicator_name, &param_name, &param_type);
+                        return ParameterPresets::get_optimization_range(&indicator_name, &param_name, &param_type);
                     }
                 }
                 if let Some(condition) = candidate.exit_conditions.iter().find(|c| c.id == condition_id) {
@@ -198,7 +198,7 @@ impl PopulationManager {
                             "percentage" | "percent" => ParameterType::Multiplier,
                             _ => ParameterType::Threshold,
                         };
-                        return get_optimization_range(&indicator_name, &param_name, &param_type);
+                        return ParameterPresets::get_optimization_range(&indicator_name, &param_name, &param_type);
                     }
                 }
             }
@@ -210,7 +210,7 @@ impl PopulationManager {
                 if let Some(indicator) = candidate.indicators.iter().find(|i| i.name == indicator_name) {
                     for param in &indicator.parameters {
                         if param.name == param_name {
-                            return get_optimization_range(&indicator.name, &param_name, &param.param_type);
+                            return ParameterPresets::get_optimization_range(&indicator.name, &param_name, &param.param_type);
                         }
                     }
                 }
@@ -271,7 +271,7 @@ impl PopulationManager {
 
     fn mutate_parameter_with_range(
         value: &mut crate::strategy::types::StrategyParamValue,
-        range: &crate::indicators::implementations::OptimizationRange,
+        range: &crate::indicators::types::ParameterRange,
         min_percent: f64,
         max_percent: f64,
     ) {

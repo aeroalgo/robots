@@ -316,7 +316,7 @@ impl InitialPopulationGenerator {
     }
 
     fn generate_random_parameters(&self, candidate: &StrategyCandidate) -> StrategyParameterMap {
-        use crate::indicators::implementations::get_optimization_range;
+        use crate::indicators::parameters::ParameterPresets;
         use crate::risk::stops::get_optimization_range as get_stop_optimization_range;
         use crate::strategy::types::StrategyParamValue;
 
@@ -346,7 +346,11 @@ impl InitialPopulationGenerator {
                                 indicator,
                             )
                         } else {
-                            get_optimization_range(&indicator.name, &param.name, &param.param_type)
+                            ParameterPresets::get_optimization_range(
+                                &indicator.name,
+                                &param.name,
+                                &param.param_type,
+                            )
                         };
 
                         if let Some(range) = range {
@@ -375,7 +379,7 @@ impl InitialPopulationGenerator {
                     let param_value = if param_type_str.contains("Boolean") {
                         StrategyParamValue::Flag(rng.gen())
                     } else {
-                        if let Some(range) = get_optimization_range(
+                        if let Some(range) = ParameterPresets::get_optimization_range(
                             &nested.indicator.name,
                             &param.name,
                             &param.param_type,
@@ -476,7 +480,7 @@ impl InitialPopulationGenerator {
                             } else {
                                 // Не volatility индикатор, используем стандартный диапазон
                                 use crate::indicators::types::ParameterType;
-                                if let Some(range) = get_optimization_range(
+                                if let Some(range) = ParameterPresets::get_optimization_range(
                                     ind_name,
                                     &param.name,
                                     &ParameterType::Multiplier,
@@ -500,9 +504,11 @@ impl InitialPopulationGenerator {
                             _ => ParameterType::Threshold,
                         };
 
-                        if let Some(range) =
-                            get_optimization_range(ind_name, &param.name, &param_type)
-                        {
+                        if let Some(range) = ParameterPresets::get_optimization_range(
+                            ind_name,
+                            &param.name,
+                            &param_type,
+                        ) {
                             let steps = ((range.end - range.start) / range.step) as usize;
                             let step_index = rng.gen_range(0..=steps);
                             let value = range.start + (step_index as f32 * range.step);
@@ -655,7 +661,7 @@ impl InitialPopulationGenerator {
     fn get_volatility_percentage_range(
         config: &CandidateBuilderConfig,
         indicator: &crate::discovery::IndicatorInfo,
-    ) -> Option<crate::indicators::implementations::OptimizationRange> {
+    ) -> Option<crate::indicators::types::ParameterRange> {
         let rules = &config.rules.indicator_parameter_rules;
         for rule in rules {
             if rule.indicator_type == "volatility" {
@@ -672,11 +678,11 @@ impl InitialPopulationGenerator {
                         step,
                     } = &constraint.parameter_constraint
                     {
-                        return Some(crate::indicators::implementations::OptimizationRange {
-                            start: *min_percent as f32,
-                            end: *max_percent as f32,
-                            step: *step as f32,
-                        });
+                        return Some(crate::indicators::types::ParameterRange::new(
+                            *min_percent as f32,
+                            *max_percent as f32,
+                            *step as f32,
+                        ));
                     }
                 }
             }

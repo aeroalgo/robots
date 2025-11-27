@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use crate::indicators::implementations::OptimizationRange;
 use crate::indicators::types::OHLCData;
+use crate::indicators::types::ParameterRange;
 use crate::position::view::ActivePosition;
 use crate::strategy::context::TimeframeData;
 use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind, StrategyParamValue};
@@ -119,33 +119,33 @@ pub enum StopHandlerError {
     InvalidParameter(String),
 }
 
-pub fn get_optimization_range(handler_name: &str, param_name: &str) -> Option<OptimizationRange> {
+pub fn get_optimization_range(handler_name: &str, param_name: &str) -> Option<ParameterRange> {
     match handler_name.to_uppercase().as_str() {
         "STOPLOSSPCT" | "STOP_LOSS_PCT" | "STOPLOSS_PCT" => {
             match param_name.to_lowercase().as_str() {
                 "percentage" | "stop_loss" | "stop" | "value" | "pct" => {
-                    Some(OptimizationRange::new(2.0, 10.0, 0.5))
+                    Some(ParameterRange::new(2.0, 10.0, 0.5))
                 }
                 _ => None,
             }
         }
         "ATRTRAILSTOP" | "ATR_TRAIL_STOP" | "ATR_TRAIL" => {
             match param_name.to_lowercase().as_str() {
-                "period" => Some(OptimizationRange::new(10.0, 150.0, 10.0)),
-                "coeff_atr" | "coeff" | "atr_coeff" => Some(OptimizationRange::new(2.0, 8.0, 0.2)),
+                "period" => Some(ParameterRange::new(10.0, 150.0, 10.0)),
+                "coeff_atr" | "coeff" | "atr_coeff" => Some(ParameterRange::new(2.0, 8.0, 0.2)),
                 _ => None,
             }
         }
         "HILOTRAILSTOP" | "HILOTRAILINGSTOP" | "HILO_TRAIL_STOP" | "HILO_TRAIL" => {
             match param_name.to_lowercase().as_str() {
-                "period" => Some(OptimizationRange::new(10.0, 150.0, 10.0)),
+                "period" => Some(ParameterRange::new(10.0, 150.0, 10.0)),
                 _ => None,
             }
         }
         "PERCENTTRAILSTOP" | "PERCENTTRAILINGSTOP" | "PERCENT_TRAIL_STOP" | "PERCENT_TRAIL" => {
             match param_name.to_lowercase().as_str() {
                 "percentage" | "stop_loss" | "stop" | "value" | "pct" => {
-                    Some(OptimizationRange::new(2.0, 10.0, 0.5))
+                    Some(ParameterRange::new(2.0, 10.0, 0.5))
                 }
                 _ => None,
             }
@@ -153,12 +153,12 @@ pub fn get_optimization_range(handler_name: &str, param_name: &str) -> Option<Op
         "INDICATORSTOP" | "INDICATOR_STOP" | "IND_STOP" => {
             match param_name.to_lowercase().as_str() {
                 // period: период индикатора
-                "period" => Some(OptimizationRange::new(10.0, 200.0, 10.0)),
+                "period" => Some(ParameterRange::new(10.0, 200.0, 10.0)),
                 // coeff_atr, multiplier: коэффициенты
-                "coeff_atr" | "coeff" | "multiplier" => Some(OptimizationRange::new(1.0, 5.0, 0.5)),
+                "coeff_atr" | "coeff" | "multiplier" => Some(ParameterRange::new(1.0, 5.0, 0.5)),
                 // offset_percent: от -5% до +5% от значения индикатора
                 "offset_percent" | "offset" | "offset_pct" => {
-                    Some(OptimizationRange::new(-0.05, 0.05, 0.005))
+                    Some(ParameterRange::new(-0.05, 0.05, 0.005))
                 }
                 _ => None,
             }

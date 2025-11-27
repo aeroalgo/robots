@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
+#[cfg(feature = "profiling")]
+use pprof::ProfilerGuard;
 use robots::candles::aggregator::TimeFrameAggregator;
 use robots::data_access::database::clickhouse::OhlcvData;
 use robots::data_access::database::clickhouse::{ClickHouseConfig, ClickHouseConnector};
@@ -14,9 +16,6 @@ use robots::optimization::*;
 use robots::strategy::executor::BacktestExecutor;
 use robots::strategy::presets::default_strategy_definitions;
 use robots::strategy::types::PriceField;
-
-#[cfg(feature = "profiling")]
-use pprof::ProfilerGuard;
 
 #[tokio::main]
 async fn main() {

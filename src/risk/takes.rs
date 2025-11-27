@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use crate::indicators::implementations::OptimizationRange;
+use crate::indicators::types::ParameterRange;
 use crate::position::view::ActivePosition;
 use crate::strategy::context::TimeframeData;
 use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind, StrategyParamValue};
@@ -45,12 +45,12 @@ pub enum TakeHandlerError {
 pub fn get_optimization_range(
     handler_name: &str,
     param_name: &str,
-) -> Option<OptimizationRange> {
+) -> Option<ParameterRange> {
     match handler_name.to_uppercase().as_str() {
         "TAKEPROFITPCT" | "TAKE_PROFIT_PCT" => {
             match param_name.to_lowercase().as_str() {
                 "percentage" | "take_profit" | "take" | "value" | "pct" => {
-                    Some(OptimizationRange::new(2.0, 10.0, 0.5))
+                    Some(ParameterRange::new(2.0, 10.0, 0.5))
                 }
                 _ => None,
             }
