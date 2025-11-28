@@ -20,13 +20,6 @@ pub struct StrategyDiscoveryConfig {
     /// Таймфреймы будут генерироваться как кратные базовому до этого значения
     /// По умолчанию 1440 минут (1 день)
     pub max_timeframe_minutes: u32,
-
-    /// Разрешить построение индикаторов по индикаторам
-    /// Если true, то часть индикаторов может строиться не по цене, а по уже построенным индикаторам
-    pub allow_indicator_on_indicator: bool,
-
-    /// Максимальная глубина вложенности индикаторов (если allow_indicator_on_indicator = true)
-    pub max_indicator_depth: usize,
 }
 
 impl Default for StrategyDiscoveryConfig {
@@ -35,9 +28,7 @@ impl Default for StrategyDiscoveryConfig {
             max_optimization_params: 10,
             timeframe_count: 3,
             base_timeframe: TimeFrame::Minutes(60),
-            max_timeframe_minutes: 1440,
-            allow_indicator_on_indicator: false,
-            max_indicator_depth: 1,
+            max_timeframe_minutes: 240,
         }
     }
 }

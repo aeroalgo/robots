@@ -40,32 +40,7 @@ impl StopHandler for ATRTrailStopHandler {
     }
 
     fn evaluate(&self, ctx: &StopEvaluationContext<'_>) -> Option<StopOutcome> {
-        let atr_value = self.get_atr_value(ctx)?;
-
-        let max_high = ctx.max_high_since_entry;
-        let min_low = ctx.min_low_since_entry;
-
-        let offset = atr_value as f64 * self.coeff_atr;
-        let new_stop = match ctx.position.direction {
-            PositionDirection::Long => max_high - offset,
-            PositionDirection::Short => min_low + offset,
-            _ => ctx.current_price,
-        };
-
-        let prev_stop = ctx.current_stop;
-
-        // Trailing: стоп может только улучшаться
-        let effective_stop = match ctx.position.direction {
-            PositionDirection::Long => {
-                // Для Long стоп растёт (подтягивается вверх)
-                prev_stop.map(|p| new_stop.max(p)).unwrap_or(new_stop)
-            }
-            PositionDirection::Short => {
-                // Для Short стоп падает (подтягивается вниз)
-                prev_stop.map(|p| new_stop.min(p)).unwrap_or(new_stop)
-            }
-            _ => new_stop,
-        };
+        let current_stop = ctx.current_stop?;
 
         let low_price = get_price_at_index(
             ctx.timeframe_data,
@@ -80,12 +55,7 @@ impl StopHandler for ATRTrailStopHandler {
             ctx.current_price,
         );
 
-        if is_stop_triggered(
-            &ctx.position.direction,
-            low_price,
-            high_price,
-            effective_stop,
-        ) {
+        if is_stop_triggered(&ctx.position.direction, low_price, high_price, current_stop) {
             let open_price = get_price_at_index(
                 ctx.timeframe_data,
                 &PriceField::Open,
@@ -95,17 +65,14 @@ impl StopHandler for ATRTrailStopHandler {
 
             let exit_price = calculate_stop_exit_price(
                 &ctx.position.direction,
-                effective_stop,
+                current_stop,
                 open_price,
                 ctx.current_price,
             );
 
             let mut metadata = HashMap::new();
-            metadata.insert("level".to_string(), effective_stop.to_string());
+            metadata.insert("level".to_string(), current_stop.to_string());
             metadata.insert("triggered_price".to_string(), exit_price.to_string());
-            metadata.insert("atr_value".to_string(), atr_value.to_string());
-            metadata.insert("max_high".to_string(), max_high.to_string());
-            metadata.insert("min_low".to_string(), min_low.to_string());
 
             return Some(StopOutcome {
                 exit_price,

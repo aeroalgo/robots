@@ -71,3 +71,4 @@ impl Indicator for VTRAND {
     }
 }
 
+

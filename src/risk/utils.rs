@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::position::view::ActivePosition;
 use crate::strategy::context::TimeframeData;
 use crate::strategy::types::{PositionDirection, PriceField, StrategyParamValue};
 
@@ -85,30 +84,6 @@ pub fn extract_bool(
     default_value
 }
 
-pub fn get_bar_extremes(timeframe_data: &TimeframeData, index: usize, fallback_price: f64) -> (f64, f64) {
-    let low_series = timeframe_data
-        .price_series_slice(&PriceField::Low)
-        .unwrap_or(&[]);
-
-    let high_series = timeframe_data
-        .price_series_slice(&PriceField::High)
-        .unwrap_or(&[]);
-
-    let current_low = low_series
-        .get(index)
-        .copied()
-        .map(|p| p as f64)
-        .unwrap_or(fallback_price);
-
-    let current_high = high_series
-        .get(index)
-        .copied()
-        .map(|p| p as f64)
-        .unwrap_or(fallback_price);
-
-    (current_low, current_high)
-}
-
 pub fn get_price_at_index(
     timeframe_data: &TimeframeData,
     price_field: &PriceField,
@@ -121,29 +96,6 @@ pub fn get_price_at_index(
         .copied()
         .map(|p| p as f64)
         .unwrap_or(fallback)
-}
-
-pub fn compute_trailing_stop(
-    position: &ActivePosition,
-    new_stop: f64,
-    direction: &PositionDirection,
-    handler_name: &str,
-) -> f64 {
-    let stop_key = format!("{}_current_stop", handler_name);
-
-    if let Some(current_stop) = position
-        .metadata
-        .get(&stop_key)
-        .and_then(|s| s.parse::<f64>().ok())
-    {
-        match direction {
-            PositionDirection::Long => new_stop.max(current_stop),
-            PositionDirection::Short => new_stop.min(current_stop),
-            _ => new_stop,
-        }
-    } else {
-        new_stop
-    }
 }
 
 pub fn is_stop_triggered(

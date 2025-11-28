@@ -92,7 +92,7 @@ async fn run() -> Result<()> {
 
     let definition = default_strategy_definitions()
         .into_iter()
-        .find(|def| def.metadata.id == "SUPERTREND_ATR_TRAILING")
+        .find(|def| def.metadata.id == "SMA_CROSSOVER_LONG")
         .context("Стратегия SMA_CROSSOVER_LONG не найдена")?;
 
     let mut executor =
@@ -194,36 +194,6 @@ async fn run() -> Result<()> {
         println!(
             "  coeff_atr: {:.1} - {:.1}, step {:.1}",
             range.start, range.end, range.step
-        );
-    }
-
-    // Проверяем есть ли aux_ATR_30 в timeframe_data
-    println!("\n=== ПРОВЕРКА AUXILIARY ИНДИКАТОРОВ ===");
-    if let Ok(tf_data) = executor.context().timeframe(&timeframe) {
-        let aux_alias = "aux_ATR_30";
-        if let Some(atr_val) = tf_data.auxiliary_value_at(aux_alias, 1000) {
-            println!(
-                "✓ {} найден, значение на баре 1000: {:.4}",
-                aux_alias, atr_val
-            );
-        } else {
-            println!("✗ {} НЕ найден в timeframe_data!", aux_alias);
-        }
-
-        // Проверим ATR отдельно
-        let atr = IndicatorFactory::create_indicator(
-            "ATR",
-            HashMap::from([("period".to_string(), 30.0)]),
-        )?;
-        let atr_values = atr.calculate_ohlc(&ohlc_data)?;
-        let last_atr = atr_values.last().copied().unwrap_or(0.0);
-        let last_close = close_vec.last().copied().unwrap_or(0.0);
-        println!("\nATR(30) последнее значение: {:.4}", last_atr);
-        println!("Close последнее значение: {:.4}", last_close);
-        println!("ATR * 7.0 (coeff): {:.4}", last_atr * 7.0);
-        println!(
-            "Stop level для Long: Close - ATR*7 = {:.4}",
-            last_close as f64 - (last_atr * 7.0) as f64
         );
     }
 
@@ -794,7 +764,7 @@ async fn run_genetic_optimization(
             max_drawdown_pct: None,
             min_win_rate: None,
             min_profit_factor: Some(1.0),
-            min_trades_count: Some(300),
+            min_trades_count: Some(200),
             min_cagr: None,
             min_recovery_factor: None,
         },
@@ -870,8 +840,6 @@ async fn run_genetic_optimization(
         timeframe_count: 2,
         base_timeframe: base_timeframe.clone(),
         max_timeframe_minutes: 240,
-        allow_indicator_on_indicator: true,
-        max_indicator_depth: 1,
     };
 
     println!("🧬 Генерация начальных популяций для островов...");

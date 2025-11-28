@@ -56,20 +56,34 @@ impl CacheKey {
 pub struct StrategyEvaluationRunner {
     frames: Arc<HashMap<TimeFrame, QuoteFrame>>,
     base_timeframe: TimeFrame,
+    available_higher_timeframes: Vec<TimeFrame>,
     cache: Arc<RwLock<HashMap<CacheKey, BacktestReport>>>,
 }
 
 impl StrategyEvaluationRunner {
     pub fn available_timeframes(&self) -> Vec<TimeFrame> {
-        self.frames.keys().cloned().collect()
+        let mut result = vec![self.base_timeframe.clone()];
+        let mut higher: Vec<TimeFrame> = self.available_higher_timeframes.clone();
+        higher.sort_by_key(|tf| tf.duration());
+        result.extend(higher);
+        result
     }
 }
 
 impl StrategyEvaluationRunner {
     pub fn new(frames: HashMap<TimeFrame, QuoteFrame>, base_timeframe: TimeFrame) -> Self {
+        Self::with_higher_timeframes(frames, base_timeframe, vec![])
+    }
+
+    pub fn with_higher_timeframes(
+        frames: HashMap<TimeFrame, QuoteFrame>,
+        base_timeframe: TimeFrame,
+        available_higher_timeframes: Vec<TimeFrame>,
+    ) -> Self {
         Self {
             frames: Arc::new(frames),
             base_timeframe,
+            available_higher_timeframes,
             cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -123,6 +137,7 @@ impl Clone for StrategyEvaluationRunner {
         Self {
             frames: Arc::clone(&self.frames),
             base_timeframe: self.base_timeframe.clone(),
+            available_higher_timeframes: self.available_higher_timeframes.clone(),
             cache: Arc::clone(&self.cache),
         }
     }

@@ -101,3 +101,4 @@ impl TrendIndicator for EMA {
     }
 }
 
+

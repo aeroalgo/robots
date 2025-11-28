@@ -84,3 +84,4 @@ impl Indicator for MINFOR {
     }
 }
 
+

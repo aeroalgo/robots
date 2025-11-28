@@ -746,54 +746,54 @@ impl StrategyConverter {
     }
 
     fn extract_indicator_alias_from_condition_id(condition_id: &str) -> Option<String> {
-        // Новый формат: entry_{alias}_{random} или exit_{alias}_{random}
-        if condition_id.starts_with("entry_") {
-            let rest = condition_id.strip_prefix("entry_")?;
-            let parts: Vec<&str> = rest.split('_').collect();
-            if !parts.is_empty() {
-                return Some(parts[0].to_string());
-            }
+        let rest = if condition_id.starts_with("entry_") {
+            condition_id.strip_prefix("entry_")?
         } else if condition_id.starts_with("exit_") {
-            let rest = condition_id.strip_prefix("exit_")?;
-            let parts: Vec<&str> = rest.split('_').collect();
-            if !parts.is_empty() {
-                return Some(parts[0].to_string());
-            }
-        }
-        // Старый формат: ind_price_{alias}_... или ind_const_{alias}_...
-        else if condition_id.starts_with("ind_price_") {
-            let parts: Vec<&str> = condition_id.split('_').collect();
-            if parts.len() >= 3 {
-                return Some(parts[2].to_string());
-            }
+            condition_id.strip_prefix("exit_")?
+        } else if condition_id.starts_with("ind_price_") {
+            condition_id.strip_prefix("ind_price_")?
         } else if condition_id.starts_with("ind_const_") {
-            let parts: Vec<&str> = condition_id.split('_').collect();
-            if parts.len() >= 3 {
-                return Some(parts[2].to_string());
-            }
+            condition_id.strip_prefix("ind_const_")?
+        } else {
+            return None;
+        };
+
+        if let Some(separator_pos) = rest.find("::") {
+            return Some(rest[..separator_pos].to_string());
         }
+        
+        if let Some(last_underscore) = rest.rfind('_') {
+            return Some(rest[..last_underscore].to_string());
+        }
+        
         None
     }
 
     fn extract_indicator_aliases_from_condition_id(condition_id: &str) -> Option<Vec<String>> {
-        // Новый формат: entry_{alias1}_{alias2}_{random} или exit_{alias1}_{alias2}_{random}
         if condition_id.starts_with("entry_") || condition_id.starts_with("exit_") {
             let rest = if condition_id.starts_with("entry_") {
                 condition_id.strip_prefix("entry_")?
             } else {
                 condition_id.strip_prefix("exit_")?
             };
-            let parts: Vec<&str> = rest.split('_').collect();
-            // Должно быть минимум 2 части (alias1, alias2) и возможно random число
-            if parts.len() >= 2 {
-                return Some(vec![parts[0].to_string(), parts[1].to_string()]);
+            
+            if let Some(separator_pos) = rest.find("::") {
+                let alias1 = &rest[..separator_pos];
+                let after_separator = &rest[separator_pos + 2..];
+                if let Some(last_underscore) = after_separator.rfind('_') {
+                    let alias2 = &after_separator[..last_underscore];
+                    return Some(vec![alias1.to_string(), alias2.to_string()]);
+                }
             }
-        }
-        // Старый формат: ind_ind_{alias1}_{alias2}_...
-        else if condition_id.starts_with("ind_ind_") {
-            let parts: Vec<&str> = condition_id.split('_').collect();
-            if parts.len() >= 4 {
-                return Some(vec![parts[2].to_string(), parts[3].to_string()]);
+        } else if condition_id.starts_with("ind_ind_") {
+            let rest = condition_id.strip_prefix("ind_ind_")?;
+            if let Some(separator_pos) = rest.find("::") {
+                let alias1 = &rest[..separator_pos];
+                let after_separator = &rest[separator_pos + 2..];
+                if let Some(last_underscore) = after_separator.rfind('_') {
+                    let alias2 = &after_separator[..last_underscore];
+                    return Some(vec![alias1.to_string(), alias2.to_string()]);
+                }
             }
         }
         None

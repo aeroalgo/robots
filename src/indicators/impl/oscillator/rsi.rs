@@ -145,3 +145,4 @@ impl OscillatorIndicator for RSI {
     }
 }
 
+

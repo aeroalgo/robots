@@ -298,6 +298,32 @@ impl ConditionOperator {
             Self::Between => "between",
         }
     }
+
+    pub fn display_with_context(&self, condition_type: &str, has_percentage: bool) -> String {
+        match self {
+            Self::GreaterThan => {
+                if condition_type == "trend_condition" {
+                    "RisingTrend (↗ растущий тренд)".to_string()
+                } else if has_percentage {
+                    "GreaterPercent (выше на %)".to_string()
+                } else {
+                    "Above (выше)".to_string()
+                }
+            }
+            Self::LessThan => {
+                if condition_type == "trend_condition" {
+                    "FallingTrend (↘ падающий тренд)".to_string()
+                } else if has_percentage {
+                    "LowerPercent (ниже на %)".to_string()
+                } else {
+                    "Below (ниже)".to_string()
+                }
+            }
+            Self::CrossesAbove => "CrossesAbove (↗ пересекает вверх)".to_string(),
+            Self::CrossesBelow => "CrossesBelow (↘ пересекает вниз)".to_string(),
+            Self::Between => "Between (между)".to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

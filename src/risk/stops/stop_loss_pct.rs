@@ -31,6 +31,10 @@ impl StopHandler for StopLossPctHandler {
         "StopLossPct"
     }
 
+    fn compute_stop_level(&self, ctx: &StopEvaluationContext<'_>) -> Option<f64> {
+        self.level(ctx.position)
+    }
+
     fn evaluate(&self, ctx: &StopEvaluationContext<'_>) -> Option<StopOutcome> {
         let level = self.level(ctx.position)?;
 

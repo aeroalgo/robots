@@ -25,7 +25,6 @@ impl Default for CandidateBuilderConfig {
 pub struct ElementProbabilities {
     pub indicators: IndicatorProbabilities,
     pub conditions: ConditionProbabilities,
-    pub stop_handlers: StopHandlerProbabilities,
     pub take_handlers: TakeHandlerProbabilities,
     pub timeframes: TimeframeProbabilities,
     pub nested_indicators: NestedIndicatorProbabilities,
@@ -37,7 +36,6 @@ impl Default for ElementProbabilities {
         Self {
             indicators: IndicatorProbabilities::default(),
             conditions: ConditionProbabilities::default(),
-            stop_handlers: StopHandlerProbabilities::default(),
             take_handlers: TakeHandlerProbabilities::default(),
             timeframes: TimeframeProbabilities::default(),
             nested_indicators: NestedIndicatorProbabilities::default(),
@@ -102,21 +100,10 @@ impl Default for ConditionProbabilities {
             add_entry_condition: 0.7,
             use_indicator_price_condition: 0.7,
             use_indicator_indicator_condition: 0.5,
-            use_crosses_operator: 0.4,
-            use_trend_condition: 0.2,
-            use_percent_condition: 0.15,
+            use_crosses_operator: 0.2,
+            use_trend_condition: 0.4,
+            use_percent_condition: 0.3,
         }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StopHandlerProbabilities {
-    pub add_stop_loss: f64,
-}
-
-impl Default for StopHandlerProbabilities {
-    fn default() -> Self {
-        Self { add_stop_loss: 0.9 }
     }
 }
 
@@ -128,14 +115,13 @@ pub struct TakeHandlerProbabilities {
 impl Default for TakeHandlerProbabilities {
     fn default() -> Self {
         Self {
-            add_take_profit: 0.7,
+            add_take_profit: 0.6,
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeframeProbabilities {
-    pub use_base_timeframe: f64,
     pub use_higher_timeframe: f64,
     pub use_multiple_timeframes: f64,
 }
@@ -143,7 +129,6 @@ pub struct TimeframeProbabilities {
 impl Default for TimeframeProbabilities {
     fn default() -> Self {
         Self {
-            use_base_timeframe: 1.0,
             use_higher_timeframe: 0.5,
             use_multiple_timeframes: 0.2,
         }
@@ -160,7 +145,7 @@ impl Default for NestedIndicatorProbabilities {
     fn default() -> Self {
         Self {
             add_nested_indicator: 0.3,
-            max_nesting_depth: 2,
+            max_nesting_depth: 1,
         }
     }
 }
@@ -241,20 +226,15 @@ pub struct BuildRules {
     pub indicator_parameter_rules: Vec<IndicatorParameterRule>,
     /// Список индикаторов, которые исключены из выборки для оптимизации
     pub excluded_indicators: Vec<String>,
+    /// Список stop handlers, которые исключены из выборки для оптимизации
+    pub excluded_stop_handlers: Vec<String>,
 }
 
 impl Default for BuildRules {
     fn default() -> Self {
         Self {
-            dependencies: vec![DependencyRule {
-                trigger: ElementSelector::stop_handler("StopLossPct"),
-                required: ElementSelector::take_handler("TakeProfitPct"),
-                strict: true,
-            }],
-            exclusions: vec![ExclusionRule {
-                element: ElementSelector::stop_handler("ATRTrailStop"),
-                excluded: ElementSelector::take_handler("TakeProfitPct"),
-            }],
+            dependencies: Vec::new(),
+            exclusions: Vec::new(),
             conditions: Vec::new(),
             indicator_parameter_rules: vec![
                 IndicatorParameterRule {
@@ -275,7 +255,12 @@ impl Default for BuildRules {
                     price_field_constraint: None,
                 },
             ],
-            excluded_indicators: vec!["MAXFOR".to_string(), "MINFOR".to_string()],
+            excluded_indicators: vec![
+                "MAXFOR".to_string(),
+                "MINFOR".to_string(),
+                "TrueRange".to_string(),
+            ],
+            excluded_stop_handlers: vec!["StopLossPct".to_string()],
         }
     }
 }

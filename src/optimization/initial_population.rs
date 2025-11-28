@@ -40,9 +40,24 @@ impl InitialPopulationGenerator {
             .candidate_builder_config
             .clone()
             .unwrap_or_else(|| CandidateBuilderConfig::default());
+
+        let base_minutes = discovery_config
+            .base_timeframe
+            .total_minutes()
+            .unwrap_or(60) as u32;
+        let max_minutes = discovery_config.max_timeframe_minutes;
+        let higher_timeframes: Vec<TimeFrame> = (base_minutes * 2..=max_minutes)
+            .step_by(base_minutes as usize)
+            .map(TimeFrame::minutes)
+            .collect();
+
         Self {
             config,
-            evaluator: StrategyEvaluationRunner::new(frames, base_timeframe),
+            evaluator: StrategyEvaluationRunner::with_higher_timeframes(
+                frames,
+                base_timeframe,
+                higher_timeframes,
+            ),
             discovery_config,
             candidate_builder_config,
         }
@@ -123,6 +138,60 @@ impl InitialPopulationGenerator {
                     candidate_idx + 1,
                     param_variant + 1
                 );
+
+                if param_variant == 0 {
+                    println!("      📊 Структура кандидата:");
+                    println!("         Таймфреймы: {:?}", candidate.timeframes);
+                    println!(
+                        "         Индикаторы: {:?}",
+                        candidate
+                            .indicators
+                            .iter()
+                            .map(|i| format!("{}({})", i.name, i.alias))
+                            .collect::<Vec<_>>()
+                    );
+                    println!(
+                        "         Nested индикаторы: {:?}",
+                        candidate
+                            .nested_indicators
+                            .iter()
+                            .map(|n| format!(
+                                "{}({}) на {}",
+                                n.indicator.name, n.indicator.alias, n.input_indicator_alias
+                            ))
+                            .collect::<Vec<_>>()
+                    );
+                    println!(
+                        "         Entry условия: {:?}",
+                        candidate
+                            .conditions
+                            .iter()
+                            .map(|c| format!(
+                                "id={}, name={} [type={}, tf={:?}]",
+                                c.id, c.name, c.condition_type, c.primary_timeframe
+                            ))
+                            .collect::<Vec<_>>()
+                    );
+                    println!(
+                        "         Exit условия: {:?}",
+                        candidate
+                            .exit_conditions
+                            .iter()
+                            .map(|c| format!(
+                                "{} [type={}, tf={:?}]",
+                                c.name, c.condition_type, c.primary_timeframe
+                            ))
+                            .collect::<Vec<_>>()
+                    );
+                    println!(
+                        "         Stop handlers: {:?}",
+                        candidate
+                            .stop_handlers
+                            .iter()
+                            .map(|s| &s.handler_name)
+                            .collect::<Vec<_>>()
+                    );
+                }
 
                 let random_params = self.generate_random_parameters(candidate);
                 let report = match self
@@ -779,27 +848,42 @@ impl InitialPopulationGenerator {
             println!("      (нет условий входа)");
         } else {
             for (idx, condition) in candidate.conditions.iter().enumerate() {
-                println!("      {}. {} ({})", idx + 1, condition.name, condition.id);
+                let tf_str = condition
+                    .primary_timeframe
+                    .as_ref()
+                    .map(|tf| tf.identifier())
+                    .unwrap_or_else(|| "базовый".to_string());
+                let has_percentage = condition
+                    .optimization_params
+                    .iter()
+                    .any(|p| p.name == "percentage");
+                let operator_display = condition
+                    .operator
+                    .display_with_context(&condition.condition_type, has_percentage);
+                println!("      {}. {} [TF: {}]", idx + 1, condition.name, tf_str);
                 println!("         Тип: {}", condition.condition_type);
-                println!("         Оператор: {:?}", condition.operator);
-                if let Some(tf) = &condition.primary_timeframe {
-                    println!("         Таймфрейм: {}", tf.identifier());
-                }
+                println!("         Условие: {}", operator_display);
                 if let Some(price_field) = &condition.price_field {
                     println!("         Поле цены: {}", price_field);
                 }
                 if let Some(const_val) = condition.constant_value {
-                    println!("         Константа: {}", const_val);
+                    if condition.condition_type == "trend_condition" {
+                        println!("         Период: {:.0}", const_val);
+                    } else if has_percentage {
+                        println!("         Процент: {:.2}%", const_val);
+                    } else {
+                        println!("         Константа: {:.2}", const_val);
+                    }
                 }
                 if !condition.optimization_params.is_empty() {
-                    println!("         Параметры оптимизации:");
+                    println!("         Параметры:");
                     for param in &condition.optimization_params {
                         if let Some(params) = parameters {
                             let param_key = format!("condition_{}_{}", condition.id, param.name);
                             if let Some(value) = params.get(&param_key) {
                                 println!("            - {}: {:?}", param.name, value);
                             } else {
-                                println!("            - {}: (не оптимизируется)", param.name);
+                                println!("            - {}: (не задан)", param.name);
                             }
                         } else {
                             println!(
@@ -817,27 +901,42 @@ impl InitialPopulationGenerator {
             println!("      (нет условий выхода)");
         } else {
             for (idx, condition) in candidate.exit_conditions.iter().enumerate() {
-                println!("      {}. {} ({})", idx + 1, condition.name, condition.id);
+                let tf_str = condition
+                    .primary_timeframe
+                    .as_ref()
+                    .map(|tf| tf.identifier())
+                    .unwrap_or_else(|| "базовый".to_string());
+                let has_percentage = condition
+                    .optimization_params
+                    .iter()
+                    .any(|p| p.name == "percentage");
+                let operator_display = condition
+                    .operator
+                    .display_with_context(&condition.condition_type, has_percentage);
+                println!("      {}. {} [TF: {}]", idx + 1, condition.name, tf_str);
                 println!("         Тип: {}", condition.condition_type);
-                println!("         Оператор: {:?}", condition.operator);
-                if let Some(tf) = &condition.primary_timeframe {
-                    println!("         Таймфрейм: {}", tf.identifier());
-                }
+                println!("         Условие: {}", operator_display);
                 if let Some(price_field) = &condition.price_field {
                     println!("         Поле цены: {}", price_field);
                 }
                 if let Some(const_val) = condition.constant_value {
-                    println!("         Константа: {}", const_val);
+                    if condition.condition_type == "trend_condition" {
+                        println!("         Период: {:.0}", const_val);
+                    } else if has_percentage {
+                        println!("         Процент: {:.2}%", const_val);
+                    } else {
+                        println!("         Константа: {:.2}", const_val);
+                    }
                 }
                 if !condition.optimization_params.is_empty() {
-                    println!("         Параметры оптимизации:");
+                    println!("         Параметры:");
                     for param in &condition.optimization_params {
                         if let Some(params) = parameters {
                             let param_key = format!("condition_{}_{}", condition.id, param.name);
                             if let Some(value) = params.get(&param_key) {
                                 println!("            - {}: {:?}", param.name, value);
                             } else {
-                                println!("            - {}: (не оптимизируется)", param.name);
+                                println!("            - {}: (не задан)", param.name);
                             }
                         } else {
                             println!(

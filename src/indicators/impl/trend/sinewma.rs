@@ -100,3 +100,4 @@ impl TrendIndicator for SINEWMA {
     }
 }
 
+

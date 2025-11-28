@@ -72,4 +72,3 @@ impl TakeHandler for TakeProfitPctHandler {
         None
     }
 }
-

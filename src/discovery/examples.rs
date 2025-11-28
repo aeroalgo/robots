@@ -8,14 +8,11 @@ use crate::strategy::types::{ConditionOperator, PriceField};
 pub fn example_strategy_generation() {
     println!("=== Пример генерации стратегий ===\n");
 
-    // Конфигурация
     let config = StrategyDiscoveryConfig {
         max_optimization_params: 10,
         timeframe_count: 3,
         base_timeframe: TimeFrame::Minutes(60),
         max_timeframe_minutes: 1440,
-        allow_indicator_on_indicator: false,
-        max_indicator_depth: 2,
     };
 
     // Доступные индикаторы (упрощенный пример)

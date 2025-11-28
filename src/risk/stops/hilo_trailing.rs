@@ -5,7 +5,7 @@ use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 use crate::risk::auxiliary::AuxiliaryIndicatorSpec;
 use crate::risk::context::{StopEvaluationContext, StopValidationContext};
 use crate::risk::traits::{StopHandler, StopOutcome, StopValidationResult};
-use crate::risk::utils::{calculate_stop_exit_price, compute_trailing_stop, get_price_at_index, is_stop_triggered};
+use crate::risk::utils::{calculate_stop_exit_price, get_price_at_index, is_stop_triggered};
 
 pub struct HILOTrailingStopHandler {
     pub period: f64,
@@ -92,7 +92,14 @@ impl StopHandler for HILOTrailingStopHandler {
         "HILOTrailingStop"
     }
 
-    fn validate_before_entry(&self, ctx: &StopValidationContext<'_>) -> Option<StopValidationResult> {
+    fn compute_stop_level(&self, ctx: &StopEvaluationContext<'_>) -> Option<f64> {
+        self.calculate_stop_level(ctx)
+    }
+
+    fn validate_before_entry(
+        &self,
+        ctx: &StopValidationContext<'_>,
+    ) -> Option<StopValidationResult> {
         let stop_level = match ctx.direction {
             PositionDirection::Long => {
                 let minfor = self.get_minfor_value_for_validation(ctx)?;
@@ -135,17 +142,20 @@ impl StopHandler for HILOTrailingStopHandler {
     }
 
     fn evaluate(&self, ctx: &StopEvaluationContext<'_>) -> Option<StopOutcome> {
-        let new_stop = self.calculate_stop_level(ctx)?;
+        let current_stop = ctx.position.current_stop?;
 
-        let current_stop = compute_trailing_stop(
-            ctx.position,
-            new_stop,
-            &ctx.position.direction,
-            self.name(),
+        let low_price = get_price_at_index(
+            ctx.timeframe_data,
+            &PriceField::Low,
+            ctx.index,
+            ctx.current_price,
         );
-
-        let low_price = get_price_at_index(ctx.timeframe_data, &PriceField::Low, ctx.index, ctx.current_price);
-        let high_price = get_price_at_index(ctx.timeframe_data, &PriceField::High, ctx.index, ctx.current_price);
+        let high_price = get_price_at_index(
+            ctx.timeframe_data,
+            &PriceField::High,
+            ctx.index,
+            ctx.current_price,
+        );
 
         if is_stop_triggered(&ctx.position.direction, low_price, high_price, current_stop) {
             let open_price = get_price_at_index(
@@ -154,14 +164,14 @@ impl StopHandler for HILOTrailingStopHandler {
                 ctx.index,
                 ctx.current_price,
             );
-            
+
             let exit_price = calculate_stop_exit_price(
                 &ctx.position.direction,
                 current_stop,
                 open_price,
                 ctx.current_price,
             );
-            
+
             let mut metadata = HashMap::new();
             metadata.insert("level".to_string(), current_stop.to_string());
             metadata.insert("triggered_price".to_string(), exit_price.to_string());
@@ -173,7 +183,10 @@ impl StopHandler for HILOTrailingStopHandler {
                 metadata.insert("maxfor_value".to_string(), maxfor.to_string());
             }
 
-            metadata.insert(format!("{}_current_stop", self.name()), current_stop.to_string());
+            metadata.insert(
+                format!("{}_current_stop", self.name()),
+                current_stop.to_string(),
+            );
             return Some(StopOutcome {
                 exit_price,
                 kind: StopSignalKind::StopLoss,
@@ -190,4 +203,3 @@ impl StopHandler for HILOTrailingStopHandler {
         ]
     }
 }
-

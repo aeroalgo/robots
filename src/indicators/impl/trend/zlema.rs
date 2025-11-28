@@ -97,3 +97,4 @@ impl TrendIndicator for ZLEMA {
     }
 }
 
+

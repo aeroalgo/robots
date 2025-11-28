@@ -2,6 +2,7 @@ use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
 use crate::discovery::StopHandlerConfig;
 use crate::discovery::StrategyCandidate;
+use crate::optimization::candidate_builder::CandidateBuilder;
 use crate::optimization::evaluator::StrategyEvaluationRunner;
 use crate::optimization::population::PopulationManager;
 use crate::optimization::sds::StochasticDiffusionSearch;
@@ -429,14 +430,20 @@ impl GeneticAlgorithmV3 {
 
         if use_weighted {
             for (cond, _parent, weight) in &unique_conditions {
-                if child1_conditions.len() < max_conditions && rng.gen::<f64>() < *weight {
+                if child1_conditions.len() < max_conditions
+                    && rng.gen::<f64>() < *weight
+                    && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child1_conditions)
+                {
                     child1_conditions.push(cond.clone());
                 }
             }
 
             for (cond, _parent, weight) in &unique_conditions {
                 let inverse_weight = 1.0 - weight;
-                if child2_conditions.len() < max_conditions && rng.gen::<f64>() < inverse_weight {
+                if child2_conditions.len() < max_conditions
+                    && rng.gen::<f64>() < inverse_weight
+                    && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child2_conditions)
+                {
                     child2_conditions.push(cond.clone());
                 }
             }
@@ -449,15 +456,23 @@ impl GeneticAlgorithmV3 {
                 }
 
                 if rng.gen::<f64>() < 0.5 {
-                    if child1_conditions.len() < max_conditions {
+                    if child1_conditions.len() < max_conditions
+                        && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child1_conditions)
+                    {
                         child1_conditions.push(cond.clone());
-                    } else if child2_conditions.len() < max_conditions {
+                    } else if child2_conditions.len() < max_conditions
+                        && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child2_conditions)
+                    {
                         child2_conditions.push(cond.clone());
                     }
                 } else {
-                    if child2_conditions.len() < max_conditions {
+                    if child2_conditions.len() < max_conditions
+                        && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child2_conditions)
+                    {
                         child2_conditions.push(cond.clone());
-                    } else if child1_conditions.len() < max_conditions {
+                    } else if child1_conditions.len() < max_conditions
+                        && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child1_conditions)
+                    {
                         child1_conditions.push(cond.clone());
                     }
                 }
@@ -467,7 +482,9 @@ impl GeneticAlgorithmV3 {
         while child1_conditions.len() < min_conditions && !unique_conditions.is_empty() {
             let idx = rng.gen_range(0..unique_conditions.len());
             let (cond, _, _) = &unique_conditions[idx];
-            if !child1_conditions.iter().any(|c| c.id == cond.id) {
+            if !child1_conditions.iter().any(|c| c.id == cond.id)
+                && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child1_conditions)
+            {
                 child1_conditions.push(cond.clone());
             }
         }
@@ -475,7 +492,9 @@ impl GeneticAlgorithmV3 {
         while child2_conditions.len() < min_conditions && !unique_conditions.is_empty() {
             let idx = rng.gen_range(0..unique_conditions.len());
             let (cond, _, _) = &unique_conditions[idx];
-            if !child2_conditions.iter().any(|c| c.id == cond.id) {
+            if !child2_conditions.iter().any(|c| c.id == cond.id)
+                && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child2_conditions)
+            {
                 child2_conditions.push(cond.clone());
             }
         }
@@ -567,10 +586,15 @@ impl GeneticAlgorithmV3 {
     ) {
         if child.conditions.len() < min_conditions && !fallback_parent.conditions.is_empty() {
             let mut rng = rand::thread_rng();
-            while child.conditions.len() < min_conditions {
+            let mut attempts = 0;
+            let max_attempts = fallback_parent.conditions.len() * 3;
+            while child.conditions.len() < min_conditions && attempts < max_attempts {
+                attempts += 1;
                 let idx = rng.gen_range(0..fallback_parent.conditions.len());
                 let cond = &fallback_parent.conditions[idx];
-                if !child.conditions.iter().any(|c| c.id == cond.id) {
+                if !child.conditions.iter().any(|c| c.id == cond.id)
+                    && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child.conditions)
+                {
                     child.conditions.push(cond.clone());
 
                     let aliases = Self::extract_all_indicator_aliases_from_condition(&cond.id);
@@ -990,6 +1014,39 @@ impl GeneticAlgorithmV3 {
         }
     }
 
+    fn get_safe_flipped_operator(
+        conditions: &[crate::discovery::ConditionInfo],
+        idx: usize,
+    ) -> Option<ConditionOperator> {
+        let condition = &conditions[idx];
+        
+        if condition.condition_type == "trend_condition" {
+            return Some(Self::flip_operator(&condition.operator));
+        }
+
+        if !CandidateBuilder::is_comparison_operator(&condition.operator) {
+            return Some(Self::flip_operator(&condition.operator));
+        }
+
+        let new_operator = Self::flip_operator(&condition.operator);
+        
+        let mut test_condition = condition.clone();
+        test_condition.operator = new_operator.clone();
+        
+        let other_conditions: Vec<crate::discovery::ConditionInfo> = conditions
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != idx)
+            .map(|(_, c)| c.clone())
+            .collect();
+        
+        if !CandidateBuilder::has_conflicting_comparison_operator(&test_condition, &other_conditions) {
+            Some(new_operator)
+        } else {
+            None
+        }
+    }
+
     fn can_compare_indicators_for_mutation(
         primary: &crate::discovery::IndicatorInfo,
         secondary: &crate::discovery::IndicatorInfo,
@@ -1071,7 +1128,9 @@ impl GeneticAlgorithmV3 {
                         price_fields,
                         operators,
                     ) {
-                        candidate.conditions.push(condition);
+                        if !CandidateBuilder::has_conflicting_comparison_operator(&condition, &candidate.conditions) {
+                            candidate.conditions.push(condition);
+                        }
                     }
                 }
             } else if !available_indicators.is_empty() {
@@ -1087,7 +1146,9 @@ impl GeneticAlgorithmV3 {
                     price_fields,
                     operators,
                 ) {
-                    candidate.conditions.push(condition);
+                    if !CandidateBuilder::has_conflicting_comparison_operator(&condition, &candidate.conditions) {
+                        candidate.conditions.push(condition);
+                    }
                 }
             }
         }
@@ -1101,8 +1162,9 @@ impl GeneticAlgorithmV3 {
                 Self::remove_unused_indicators(candidate);
             } else if rng.gen::<f64>() < 0.3 && !candidate.conditions.is_empty() {
                 let idx = rng.gen_range(0..candidate.conditions.len());
-                let condition = &mut candidate.conditions[idx];
-                condition.operator = Self::flip_operator(&condition.operator);
+                if let Some(new_operator) = Self::get_safe_flipped_operator(&candidate.conditions, idx) {
+                    candidate.conditions[idx].operator = new_operator;
+                }
             } else {
                 if !available_indicators.is_empty() && !candidate.indicators.is_empty() {
                     let indicator =
@@ -1115,7 +1177,9 @@ impl GeneticAlgorithmV3 {
                         price_fields,
                         operators,
                     ) {
-                        candidate.conditions.push(condition);
+                        if !CandidateBuilder::has_conflicting_comparison_operator(&condition, &candidate.conditions) {
+                            candidate.conditions.push(condition);
+                        }
                     }
                 }
             }
@@ -1142,8 +1206,9 @@ impl GeneticAlgorithmV3 {
                 Self::remove_unused_indicators(candidate);
             } else if rng.gen::<f64>() < 0.3 && !candidate.exit_conditions.is_empty() {
                 let idx = rng.gen_range(0..candidate.exit_conditions.len());
-                let condition = &mut candidate.exit_conditions[idx];
-                condition.operator = Self::flip_operator(&condition.operator);
+                if let Some(new_operator) = Self::get_safe_flipped_operator(&candidate.exit_conditions, idx) {
+                    candidate.exit_conditions[idx].operator = new_operator;
+                }
             } else {
                 if !available_indicators.is_empty() && !candidate.indicators.is_empty() {
                     let indicator =
@@ -1156,7 +1221,9 @@ impl GeneticAlgorithmV3 {
                         price_fields,
                         operators,
                     ) {
-                        candidate.exit_conditions.push(condition);
+                        if !CandidateBuilder::has_conflicting_comparison_operator(&condition, &candidate.exit_conditions) {
+                            candidate.exit_conditions.push(condition);
+                        }
                     }
                 }
             }

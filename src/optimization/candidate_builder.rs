@@ -56,10 +56,9 @@ impl CandidateBuilder {
         // Применяем правила после первой фазы (например, StopLossPct -> TakeProfitPct)
         self.apply_rules(&mut candidate, available_stop_handlers);
 
-        // ФАЗЫ 2+: Дополнительные фазы с вероятностью
         let mut phase = 2;
         while self.should_add(probabilities.phases.continue_building) {
-            if !self.build_additional_phase(
+            let all_limits_reached = self.build_additional_phase(
                 &mut candidate,
                 available_indicators,
                 available_stop_handlers,
@@ -67,8 +66,8 @@ impl CandidateBuilder {
                 &constraints,
                 &probabilities,
                 phase,
-            ) {
-                // Если не можем добавить больше элементов (достигли лимитов), прекращаем
+            );
+            if all_limits_reached {
                 break;
             }
             phase += 1;
@@ -81,6 +80,14 @@ impl CandidateBuilder {
             &mut candidate.entry_conditions,
             &candidate.exit_conditions,
             &constraints,
+        );
+
+        // Добавляем higher timeframes с вероятностью (если ещё не добавлены)
+        self.add_higher_timeframes_with_probability(
+            &mut candidate,
+            available_timeframes,
+            &constraints,
+            &probabilities.timeframes,
         );
 
         self.ensure_higher_timeframes_used(
@@ -119,10 +126,12 @@ impl CandidateBuilder {
             available_indicators,
             probabilities,
             &exclude_aliases,
-            true, // is_phase_1 = true
+            true,
         ) {
             candidate.indicators.push(indicator);
         }
+
+        self.try_add_nested_indicator(candidate, available_indicators);
 
         // 3. Добавляем случайное условие входа
         if !candidate.indicators.is_empty()
@@ -134,7 +143,12 @@ impl CandidateBuilder {
                 &probabilities.conditions,
                 true,
             ) {
-                if !Self::is_duplicate_condition(&condition, &candidate.entry_conditions) {
+                if !Self::is_duplicate_condition(&condition, &candidate.entry_conditions)
+                    && !Self::has_conflicting_comparison_operator(
+                        &condition,
+                        &candidate.entry_conditions,
+                    )
+                {
                     candidate.entry_conditions.push(condition);
                 }
             }
@@ -144,16 +158,37 @@ impl CandidateBuilder {
         if candidate.stop_handlers.is_empty() && constraints.min_stop_handlers > 0 {
             if available_stop_handlers.is_empty() {
                 eprintln!("      ⚠️  ВНИМАНИЕ: Нет доступных stop handlers для добавления!");
-            } else if let Some(stop) = self.select_single_stop_handler_required(
-                available_stop_handlers,
-                &probabilities.stop_handlers,
-            ) {
+            } else if let Some(stop) =
+                self.select_single_stop_handler_required(available_stop_handlers)
+            {
                 candidate.stop_handlers.push(stop);
             } else {
                 eprintln!(
                     "      ⚠️  ВНИМАНИЕ: Не удалось выбрать stop handler из {} доступных",
                     available_stop_handlers.len()
                 );
+            }
+        }
+
+        // 5. Добавляем take profit с вероятностью
+        if candidate.take_handlers.is_empty()
+            && candidate.take_handlers.len() < constraints.max_take_handlers
+            && self.should_add(probabilities.take_handlers.add_take_profit)
+        {
+            let take_configs: Vec<&StopHandlerConfig> = available_stop_handlers
+                .iter()
+                .filter(|c| c.stop_type == "take_profit")
+                .collect();
+
+            if let Some(config) = take_configs.choose(&mut self.rng) {
+                candidate.take_handlers.push(StopHandlerInfo {
+                    id: format!("take_{}", self.rng.gen::<u32>()),
+                    name: config.handler_name.clone(),
+                    handler_name: config.handler_name.clone(),
+                    stop_type: config.stop_type.clone(),
+                    optimization_params: Vec::new(),
+                    priority: config.priority,
+                });
             }
         }
     }
@@ -168,40 +203,19 @@ impl CandidateBuilder {
         probabilities: &ElementProbabilities,
         _phase: usize,
     ) -> bool {
-        // Проверяем лимиты перед добавлением
-        if candidate.indicators.len() >= constraints.max_indicators
+        let all_limits_reached = candidate.indicators.len() >= constraints.max_indicators
             && candidate.entry_conditions.len() >= constraints.max_entry_conditions
             && candidate.exit_conditions.len() >= constraints.max_exit_conditions
-            && candidate.timeframes.len() >= constraints.max_timeframes
-        {
-            return false;
+            && candidate.timeframes.len() >= constraints.max_timeframes;
+
+        if all_limits_reached {
+            return true;
         }
 
-        // Решаем: добавляем entry или exit условие?
-        let is_entry = if candidate.exit_conditions.len() >= constraints.max_exit_conditions {
-            true // Только entry, если exit лимит достигнут
-        } else if candidate.entry_conditions.len() >= constraints.max_entry_conditions {
-            false // Только exit, если entry лимит достигнут
-        } else {
-            // Выбираем на основе вероятности
-            !self.should_add(probabilities.phases.add_exit_rules)
-        };
-
-        // Проверяем лимиты для выбранного типа условия
-        if is_entry && candidate.entry_conditions.len() >= constraints.max_entry_conditions {
-            return false;
-        }
-        if !is_entry && candidate.exit_conditions.len() >= constraints.max_exit_conditions {
-            return false;
-        }
-
-        // Если нет индикаторов, не можем создать условие
         if candidate.indicators.is_empty() && candidate.nested_indicators.is_empty() {
-            return false;
+            return true;
         }
 
-        // Опционально: добавляем higher timeframe (если нужно и есть вероятность)
-        let mut selected_timeframe: Option<TimeFrame> = None;
         if candidate.timeframes.len() < constraints.max_timeframes
             && available_timeframes.len() > 1
             && self.should_add(probabilities.timeframes.use_higher_timeframe)
@@ -214,15 +228,10 @@ impl CandidateBuilder {
 
             if let Some(higher_tf) = higher_timeframes.choose(&mut self.rng) {
                 candidate.timeframes.push((*higher_tf).clone());
-                selected_timeframe = Some((*higher_tf).clone());
             }
         }
 
-        // Опционально: добавляем новый индикатор (если нужно)
-        // Используем вероятность из другой логики или просто проверяем лимиты
-        if candidate.indicators.len() < constraints.max_indicators && self.should_add(0.5)
-        // 50% шанс добавить новый индикатор
-        {
+        if candidate.indicators.len() < constraints.max_indicators && self.should_add(0.5) {
             let exclude_aliases: Vec<String> = candidate
                 .indicators
                 .iter()
@@ -232,48 +241,51 @@ impl CandidateBuilder {
                 available_indicators,
                 probabilities,
                 &exclude_aliases,
-                false, // is_phase_1 = false (это дополнительная фаза)
+                false,
             ) {
                 candidate.indicators.push(indicator);
             }
         }
 
-        // Строим ОДНО условие с учетом всех вероятностей
-        let condition = if let Some(timeframe) = selected_timeframe {
-            // Если выбран higher timeframe, используем его для условия
-            // Выбираем случайный индикатор для условия
-            let all_indicators: Vec<&IndicatorInfo> = candidate
-                .indicators
-                .iter()
-                .chain(candidate.nested_indicators.iter().map(|n| &n.indicator))
-                .collect();
+        self.try_add_nested_indicator(candidate, available_indicators);
 
-            if let Some(indicator) = all_indicators.choose(&mut self.rng) {
-                self.build_condition_with_timeframe(indicator, is_entry, Some(timeframe))
-            } else {
-                None
-            }
-        } else {
-            // Обычное условие без специального таймфрейма
-            self.build_condition(
+        if candidate.entry_conditions.len() < constraints.max_entry_conditions
+            && self.should_add(probabilities.conditions.add_entry_condition)
+        {
+            let condition = self.build_condition(
                 &candidate.indicators,
                 &candidate.nested_indicators,
                 &probabilities.conditions,
-                is_entry,
-            )
-        };
+                true,
+            );
 
-        // Добавляем условие (только одно!)
-        if let Some(condition) = condition {
-            if is_entry {
-                if !Self::is_duplicate_condition(&condition, &candidate.entry_conditions) {
-                    candidate.entry_conditions.push(condition);
-                    return true;
+            if let Some(cond) = condition {
+                if !Self::is_duplicate_condition(&cond, &candidate.entry_conditions)
+                    && !Self::has_conflicting_comparison_operator(
+                        &cond,
+                        &candidate.entry_conditions,
+                    )
+                {
+                    candidate.entry_conditions.push(cond);
                 }
-            } else {
-                if !Self::is_duplicate_condition(&condition, &candidate.exit_conditions) {
-                    candidate.exit_conditions.push(condition);
-                    return true;
+            }
+        }
+
+        if candidate.exit_conditions.len() < constraints.max_exit_conditions
+            && self.should_add(probabilities.phases.add_exit_rules)
+        {
+            let condition = self.build_condition(
+                &candidate.indicators,
+                &candidate.nested_indicators,
+                &probabilities.conditions,
+                false,
+            );
+
+            if let Some(cond) = condition {
+                if !Self::is_duplicate_condition(&cond, &candidate.exit_conditions)
+                    && !Self::has_conflicting_comparison_operator(&cond, &candidate.exit_conditions)
+                {
+                    candidate.exit_conditions.push(cond);
                 }
             }
         }
@@ -546,11 +558,19 @@ impl CandidateBuilder {
     fn select_single_stop_handler_required(
         &mut self,
         available: &[StopHandlerConfig],
-        _probabilities: &super::candidate_builder_config::StopHandlerProbabilities,
     ) -> Option<StopHandlerInfo> {
+        let excluded_stop_handlers: std::collections::HashSet<&str> = self
+            .config
+            .rules
+            .excluded_stop_handlers
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+
         let stop_loss_configs: Vec<&StopHandlerConfig> = available
             .iter()
             .filter(|c| c.stop_type == "stop_loss")
+            .filter(|c| !excluded_stop_handlers.contains(c.handler_name.as_str()))
             .collect();
 
         if stop_loss_configs.is_empty() {
@@ -642,7 +662,9 @@ impl CandidateBuilder {
                 }
                 let condition = self.build_condition_simple(indicator, true);
                 if let Some(cond) = condition {
-                    if !Self::is_duplicate_condition(&cond, entry_conditions) {
+                    if !Self::is_duplicate_condition(&cond, entry_conditions)
+                        && !Self::has_conflicting_comparison_operator(&cond, entry_conditions)
+                    {
                         entry_conditions.push(cond);
                         used_indicators.insert(indicator.alias.clone());
                     }
@@ -804,6 +826,49 @@ impl CandidateBuilder {
         })
     }
 
+    fn add_higher_timeframes_with_probability(
+        &mut self,
+        candidate: &mut CandidateElements,
+        available_timeframes: &[TimeFrame],
+        constraints: &ElementConstraints,
+        timeframe_probs: &super::candidate_builder_config::TimeframeProbabilities,
+    ) {
+        if available_timeframes.len() <= 1 {
+            return;
+        }
+
+        // Добавляем higher timeframe с вероятностью use_higher_timeframe
+        if candidate.timeframes.len() < constraints.max_timeframes
+            && self.should_add(timeframe_probs.use_higher_timeframe)
+        {
+            let higher_timeframes: Vec<&TimeFrame> = available_timeframes
+                .iter()
+                .skip(1)
+                .filter(|tf| !candidate.timeframes.contains(tf))
+                .collect();
+
+            if let Some(higher_tf) = higher_timeframes.choose(&mut self.rng) {
+                candidate.timeframes.push((*higher_tf).clone());
+            }
+        }
+
+        // Добавляем ещё один timeframe с вероятностью use_multiple_timeframes
+        if available_timeframes.len() > 2
+            && candidate.timeframes.len() >= 2
+            && candidate.timeframes.len() < constraints.max_timeframes
+            && self.should_add(timeframe_probs.use_multiple_timeframes)
+        {
+            let remaining_timeframes: Vec<&TimeFrame> = available_timeframes
+                .iter()
+                .filter(|tf| !candidate.timeframes.contains(tf))
+                .collect();
+
+            if let Some(tf) = remaining_timeframes.choose(&mut self.rng) {
+                candidate.timeframes.push((*tf).clone());
+            }
+        }
+    }
+
     fn ensure_higher_timeframes_used(
         &mut self,
         candidate: &mut CandidateElements,
@@ -861,7 +926,12 @@ impl CandidateBuilder {
                         Some(higher_tf.clone()), // Индикатор строится по этому higher timeframe
                     );
                     if let Some(cond) = condition {
-                        if !Self::is_duplicate_condition(&cond, &candidate.entry_conditions) {
+                        if !Self::is_duplicate_condition(&cond, &candidate.entry_conditions)
+                            && !Self::has_conflicting_comparison_operator(
+                                &cond,
+                                &candidate.entry_conditions,
+                            )
+                        {
                             candidate.entry_conditions.push(cond);
                         }
                     }
@@ -871,47 +941,26 @@ impl CandidateBuilder {
     }
 
     fn extract_indicator_alias_from_condition_id(condition_id: &str) -> Option<String> {
-        if condition_id.starts_with("entry_") {
-            let rest = condition_id.strip_prefix("entry_")?;
-            let parts: Vec<&str> = rest.split('_').collect();
-            if !parts.is_empty() {
-                return Some(parts[0].to_string());
-            }
+        let rest = if condition_id.starts_with("entry_") {
+            condition_id.strip_prefix("entry_")?
         } else if condition_id.starts_with("exit_") {
-            let rest = condition_id.strip_prefix("exit_")?;
-            let parts: Vec<&str> = rest.split('_').collect();
-            if !parts.is_empty() {
-                return Some(parts[0].to_string());
-            }
+            condition_id.strip_prefix("exit_")?
         } else if condition_id.starts_with("ind_price_") {
-            let rest = condition_id.strip_prefix("ind_price_")?;
-            if let Some(tf_pos) = rest.find("_tf") {
-                let before_tf = &rest[..tf_pos];
-                let parts: Vec<&str> = before_tf.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
-            } else {
-                let parts: Vec<&str> = rest.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
-            }
+            condition_id.strip_prefix("ind_price_")?
         } else if condition_id.starts_with("ind_const_") {
-            let rest = condition_id.strip_prefix("ind_const_")?;
-            if let Some(tf_pos) = rest.find("_tf") {
-                let before_tf = &rest[..tf_pos];
-                let parts: Vec<&str> = before_tf.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
-            } else {
-                let parts: Vec<&str> = rest.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
-            }
+            condition_id.strip_prefix("ind_const_")?
+        } else {
+            return None;
+        };
+
+        if let Some(separator_pos) = rest.find("::") {
+            return Some(rest[..separator_pos].to_string());
         }
+
+        if let Some(last_underscore) = rest.rfind('_') {
+            return Some(rest[..last_underscore].to_string());
+        }
+
         None
     }
 
@@ -959,41 +1008,25 @@ impl CandidateBuilder {
             })
             .unwrap_or(false);
 
-        // 4. Трендовые условия (RisingTrend/FallingTrend) могут создаваться для любых индикаторов
         let condition_type = if primary_indicator.indicator_type == "oscillator"
             && !Self::is_oscillator_used_in_nested(primary_indicator, nested_indicators)
         {
             "indicator_constant"
         } else if primary_indicator.indicator_type == "volatility" {
-            // Volatility индикаторы создают indicator_constant условия с процентом от цены
-            // (аналогично осцилляторам, но с процентом вместо абсолютного значения)
             "indicator_constant"
         } else if is_built_on_oscillator {
-            // Если индикатор построен по осциллятору (например, SMA(RSI)),
-            // он может создавать ТОЛЬКО indicator_indicator условия с исходным осциллятором
-            "indicator_indicator"
-        } else if self.should_add(probabilities.use_trend_condition) {
-            // Трендовые условия могут создаваться для любых индикаторов
-            "trend_condition"
-        } else if primary_indicator.indicator_type == "trend"
-            || primary_indicator.indicator_type == "channel"
-        {
-            // Трендовые и канальные индикаторы не могут создавать indicator_constant условия
-            if self.should_add(probabilities.use_indicator_indicator_condition) {
-                "indicator_indicator"
-            } else {
-                "indicator_price"
-            }
-        } else if self.should_add(probabilities.use_indicator_indicator_condition) {
-            "indicator_indicator"
+            self.weighted_choice_for_oscillator_based(probabilities)
         } else {
-            "indicator_price"
+            self.weighted_condition_type_choice(probabilities)
         };
 
-        // Для trend_condition используем только GreaterThan или LessThan
-        // CrossesAbove/CrossesBelow требуют два вектора, а трендовые условия работают с одним
         let operator = if condition_type == "trend_condition" {
-            // Для трендовых условий используем только GreaterThan или LessThan
+            if self.rng.gen_bool(0.5) {
+                ConditionOperator::GreaterThan
+            } else {
+                ConditionOperator::LessThan
+            }
+        } else if primary_indicator.indicator_type == "volatility" {
             if self.rng.gen_bool(0.5) {
                 ConditionOperator::GreaterThan
             } else {
@@ -1085,16 +1118,14 @@ impl CandidateBuilder {
             };
             (id, name)
         } else if condition_type == "trend_condition" {
-            // Для trend_condition создаем трендовое условие
-            // GreaterThan -> RisingTrend, LessThan -> FallingTrend
             let period = self.rng.gen_range(10.0..=50.0);
             let trend_name = match operator {
                 ConditionOperator::GreaterThan => "RisingTrend",
                 ConditionOperator::LessThan => "FallingTrend",
-                _ => "RisingTrend", // По умолчанию
+                _ => "RisingTrend",
             };
             let id = format!(
-                "{}_{}_{}_{}",
+                "{}_{}::{}_{}",
                 if is_entry { "entry" } else { "exit" },
                 primary_indicator.alias,
                 trend_name.to_lowercase(),
@@ -1125,7 +1156,7 @@ impl CandidateBuilder {
 
             if let Some(secondary) = available_secondary.choose(&mut self.rng) {
                 let id = format!(
-                    "{}_{}_{}_{}",
+                    "{}_{}::{}_{}",
                     if is_entry { "entry" } else { "exit" },
                     primary_indicator.alias,
                     secondary.alias,
@@ -1431,6 +1462,51 @@ impl CandidateBuilder {
         self.rng.gen_bool(probability.clamp(0.0, 1.0))
     }
 
+    fn weighted_condition_type_choice(
+        &mut self,
+        probabilities: &super::candidate_builder_config::ConditionProbabilities,
+    ) -> &'static str {
+        let w_price = probabilities.use_indicator_price_condition;
+        let w_indicator = probabilities.use_indicator_indicator_condition;
+        let w_trend = probabilities.use_trend_condition;
+        let total = w_price + w_indicator + w_trend;
+
+        if total <= 0.0 {
+            return "indicator_price";
+        }
+
+        let random = self.rng.gen::<f64>() * total;
+
+        if random < w_price {
+            "indicator_price"
+        } else if random < w_price + w_indicator {
+            "indicator_indicator"
+        } else {
+            "trend_condition"
+        }
+    }
+
+    fn weighted_choice_for_oscillator_based(
+        &mut self,
+        probabilities: &super::candidate_builder_config::ConditionProbabilities,
+    ) -> &'static str {
+        let w_indicator = probabilities.use_indicator_indicator_condition;
+        let w_trend = probabilities.use_trend_condition;
+        let total = w_indicator + w_trend;
+
+        if total <= 0.0 {
+            return "indicator_indicator";
+        }
+
+        let random = self.rng.gen::<f64>() * total;
+
+        if random < w_indicator {
+            "indicator_indicator"
+        } else {
+            "trend_condition"
+        }
+    }
+
     fn is_oscillator_used_in_nested(
         indicator: &crate::discovery::IndicatorInfo,
         nested_indicators: &[crate::discovery::NestedIndicator],
@@ -1438,6 +1514,99 @@ impl CandidateBuilder {
         nested_indicators
             .iter()
             .any(|nested| nested.input_indicator_alias == indicator.alias)
+    }
+
+    fn try_add_nested_indicator(
+        &mut self,
+        candidate: &mut CandidateElements,
+        available_indicators: &[IndicatorInfo],
+    ) {
+        let add_nested_prob = self
+            .config
+            .probabilities
+            .nested_indicators
+            .add_nested_indicator;
+        let max_depth = self
+            .config
+            .probabilities
+            .nested_indicators
+            .max_nesting_depth;
+
+        if !self.should_add(add_nested_prob) {
+            return;
+        }
+
+        if candidate.indicators.is_empty() {
+            return;
+        }
+
+        let current_max_depth = candidate
+            .nested_indicators
+            .iter()
+            .map(|n| n.depth)
+            .max()
+            .unwrap_or(0);
+
+        if current_max_depth >= max_depth {
+            return;
+        }
+
+        let base_indicators: Vec<&IndicatorInfo> = candidate
+            .indicators
+            .iter()
+            .chain(candidate.nested_indicators.iter().map(|n| &n.indicator))
+            .collect();
+
+        let Some(input_indicator) = base_indicators.choose(&mut self.rng) else {
+            return;
+        };
+
+        let input_depth = candidate
+            .nested_indicators
+            .iter()
+            .find(|n| n.indicator.alias == input_indicator.alias)
+            .map(|n| n.depth)
+            .unwrap_or(0);
+
+        if input_depth >= max_depth {
+            return;
+        }
+
+        let nestable_indicators: Vec<&IndicatorInfo> = available_indicators
+            .iter()
+            .filter(|ind| ind.indicator_type == "trend")
+            .filter(|ind| !self.config.rules.excluded_indicators.contains(&ind.name))
+            .collect();
+
+        let Some(wrapper_template) = nestable_indicators.choose(&mut self.rng) else {
+            return;
+        };
+
+        let new_alias = format!("{}_on_{}", wrapper_template.alias, input_indicator.alias);
+
+        let already_exists = candidate
+            .nested_indicators
+            .iter()
+            .any(|n| n.indicator.alias == new_alias);
+
+        if already_exists {
+            return;
+        }
+
+        let nested_indicator = NestedIndicator {
+            indicator: IndicatorInfo {
+                name: wrapper_template.name.clone(),
+                alias: new_alias,
+                parameters: wrapper_template.parameters.clone(),
+                can_use_indicator_input: true,
+                input_type: "indicator".to_string(),
+                indicator_type: wrapper_template.indicator_type.clone(),
+            },
+            input_indicator_alias: input_indicator.alias.clone(),
+            depth: input_depth + 1,
+        };
+
+        candidate.nested_indicators.push(nested_indicator);
     }
 
     /// Проверяет, является ли условие дубликатом уже существующего условия
@@ -1632,17 +1801,13 @@ impl CandidateBuilder {
         constraints: &ElementConstraints,
         available_stop_handlers: &[StopHandlerConfig],
     ) {
-        let stop_handlers_prob = self.config.probabilities.stop_handlers.clone();
-
         while candidate.stop_handlers.len() < constraints.min_stop_handlers {
             if available_stop_handlers.is_empty() {
                 eprintln!("      ⚠️  ВНИМАНИЕ: Нет доступных stop handlers для выполнения min_stop_handlers={}", constraints.min_stop_handlers);
                 break;
             }
 
-            if let Some(stop) = self
-                .select_single_stop_handler_required(available_stop_handlers, &stop_handlers_prob)
-            {
+            if let Some(stop) = self.select_single_stop_handler_required(available_stop_handlers) {
                 candidate.stop_handlers.push(stop);
             } else {
                 eprintln!(
@@ -1688,7 +1853,12 @@ impl CandidateBuilder {
                     &probabilities_conditions,
                     true,
                 ) {
-                    if !Self::is_duplicate_condition(&condition, &candidate.entry_conditions) {
+                    if !Self::is_duplicate_condition(&condition, &candidate.entry_conditions)
+                        && !Self::has_conflicting_comparison_operator(
+                            &condition,
+                            &candidate.entry_conditions,
+                        )
+                    {
                         candidate.entry_conditions.push(condition);
                     }
                 } else {
@@ -1710,7 +1880,12 @@ impl CandidateBuilder {
                     &probabilities_conditions,
                     false,
                 ) {
-                    if !Self::is_duplicate_condition(&condition, &candidate.exit_conditions) {
+                    if !Self::is_duplicate_condition(&condition, &candidate.exit_conditions)
+                        && !Self::has_conflicting_comparison_operator(
+                            &condition,
+                            &candidate.exit_conditions,
+                        )
+                    {
                         candidate.exit_conditions.push(condition);
                     }
                 } else {
@@ -1719,6 +1894,150 @@ impl CandidateBuilder {
             } else {
                 break;
             }
+        }
+    }
+
+    pub fn is_comparison_operator(operator: &ConditionOperator) -> bool {
+        matches!(
+            operator,
+            ConditionOperator::CrossesAbove
+                | ConditionOperator::CrossesBelow
+                | ConditionOperator::GreaterThan
+                | ConditionOperator::LessThan
+        )
+    }
+
+    pub fn extract_operands(condition: &ConditionInfo) -> Option<ConditionOperands> {
+        if condition.condition_type == "trend_condition" {
+            return None;
+        }
+
+        let primary_alias = Self::extract_indicator_alias_from_condition_id(&condition.id)?;
+
+        if condition.condition_type == "indicator_indicator" {
+            let parts: Vec<&str> = condition.id.split('_').collect();
+            if parts.len() >= 3 {
+                let secondary_alias =
+                    if condition.id.starts_with("entry_") || condition.id.starts_with("exit_") {
+                        parts.get(2).map(|s| s.to_string())
+                    } else if condition.id.starts_with("ind_ind_") {
+                        parts.get(3).map(|s| s.to_string())
+                    } else {
+                        parts.get(2).map(|s| s.to_string())
+                    };
+
+                if let Some(secondary) = secondary_alias {
+                    return Some(ConditionOperands::IndicatorIndicator {
+                        primary_alias,
+                        secondary_alias: secondary,
+                    });
+                }
+            }
+        } else if condition.condition_type == "indicator_price" {
+            let price_field = condition
+                .price_field
+                .clone()
+                .unwrap_or_else(|| "Close".to_string());
+            return Some(ConditionOperands::IndicatorPrice {
+                indicator_alias: primary_alias,
+                price_field,
+            });
+        } else if condition.condition_type == "indicator_constant" {
+            return Some(ConditionOperands::IndicatorConstant {
+                indicator_alias: primary_alias,
+            });
+        }
+
+        None
+    }
+
+    pub fn has_conflicting_comparison_operator(
+        new_condition: &ConditionInfo,
+        existing_conditions: &[ConditionInfo],
+    ) -> bool {
+        if new_condition.condition_type == "trend_condition" {
+            return false;
+        }
+
+        if !Self::is_comparison_operator(&new_condition.operator) {
+            return false;
+        }
+
+        let new_operands = match Self::extract_operands(new_condition) {
+            Some(ops) => ops,
+            None => return false,
+        };
+
+        for existing in existing_conditions {
+            if existing.condition_type == "trend_condition" {
+                continue;
+            }
+
+            if !Self::is_comparison_operator(&existing.operator) {
+                continue;
+            }
+
+            let existing_operands = match Self::extract_operands(existing) {
+                Some(ops) => ops,
+                None => continue,
+            };
+
+            if new_operands.same_operands(&existing_operands) {
+                return true;
+            }
+        }
+
+        false
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConditionOperands {
+    IndicatorPrice {
+        indicator_alias: String,
+        price_field: String,
+    },
+    IndicatorIndicator {
+        primary_alias: String,
+        secondary_alias: String,
+    },
+    IndicatorConstant {
+        indicator_alias: String,
+    },
+}
+
+impl ConditionOperands {
+    pub fn same_operands(&self, other: &ConditionOperands) -> bool {
+        match (self, other) {
+            (
+                ConditionOperands::IndicatorPrice {
+                    indicator_alias: a1,
+                    price_field: p1,
+                },
+                ConditionOperands::IndicatorPrice {
+                    indicator_alias: a2,
+                    price_field: p2,
+                },
+            ) => a1 == a2 && p1 == p2,
+            (
+                ConditionOperands::IndicatorIndicator {
+                    primary_alias: p1,
+                    secondary_alias: s1,
+                },
+                ConditionOperands::IndicatorIndicator {
+                    primary_alias: p2,
+                    secondary_alias: s2,
+                },
+            ) => (p1 == p2 && s1 == s2) || (p1 == s2 && s1 == p2),
+            (
+                ConditionOperands::IndicatorConstant {
+                    indicator_alias: a1,
+                },
+                ConditionOperands::IndicatorConstant {
+                    indicator_alias: a2,
+                },
+            ) => a1 == a2,
+            _ => false,
         }
     }
 }
