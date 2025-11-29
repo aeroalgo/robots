@@ -205,6 +205,9 @@ pub struct OperatorSelectorFactory {
 
 ## 6. Смешение уровней абстракции в BacktestExecutor
 
+### Статус: 📋 ЗАПЛАНИРОВАНО
+См. план рефакторинга: `cursor-memory-bank/memory-bank/refactoring-backtest-executor.md`
+
 ### Проблема
 `BacktestExecutor` отвечает за:
 1. Управление историческим фидом
