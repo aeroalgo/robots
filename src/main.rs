@@ -10,10 +10,14 @@ use robots::data_access::database::clickhouse::{ClickHouseConfig, ClickHouseConn
 use robots::data_access::{DataSource, Database};
 use robots::data_model::quote_frame::QuoteFrame;
 use robots::data_model::types::{Symbol, TimeFrame};
+use robots::debug::{
+    print_conditions_signals, print_conditions_summary, print_equity_curve_summary,
+    print_quick_summary, print_strategy_debug, DebugConfig,
+};
 use robots::discovery::StrategyDiscoveryConfig;
 use robots::indicators::registry::IndicatorFactory;
 use robots::optimization::*;
-use robots::strategy::executor::BacktestExecutor;
+use robots::strategy::executor::{BacktestConfig, BacktestExecutor};
 use robots::strategy::presets::default_strategy_definitions;
 use robots::strategy::types::PriceField;
 
@@ -78,10 +82,8 @@ async fn run() -> Result<()> {
     let frame = QuoteFrame::try_from_ohlcv(candles.clone(), symbol.clone(), timeframe.clone())
         .context("Не удалось построить QuoteFrame из данных ClickHouse")?;
 
-    // Расчет индикаторов на базовом таймфрейме 60 минут для проверки
     let close_values: Vec<f32> = frame.closes().iter().collect();
 
-    // Trend SMA (period = 40)
     let trend_sma =
         IndicatorFactory::create_indicator("SMA", HashMap::from([("period".to_string(), 40.0)]))?;
     let trend_sma_values = trend_sma.calculate_simple(&close_values)?;
@@ -90,113 +92,22 @@ async fn run() -> Result<()> {
     let mut frames = HashMap::new();
     frames.insert(timeframe.clone(), frame);
 
+    let strategy_name = "ZLEMA_PERCENT_TRAILING";
+
     let definition = default_strategy_definitions()
         .into_iter()
-        .find(|def| def.metadata.id == "SMA_CROSSOVER_LONG")
-        .context("Стратегия SMA_CROSSOVER_LONG не найдена")?;
-
-    let mut executor =
-        BacktestExecutor::from_definition(definition, None, frames).map_err(anyhow::Error::new)?;
-
-    // Проверка SuperTrend индикатора
-    println!("\n=== ПРОВЕРКА SUPERTREND ИНДИКАТОРА ===");
-    let supertrend = IndicatorFactory::create_indicator(
-        "SUPERTREND",
-        HashMap::from([("period".to_string(), 60.0), ("coeff_atr".to_string(), 6.5)]),
-    )?;
-
-    let ohlc_data = robots::indicators::types::OHLCData {
-        open: source_frame.opens().iter().collect(),
-        high: source_frame.highs().iter().collect(),
-        low: source_frame.lows().iter().collect(),
-        close: source_frame.closes().iter().collect(),
-        volume: Some(source_frame.volumes().iter().collect()),
-        timestamp: Some(
-            source_frame
-                .timestamps()
-                .iter()
-                .map(|t| t.timestamp())
-                .collect(),
-        ),
+        .find(|def| def.metadata.id == strategy_name)
+        .context(format!("Стратегия {} не найдена", strategy_name))?;
+    let config = BacktestConfig {
+        initial_capital: 1000.0,
+        use_full_capital: true,
+        reinvest_profits: false,
     };
-
-    let supertrend_values = supertrend.calculate_ohlc(&ohlc_data)?;
-    let close_vec: Vec<f32> = source_frame.closes().iter().collect();
-
-    println!("Всего значений SuperTrend: {}", supertrend_values.len());
-    println!("Всего значений Close: {}", close_vec.len());
-
-    // Последние 20 значений для проверки
-    let last_n = 20;
-    let start_idx = supertrend_values.len().saturating_sub(last_n);
-    println!("\nПоследние {} значений SuperTrend vs Close:", last_n);
-    println!(
-        "{:>6} | {:>12} | {:>12} | {:>10}",
-        "Index", "SuperTrend", "Close", "ST > Close"
-    );
-    println!("{}", "-".repeat(50));
-    for i in start_idx..supertrend_values.len() {
-        let st = supertrend_values[i];
-        let cl = close_vec[i];
-        let condition = if st > cl { "YES ✓" } else { "NO" };
-        println!("{:>6} | {:>12.4} | {:>12.4} | {:>10}", i, st, cl, condition);
-    }
-
-    // Статистика условия supertrend > close за последние 1000 баров
-    let check_count = 1000.min(supertrend_values.len());
-    let check_start = supertrend_values.len().saturating_sub(check_count);
-    let mut condition_true_count = 0;
-    for i in check_start..supertrend_values.len() {
-        if supertrend_values[i] > close_vec[i] {
-            condition_true_count += 1;
-        }
-    }
-    println!("\nСтатистика за последние {} баров:", check_count);
-    println!(
-        "SuperTrend > Close: {} раз ({:.1}%)",
-        condition_true_count,
-        (condition_true_count as f64 / check_count as f64) * 100.0
-    );
-
-    // Проверка ATRTrailStop
-    println!("\n=== ПРОВЕРКА ATR TRAILING STOP ===");
-    use robots::risk::StopHandlerFactory;
-    use robots::strategy::types::StrategyParamValue;
-
-    let mut atr_params = std::collections::HashMap::new();
-    atr_params.insert("period".to_string(), StrategyParamValue::Number(30.0));
-    atr_params.insert("coeff_atr".to_string(), StrategyParamValue::Number(7.0));
-
-    match StopHandlerFactory::create("ATRTrailStop", &atr_params) {
-        Ok(handler) => {
-            println!("✓ ATRTrailStop создан успешно");
-            println!("  Handler name: {}", handler.name());
-            let aux_specs = handler.required_auxiliary_indicators();
-            println!(
-                "  Required auxiliary indicators: {:?}",
-                aux_specs.iter().map(|s| &s.alias).collect::<Vec<_>>()
-            );
-        }
-        Err(e) => {
-            println!("✗ Ошибка создания ATRTrailStop: {:?}", e);
-        }
-    }
+    let mut executor = BacktestExecutor::from_definition(definition, None, frames)
+        .map_err(anyhow::Error::new)?
+        .with_config(config.clone());
 
     // Проверка диапазонов параметров
-    println!("\nДиапазоны параметров из StopParameterPresets:");
-    if let Some(range) = robots::risk::get_stop_optimization_range("ATRTrailStop", "period") {
-        println!(
-            "  period: {:.1} - {:.1}, step {:.1}",
-            range.start, range.end, range.step
-        );
-    }
-    if let Some(range) = robots::risk::get_stop_optimization_range("ATRTrailStop", "coeff_atr") {
-        println!(
-            "  coeff_atr: {:.1} - {:.1}, step {:.1}",
-            range.start, range.end, range.step
-        );
-    }
-
     #[cfg(feature = "profiling")]
     let _guard = {
         std::fs::create_dir_all("profiling").ok();
@@ -233,498 +144,32 @@ async fn run() -> Result<()> {
         elapsed.as_millis() as f64
     );
 
-    println!("Стратегия: SMA_CROSSOVER_LONG");
-    println!("Символ: {}", symbol.descriptor());
-    println!(
-        "Таймфрейм: {} минут",
-        timeframe.total_minutes().unwrap_or_default()
+    let debug_config = DebugConfig {
+        show_metrics: true,
+        show_indicators: true,
+        indicator_count: 20,
+        show_first_trades: 100,
+        show_last_trades: 100,
+        show_stop_take_details: 10,
+        show_conditions: true,
+        condition_signals_count: 50,
+        only_triggered_conditions: true,
+    };
+
+    print_strategy_debug(
+        &report,
+        executor.context(),
+        strategy_name,
+        &symbol.descriptor(),
+        &timeframe,
+        &debug_config,
     );
 
-    let ema_timeframe = TimeFrame::minutes(240);
-
-    // Расчет EMA 50 на базовом таймфрейме
-    let close_values: Vec<f32> = executor
-        .context()
-        .timeframe(&timeframe)
-        .map_err(|e| anyhow::anyhow!("Не удалось получить данные базового таймфрейма: {}", e))?
-        .price_series_slice(&robots::strategy::types::PriceField::Close)
-        .ok_or_else(|| anyhow::anyhow!("Не найдены цены закрытия"))?
-        .to_vec();
-
-    println!("\n=== БАЗОВЫЕ МЕТРИКИ ===");
-    println!(
-        "Всего сделок: {} | Прибыльных: {} | Убыточных: {}",
-        report.metrics.total_trades, report.metrics.number_of_wins, report.metrics.number_of_losses
-    );
-    println!(
-        "Total Profit: {:.2} | Win Rate: {:.2}% | Average Trade: {:.2}",
-        report.metrics.total_profit,
-        report.metrics.winning_percentage * 100.0,
-        report.metrics.average_trade
-    );
-
-    if let Some(aw) = report.metrics.average_win {
-        println!("Average Win: {:.2}", aw);
-    }
-    if let Some(al) = report.metrics.average_loss {
-        println!("Average Loss: {:.2}", al);
-    }
-    println!(
-        "Gross Profit: {:.2} | Gross Loss: {:.2}",
-        report.metrics.gross_profit, report.metrics.gross_loss
-    );
-
-    println!("\n=== МЕТРИКИ РИСКА И ДОХОДНОСТИ ===");
-    if let Some(pf) = report.metrics.profit_factor {
-        println!("Profit Factor: {:.2}", pf);
-    }
-    if let Some(sr) = report.metrics.sharpe_ratio {
-        println!("Sharpe Ratio: {:.2}", sr);
-    }
-    if let Some(rdd) = report.metrics.return_dd_ratio {
-        println!("Return/DD Ratio: {:.2}", rdd);
-    }
-    if let Some(wlr) = report.metrics.wins_losses_ratio {
-        println!("Wins/Losses Ratio: {:.2}", wlr);
-    }
-    if let Some(pr) = report.metrics.payout_ratio {
-        println!("Payout Ratio: {:.2}", pr);
-    }
-
-    println!("\n=== МЕТРИКИ ПРОСАДКИ ===");
-    if let Some(dd) = report.metrics.drawdown {
-        println!("Max Drawdown: {:.2}", dd);
-    }
-    if let Some(dd_pct) = report.metrics.drawdown_percent {
-        println!("Max Drawdown %: {:.2}%", dd_pct);
-    }
-    println!(
-        "Max Consecutive Wins: {} | Max Consecutive Losses: {}",
-        report.metrics.max_consec_wins, report.metrics.max_consec_losses
-    );
-
-    println!("\n=== ВРЕМЕННЫЕ МЕТРИКИ ===");
-    if let Some(yap) = report.metrics.yearly_avg_profit {
-        println!("Yearly Avg Profit: {:.2}", yap);
-    }
-    if let Some(yapr) = report.metrics.yearly_avg_percent_return {
-        println!("Yearly Avg % Return: {:.2}%", yapr);
-    }
-    if let Some(cagr) = report.metrics.cagr {
-        println!("CAGR: {:.2}%", cagr);
-    }
-    if let Some(map) = report.metrics.monthly_avg_profit {
-        println!("Monthly Avg Profit: {:.2}", map);
-    }
-    if let Some(dap) = report.metrics.daily_avg_profit {
-        println!("Daily Avg Profit: {:.2}", dap);
-    }
-    if let Some(ahpr) = report.metrics.ahpr {
-        println!("AHPR: {:.2}%", ahpr);
-    }
-
-    println!("\n=== СТАТИСТИЧЕСКИЕ МЕТРИКИ ===");
-    if let Some(exp) = report.metrics.expectancy {
-        println!("Expectancy: {:.2}", exp);
-    }
-    if let Some(re) = report.metrics.r_expectancy {
-        println!("R Expectancy: {:.2}", re);
-    }
-    if let Some(res) = report.metrics.r_expectancy_score {
-        println!("R Expectancy Score: {:.2}", res);
-    }
-    if let Some(dev) = report.metrics.deviation {
-        println!("Deviation: {:.2}", dev);
-    }
-
-    println!("\n=== ПРОДВИНУТЫЕ МЕТРИКИ ===");
-    if let Some(exp) = report.metrics.exposure {
-        println!("Exposure: {:.2}%", exp * 100.0);
-    }
-    if let Some(stab) = report.metrics.stability {
-        println!("Stability: {:.4}", stab);
-    }
-
-    println!("\n=== МЕТРИКИ ЗАСТОЯ ===");
-    if let Some(sid) = report.metrics.stagnation_in_days {
-        println!("Stagnation In Days: {}", sid);
-    }
-    if let Some(sp) = report.metrics.stagnation_percent {
-        println!("Stagnation %: {:.2}%", sp);
-    }
-
-    println!("\n=== ДОПОЛНИТЕЛЬНЫЕ МЕТРИКИ ===");
-    if let Some(apmdd) = report.metrics.annual_percent_max_dd_ratio {
-        println!("Annual % / Max DD %: {:.2}", apmdd);
-    }
-    if let Some(pp) = report.metrics.profit_in_pips {
-        println!("Profit In Pips: {:.2}", pp);
-    }
-
-    println!("\n=== ИНФОРМАЦИЯ О BACKTEST ===");
-    println!(
-        "Initial Capital: {:.2} | Ending Capital: {:.2}",
-        report.metrics.initial_capital, report.metrics.ending_capital
-    );
-    if let Some(sd) = report.metrics.start_date {
-        println!("Start Date: {}", sd.format("%Y-%m-%d %H:%M:%S"));
-    }
-    if let Some(ed) = report.metrics.end_date {
-        println!("End Date: {}", ed.format("%Y-%m-%d %H:%M:%S"));
-    }
-    println!(
-        "Total Bars: {} | Bars In Positions: {}",
-        report.metrics.total_bars, report.metrics.bars_in_positions
-    );
-
-    if report.trades.is_empty() {
-        println!("Сделки отсутствуют");
-    } else {
-        println!("Сделки:");
-        for trade in &report.trades {
-            let entry_time = trade
-                .entry_time
-                .map(|ts| ts.to_rfc3339())
-                .unwrap_or_else(|| "n/a".to_string());
-            let exit_time = trade
-                .exit_time
-                .map(|ts| ts.to_rfc3339())
-                .unwrap_or_else(|| "n/a".to_string());
-            let entry_rule = trade.entry_rule_id.as_deref().unwrap_or("n/a");
-            let exit_rule = trade.exit_rule_id.as_deref().unwrap_or("n/a");
-            println!(
-                "- {:?} qty {:.2} вход {:.2} ({}) выход {:.2} ({}) pnl {:.2} [entry_rule: {} | exit_rule: {}]",
-                trade.direction,
-                trade.quantity,
-                trade.entry_price,
-                entry_time,
-                trade.exit_price,
-                exit_time,
-                trade.pnl,
-                entry_rule,
-                exit_rule
-            );
-        }
-    }
-
-    if let Some(last_equity) = report.equity_curve.last() {
-        println!("Финальная equity: {:.2}", last_equity);
-    }
-
-    println!("\n=== ТАБЛИЦА СИГНАЛОВ И ИНДИКАТОРОВ ===");
-    print_signals_table(&executor, &timeframe, &symbol).await?;
-
-    println!("\n=== СЖАТЫЕ СВЕЧИ (1h → 4h) ===");
-    print_compressed_candles(&executor, &source_frame).await?;
+    print_equity_curve_summary(&report.equity_curve);
+    print_quick_summary(&report, strategy_name);
 
     println!("\n=== ГЕНЕТИЧЕСКАЯ ОПТИМИЗАЦИЯ ===");
-    run_genetic_optimization(&symbol, &timeframe, candles).await?;
-
-    Ok(())
-}
-
-fn align_timestamp_millis_to_240min(timestamp_millis: i64) -> i64 {
-    let total_minutes = timestamp_millis / (60 * 1000);
-    let aligned_minutes = (total_minutes / 240) * 240;
-    aligned_minutes * 60 * 1000
-}
-
-#[allow(dead_code)]
-fn align_timestamp_to_240min(
-    timestamp: chrono::DateTime<chrono::Utc>,
-) -> chrono::DateTime<chrono::Utc> {
-    let timestamp_millis = timestamp.timestamp_millis();
-    let aligned_millis = align_timestamp_millis_to_240min(timestamp_millis);
-    chrono::DateTime::from_timestamp(
-        aligned_millis / 1000,
-        ((aligned_millis % 1000) * 1_000_000) as u32,
-    )
-    .unwrap_or(timestamp)
-}
-
-async fn print_signals_table(
-    executor: &BacktestExecutor,
-    base_timeframe: &TimeFrame,
-    _symbol: &robots::data_model::types::Symbol,
-) -> Result<()> {
-    use robots::strategy::types::PriceField;
-
-    let context = executor.context();
-    let higher_timeframe = TimeFrame::minutes(240);
-
-    let base_data = context
-        .timeframe(base_timeframe)
-        .map_err(|e| anyhow::anyhow!("Не удалось получить данные базового таймфрейма: {}", e))?;
-    let higher_data = context
-        .timeframe(&higher_timeframe)
-        .map_err(|e| anyhow::anyhow!("Не удалось получить данные старшего таймфрейма: {}", e))?;
-
-    let definition = default_strategy_definitions()
-        .into_iter()
-        .find(|def| def.metadata.id == "SMA_CROSSOVER_LONG")
-        .ok_or_else(|| anyhow::anyhow!("Стратегия SMA_CROSSOVER_LONG не найдена"))?;
-
-    let conditions = &definition.condition_bindings;
-
-    let close_60 = base_data
-        .price_series_slice(&PriceField::Close)
-        .ok_or_else(|| anyhow::anyhow!("Не найдены цены закрытия для 60 минут"))?;
-    let close_240 = higher_data
-        .price_series_slice(&PriceField::Close)
-        .ok_or_else(|| anyhow::anyhow!("Не найдены цены закрытия для 240 минут"))?;
-
-    let fast_sma = base_data
-        .indicator_series_slice("fast_sma")
-        .ok_or_else(|| anyhow::anyhow!("Не найден индикатор fast_sma"))?;
-    let slow_sma = base_data
-        .indicator_series_slice("slow_sma")
-        .ok_or_else(|| anyhow::anyhow!("Не найден индикатор slow_sma"))?;
-    let trend_sma = base_data
-        .indicator_series_slice("trend_sma")
-        .ok_or_else(|| anyhow::anyhow!("Не найден индикатор trend_sma"))?;
-    let ema_240 = higher_data
-        .indicator_series_slice("ema_240")
-        .ok_or_else(|| anyhow::anyhow!("Не найден индикатор ema_240"))?;
-
-    let max_len = close_60
-        .len()
-        .min(fast_sma.len())
-        .min(slow_sma.len())
-        .min(trend_sma.len());
-
-    let condition_names: Vec<String> = conditions.iter().map(|c| c.id.clone()).collect();
-    let header_width = 20
-        + 10 * 6
-        + condition_names.len() * 4
-        + condition_names.iter().map(|s| s.len()).sum::<usize>();
-
-    println!("\n{:-<1$}", "", header_width.max(200));
-    print!(
-        "{:<20} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | ",
-        "Timestamp", "Close 60", "Close 240", "Fast SMA", "Slow SMA", "Trend SMA", "EMA 240"
-    );
-    for name in &condition_names {
-        print!("{:>4} | ", name);
-    }
-    println!();
-    println!("{:-<1$}", "", header_width.max(200));
-
-    let mut condition_signals: Vec<Vec<bool>> = vec![vec![]; conditions.len()];
-
-    for i in 0..max_len {
-        let close_240_idx_for_stats = {
-            if let Some(current_ts_millis) = base_data.timestamp_millis_at(i) {
-                let aligned_ts_millis = align_timestamp_millis_to_240min(current_ts_millis);
-                let mut best_idx = 0;
-                for idx in 0..close_240.len() {
-                    if let Some(ts_240_millis) = higher_data.timestamp_millis_at(idx) {
-                        if ts_240_millis <= aligned_ts_millis {
-                            best_idx = idx;
-                        } else if ts_240_millis > aligned_ts_millis {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                best_idx
-            } else {
-                (i / 4).min(close_240.len().saturating_sub(1))
-            }
-        };
-
-        for (cond_idx, condition) in conditions.iter().enumerate() {
-            let signal = if condition.timeframe == *base_timeframe {
-                let cond_data = base_data.condition_result(&condition.id);
-                cond_data
-                    .and_then(|data| data.signals.get(i).copied())
-                    .unwrap_or(false)
-            } else if condition.timeframe == higher_timeframe {
-                let cond_data = higher_data.condition_result(&condition.id);
-                cond_data
-                    .and_then(|data| data.signals.get(close_240_idx_for_stats).copied())
-                    .unwrap_or(false)
-            } else {
-                false
-            };
-            if condition_signals[cond_idx].len() <= i {
-                condition_signals[cond_idx].push(signal);
-            }
-        }
-    }
-
-    let start_idx = if max_len > 200 { max_len - 200 } else { 0 };
-    let end_idx = max_len;
-
-    for i in start_idx..end_idx {
-        let ts = base_data
-            .timestamp_at(i)
-            .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
-            .unwrap_or_else(|| "N/A".to_string());
-
-        let close_60_val = close_60.get(i).copied().unwrap_or(0.0);
-        let fast_sma_val = fast_sma.get(i).copied().unwrap_or(0.0);
-        let slow_sma_val = slow_sma.get(i).copied().unwrap_or(0.0);
-        let trend_sma_val = trend_sma.get(i).copied().unwrap_or(0.0);
-
-        let close_240_idx = {
-            if let Some(current_ts_millis) = base_data.timestamp_millis_at(i) {
-                let aligned_ts_millis = align_timestamp_millis_to_240min(current_ts_millis);
-                let mut best_idx = 0;
-                for idx in 0..close_240.len() {
-                    if let Some(ts_240_millis) = higher_data.timestamp_millis_at(idx) {
-                        if ts_240_millis <= aligned_ts_millis {
-                            best_idx = idx;
-                        } else if ts_240_millis > aligned_ts_millis {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                best_idx
-            } else {
-                (i / 4).min(close_240.len().saturating_sub(1))
-            }
-        };
-        let close_240_val = close_240.get(close_240_idx).copied().unwrap_or(0.0);
-        let ema_240_val = ema_240.get(close_240_idx).copied().unwrap_or(0.0);
-
-        let mut signals = Vec::new();
-        for condition in conditions.iter() {
-            let signal = if condition.timeframe == *base_timeframe {
-                let cond_data = base_data.condition_result(&condition.id);
-                cond_data
-                    .and_then(|data| data.signals.get(i).copied())
-                    .unwrap_or(false)
-            } else if condition.timeframe == higher_timeframe {
-                let cond_data = higher_data.condition_result(&condition.id);
-                cond_data
-                    .and_then(|data| data.signals.get(close_240_idx).copied())
-                    .unwrap_or(false)
-            } else {
-                false
-            };
-            signals.push(signal);
-        }
-
-        print!(
-            "{:<20} | {:>10.2} | {:>10.2} | {:>10.2} | {:>10.2} | {:>10.2} | {:>10.2} | ",
-            ts, close_60_val, close_240_val, fast_sma_val, slow_sma_val, trend_sma_val, ema_240_val
-        );
-        for &signal in &signals {
-            print!("{:>4} | ", if signal { "✓" } else { "" });
-        }
-        println!();
-    }
-
-    if max_len > 200 {
-        println!("... (показаны последние 200 строк из {})", max_len);
-    }
-
-    println!("{:-<1$}", "", header_width.max(200));
-
-    println!("\n=== СТАТИСТИКА СИГНАЛОВ ===");
-    for (cond_idx, condition) in conditions.iter().enumerate() {
-        let total_signals: usize = condition_signals[cond_idx]
-            .iter()
-            .map(|&s| if s { 1 } else { 0 })
-            .sum();
-        let total = condition_signals[cond_idx].len();
-        let percentage = if total > 0 {
-            (total_signals as f64 / total as f64) * 100.0
-        } else {
-            0.0
-        };
-        println!(
-            "{}: {} сигналов из {} ({:.2}%)",
-            condition.id, total_signals, total, percentage
-        );
-    }
-
-    Ok(())
-}
-
-async fn print_compressed_candles(
-    executor: &BacktestExecutor,
-    source_frame: &QuoteFrame,
-) -> Result<()> {
-    let target_timeframe = TimeFrame::minutes(240);
-
-    let aggregated = TimeFrameAggregator::aggregate(source_frame, target_timeframe.clone())
-        .map_err(|e| anyhow::anyhow!("Не удалось агрегировать таймфрейм: {}", e))?;
-
-    let compressed_frame = aggregated.frame();
-    let context = executor.context();
-
-    let compressed_data = context
-        .timeframe(&target_timeframe)
-        .map_err(|e| anyhow::anyhow!("Не удалось получить данные сжатого таймфрейма: {}", e))?;
-
-    let close_240 = compressed_data
-        .price_series_slice(&PriceField::Close)
-        .ok_or_else(|| anyhow::anyhow!("Не найдены цены закрытия для 240 минут"))?;
-    let open_240 = compressed_data
-        .price_series_slice(&PriceField::Open)
-        .ok_or_else(|| anyhow::anyhow!("Не найдены цены открытия для 240 минут"))?;
-    let high_240 = compressed_data
-        .price_series_slice(&PriceField::High)
-        .ok_or_else(|| anyhow::anyhow!("Не найдены максимальные цены для 240 минут"))?;
-    let low_240 = compressed_data
-        .price_series_slice(&PriceField::Low)
-        .ok_or_else(|| anyhow::anyhow!("Не найдены минимальные цены для 240 минут"))?;
-    let volume_240 = compressed_data
-        .price_series_slice(&PriceField::Volume)
-        .ok_or_else(|| anyhow::anyhow!("Не найдены объемы для 240 минут"))?;
-
-    let ema_240 = compressed_data
-        .indicator_series_slice("ema_240")
-        .ok_or_else(|| anyhow::anyhow!("Не найден индикатор ema_240"))?;
-
-    let max_len = close_240.len().min(ema_240.len());
-
-    let header_width = 180;
-    println!("\n{:-<1$}", "", header_width);
-    print!(
-        "{:<20} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | ",
-        "Timestamp", "Open", "High", "Low", "Close", "Volume", "EMA 240", "Source Count"
-    );
-    println!();
-    println!("{:-<1$}", "", header_width);
-
-    let start_idx = if max_len > 100 { max_len - 100 } else { 0 };
-    let end_idx = max_len;
-
-    for i in start_idx..end_idx {
-        let ts = compressed_frame
-            .get(i)
-            .and_then(|q| Some(q.timestamp().format("%Y-%m-%d %H:%M").to_string()))
-            .unwrap_or_else(|| "N/A".to_string());
-
-        let open_val = open_240.get(i).copied().unwrap_or(0.0);
-        let high_val = high_240.get(i).copied().unwrap_or(0.0);
-        let low_val = low_240.get(i).copied().unwrap_or(0.0);
-        let close_val = close_240.get(i).copied().unwrap_or(0.0);
-        let volume_val = volume_240.get(i).copied().unwrap_or(0.0);
-        let ema_val = ema_240.get(i).copied().unwrap_or(0.0);
-
-        let source_count = aggregated
-            .get_source_indices(i)
-            .map(|indices| indices.len())
-            .unwrap_or(0);
-
-        print!(
-            "{:<20} | {:>10.2} | {:>10.2} | {:>10.2} | {:>10.2} | {:>10.0} | {:>10.2} | {:>10} | ",
-            ts, open_val, high_val, low_val, close_val, volume_val, ema_val, source_count
-        );
-        println!();
-    }
-
-    if max_len > 100 {
-        println!("... (показаны последние 100 строк из {})", max_len);
-    }
-
-    println!("{:-<1$}", "", header_width);
+    run_genetic_optimization(&symbol, &timeframe, candles, config).await?;
 
     Ok(())
 }
@@ -733,6 +178,7 @@ async fn run_genetic_optimization(
     symbol: &Symbol,
     base_timeframe: &TimeFrame,
     candles: Vec<OhlcvData>,
+    backtest_config: BacktestConfig,
 ) -> Result<()> {
     println!("\n🧬 Запуск генетической оптимизации...");
     println!("   Символ: {}", symbol.descriptor());
@@ -753,12 +199,12 @@ async fn run_genetic_optimization(
         population_size: 70,
         lambda_size: 50,
         max_generations: 80,
-        crossover_rate: 0.7,
-        mutation_rate: 0.1,
+        crossover_rate: 0.8,
+        mutation_rate: 0.2,
         elitism_count: 3,
         islands_count: 5,
         migration_interval: 3,
-        migration_rate: 0.05,
+        migration_rate: 0.06,
         fitness_thresholds: FitnessThresholds {
             min_sharpe_ratio: None,
             max_drawdown_pct: None,
@@ -882,7 +328,8 @@ async fn run_genetic_optimization(
         frames.clone(),
         base_timeframe.clone(),
         discovery_config,
-    );
+    )
+    .with_backtest_config(backtest_config);
 
     println!("📈 Создание менеджеров эволюции...");
     let mut evolution_manager = EvolutionManager::new(config.clone());

@@ -14,29 +14,11 @@ impl StrategySaver {
         result: &OptimizedStrategyResult,
         base_timeframe: crate::data_model::types::TimeFrame,
     ) -> Result<StrategyDefinition, anyhow::Error> {
-        let mut strategy_def = StrategyConverter::candidate_to_definition(
+        let strategy_def = StrategyConverter::candidate_to_definition_with_params(
             &result.candidate,
             base_timeframe,
+            Some(&result.parameters),
         )?;
-        
-        for (param_name, param_value) in &result.parameters {
-            strategy_def.parameters.iter_mut()
-                .find(|p| p.name == *param_name)
-                .map(|p| {
-                    p.default_value = match param_value {
-                        crate::strategy::types::StrategyParamValue::Number(n) => {
-                            crate::strategy::types::StrategyParamValue::Number(*n)
-                        }
-                        crate::strategy::types::StrategyParamValue::Integer(i) => {
-                            crate::strategy::types::StrategyParamValue::Integer(*i)
-                        }
-                        crate::strategy::types::StrategyParamValue::Flag(b) => {
-                            crate::strategy::types::StrategyParamValue::Flag(*b)
-                        }
-                        _ => param_value.clone(),
-                    };
-                });
-        }
         
         Ok(strategy_def)
     }

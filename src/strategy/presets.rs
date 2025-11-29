@@ -15,6 +15,8 @@ pub fn default_strategy_definitions() -> Vec<StrategyDefinition> {
         sma_crossover_definition(),
         bollinger_bands_definition(),
         supertrend_atr_trailing_definition(),
+        vtrand_atr_trailing_definition(),
+        zlema_percent_trailing_definition(),
     ]
 }
 
@@ -181,7 +183,7 @@ fn sma_crossover_definition() -> StrategyDefinition {
             name: "Close base TF above EMA compressed TF".to_string(),
             timeframe: higher_timeframe.clone(),
             declarative: ConditionDeclarativeSpec::from_input(
-                ConditionOperator::GreaterThan,
+                ConditionOperator::Above,
                 &close_above_ema_input,
             ),
             parameters: HashMap::new(),
@@ -199,7 +201,7 @@ fn sma_crossover_definition() -> StrategyDefinition {
             name: "SMA RisingTrend (period: 20)".to_string(),
             timeframe: timeframe.clone(),
             declarative: ConditionDeclarativeSpec::from_input(
-                ConditionOperator::GreaterThan,
+                ConditionOperator::RisingTrend,
                 &ConditionInputSpec::Single {
                     source: DataSeriesSource::indicator(fast_alias.clone()),
                 },
@@ -214,10 +216,10 @@ fn sma_crossover_definition() -> StrategyDefinition {
         },
         ConditionBindingSpec {
             id: "sma_above_close_percent".to_string(),
-            name: "SMA GreaterThan Close на 2.5%".to_string(),
+            name: "SMA GreaterPercent Close на 2.5%".to_string(),
             timeframe: timeframe.clone(),
             declarative: ConditionDeclarativeSpec::from_input(
-                ConditionOperator::GreaterThan,
+                ConditionOperator::GreaterPercent,
                 &sma_above_close_percent_input,
             ),
             parameters: HashMap::from([("percentage".to_string(), 2.5)]),
@@ -228,10 +230,10 @@ fn sma_crossover_definition() -> StrategyDefinition {
         },
         ConditionBindingSpec {
             id: "fast_sma_above_slow_percent".to_string(),
-            name: "Fast SMA GreaterThan Slow SMA на 1.5%".to_string(),
+            name: "Fast SMA GreaterPercent Slow SMA на 1.5%".to_string(),
             timeframe: timeframe.clone(),
             declarative: ConditionDeclarativeSpec::from_input(
-                ConditionOperator::GreaterThan,
+                ConditionOperator::GreaterPercent,
                 &sma_above_slow_percent_input,
             ),
             parameters: HashMap::from([("percentage".to_string(), 1.5)]),
@@ -466,7 +468,7 @@ fn bollinger_bands_definition() -> StrategyDefinition {
             name: "Price above BB Upper".to_string(),
             timeframe: timeframe.clone(),
             declarative: ConditionDeclarativeSpec::from_input(
-                ConditionOperator::GreaterThan,
+                ConditionOperator::Above,
                 &price_above_upper,
             ),
             parameters: HashMap::new(),
@@ -480,7 +482,7 @@ fn bollinger_bands_definition() -> StrategyDefinition {
             name: "Price below BB Lower".to_string(),
             timeframe: timeframe.clone(),
             declarative: ConditionDeclarativeSpec::from_input(
-                ConditionOperator::LessThan,
+                ConditionOperator::Below,
                 &price_below_lower,
             ),
             parameters: HashMap::new(),
@@ -592,7 +594,7 @@ fn supertrend_atr_trailing_definition() -> StrategyDefinition {
         name: "SuperTrend < Close".to_string(),
         timeframe: timeframe.clone(),
         declarative: ConditionDeclarativeSpec::from_input(
-            ConditionOperator::LessThan,
+            ConditionOperator::Below,
             &supertrend_below_close,
         ),
         parameters: HashMap::new(),
@@ -654,6 +656,226 @@ fn supertrend_atr_trailing_definition() -> StrategyDefinition {
                 "supertrend".to_string(),
                 "atr".to_string(),
                 "trailing".to_string(),
+            ],
+            created_at: None,
+            updated_at: None,
+        },
+        Vec::new(),
+        indicator_bindings,
+        Vec::new(),
+        condition_bindings,
+        entry_rules,
+        exit_rules,
+        stop_handlers,
+        take_handlers,
+        StrategyParameterMap::new(),
+        BTreeMap::new(),
+    )
+}
+
+fn vtrand_atr_trailing_definition() -> StrategyDefinition {
+    let timeframe = TimeFrame::minutes(60);
+
+    let vtrand_alias = "vtrand".to_string();
+
+    let indicator_bindings = vec![IndicatorBindingSpec {
+        alias: vtrand_alias.clone(),
+        timeframe: timeframe.clone(),
+        source: IndicatorSourceSpec::Registry {
+            name: "VTRAND".to_string(),
+            parameters: HashMap::from([("period".to_string(), 20.0)]),
+        },
+        tags: vec!["trend".to_string(), "vtrand".to_string()],
+    }];
+
+    let vtrand_rising_input = ConditionInputSpec::Single {
+        source: DataSeriesSource::indicator(vtrand_alias.clone()),
+    };
+
+    let condition_bindings = vec![ConditionBindingSpec {
+        id: "vtrand_rising_trend".to_string(),
+        name: "VTRAND RisingTrend (period: 2)".to_string(),
+        timeframe: timeframe.clone(),
+        declarative: ConditionDeclarativeSpec::from_input(
+            ConditionOperator::RisingTrend,
+            &vtrand_rising_input,
+        ),
+        parameters: HashMap::from([("period".to_string(), 2.0)]),
+        input: vtrand_rising_input,
+        weight: 1.0,
+        tags: vec!["entry".to_string(), "trend".to_string()],
+        user_formula: None,
+    }];
+
+    let entry_rules = vec![StrategyRuleSpec {
+        id: "enter_long_vtrand".to_string(),
+        name: "Enter long on VTRAND RisingTrend".to_string(),
+        logic: super::types::RuleLogic::All,
+        conditions: vec!["vtrand_rising_trend".to_string()],
+        signal: StrategySignalType::Entry,
+        direction: PositionDirection::Long,
+        quantity: None,
+        tags: vec!["vtrand".to_string(), "entry".to_string()],
+        position_group: Some("vtrand_long".to_string()),
+        target_entry_ids: Vec::new(),
+    }];
+
+    let exit_rules = vec![];
+
+    let mut atr_trail_params = StrategyParameterMap::new();
+    atr_trail_params.insert("coeff_atr".to_string(), StrategyParamValue::Number(8.0));
+
+    let stop_handlers = vec![StopHandlerSpec {
+        id: "atr_trailing_stop".to_string(),
+        name: "ATR Trailing Stop".to_string(),
+        handler_name: "ATRTrailStop".to_string(),
+        timeframe: timeframe.clone(),
+        price_field: PriceField::Close,
+        parameters: atr_trail_params,
+        direction: PositionDirection::Long,
+        priority: 10,
+        tags: vec![
+            "stop".to_string(),
+            "trailing".to_string(),
+            "atr".to_string(),
+        ],
+        target_entry_ids: vec!["enter_long_vtrand".to_string()],
+    }];
+
+    let take_handlers = vec![];
+
+    StrategyDefinition::new(
+        StrategyMetadata {
+            id: "VTRAND_ATR_TRAILING".to_string(),
+            name: "VTRAND with ATR Trailing Stop".to_string(),
+            description: Some(
+                "Стратегия на основе VTRAND RisingTrend с выходом по ATR Trailing Stop".to_string(),
+            ),
+            version: Some("1.0.0".to_string()),
+            author: Some("System".to_string()),
+            categories: vec![super::types::StrategyCategory::TrendFollowing],
+            tags: vec![
+                "vtrand".to_string(),
+                "atr".to_string(),
+                "trailing".to_string(),
+            ],
+            created_at: None,
+            updated_at: None,
+        },
+        Vec::new(),
+        indicator_bindings,
+        Vec::new(),
+        condition_bindings,
+        entry_rules,
+        exit_rules,
+        stop_handlers,
+        take_handlers,
+        StrategyParameterMap::new(),
+        BTreeMap::new(),
+    )
+}
+
+fn zlema_percent_trailing_definition() -> StrategyDefinition {
+    let timeframe = TimeFrame::minutes(60);
+
+    let zlema_alias = "zlema".to_string();
+
+    let indicator_bindings = vec![IndicatorBindingSpec {
+        alias: zlema_alias.clone(),
+        timeframe: timeframe.clone(),
+        source: IndicatorSourceSpec::Registry {
+            name: "ZLEMA".to_string(),
+            parameters: HashMap::from([("period".to_string(), 90.0)]),
+        },
+        tags: vec!["trend".to_string(), "zlema".to_string()],
+    }];
+
+    let zlema_above_price_input = ConditionInputSpec::Dual {
+        primary: DataSeriesSource::indicator(zlema_alias.clone()),
+        secondary: DataSeriesSource::price(PriceField::Close),
+    };
+
+    let condition_bindings = vec![ConditionBindingSpec {
+        id: "zlema_greater_than_price".to_string(),
+        name: "ZLEMA Above Close".to_string(),
+        timeframe: timeframe.clone(),
+        declarative: ConditionDeclarativeSpec::from_input(
+            ConditionOperator::Above,
+            &zlema_above_price_input,
+        ),
+        parameters: HashMap::new(),
+        input: zlema_above_price_input,
+        weight: 1.0,
+        tags: vec!["entry".to_string(), "trend".to_string()],
+        user_formula: None,
+    }];
+
+    let entry_rules = vec![StrategyRuleSpec {
+        id: "enter_long_zlema".to_string(),
+        name: "Enter long on ZLEMA > Close".to_string(),
+        logic: super::types::RuleLogic::All,
+        conditions: vec!["zlema_greater_than_price".to_string()],
+        signal: StrategySignalType::Entry,
+        direction: PositionDirection::Long,
+        quantity: None,
+        tags: vec!["zlema".to_string(), "entry".to_string()],
+        position_group: Some("zlema_long".to_string()),
+        target_entry_ids: Vec::new(),
+    }];
+
+    let exit_rules = vec![];
+
+    let mut percent_trail_params = StrategyParameterMap::new();
+    percent_trail_params.insert("percentage".to_string(), StrategyParamValue::Number(5.0));
+
+    let stop_handlers = vec![StopHandlerSpec {
+        id: "percent_trailing_stop".to_string(),
+        name: "Percent Trailing Stop".to_string(),
+        handler_name: "PercentTrailingStop".to_string(),
+        timeframe: timeframe.clone(),
+        price_field: PriceField::Close,
+        parameters: percent_trail_params,
+        direction: PositionDirection::Long,
+        priority: 10,
+        tags: vec![
+            "stop".to_string(),
+            "trailing".to_string(),
+            "percent".to_string(),
+        ],
+        target_entry_ids: vec!["enter_long_zlema".to_string()],
+    }];
+
+    let mut take_profit_params = StrategyParameterMap::new();
+    take_profit_params.insert("percentage".to_string(), StrategyParamValue::Number(4.0));
+
+    let take_handlers = vec![TakeHandlerSpec {
+        id: "take_profit_pct_zlema".to_string(),
+        name: "Take Profit Pct ZLEMA".to_string(),
+        handler_name: "TakeProfitPct".to_string(),
+        timeframe: timeframe.clone(),
+        price_field: PriceField::Close,
+        parameters: take_profit_params,
+        direction: PositionDirection::Long,
+        priority: 20,
+        tags: vec!["take".to_string(), "target".to_string()],
+        target_entry_ids: vec!["enter_long_zlema".to_string()],
+    }];
+
+    StrategyDefinition::new(
+        StrategyMetadata {
+            id: "ZLEMA_PERCENT_TRAILING".to_string(),
+            name: "ZLEMA with Percent Trailing Stop".to_string(),
+            description: Some(
+                "Стратегия на основе ZLEMA с выходом по Percent Trailing Stop и Take Profit"
+                    .to_string(),
+            ),
+            version: Some("1.0.0".to_string()),
+            author: Some("System".to_string()),
+            categories: vec![super::types::StrategyCategory::TrendFollowing],
+            tags: vec![
+                "zlema".to_string(),
+                "trailing".to_string(),
+                "percent".to_string(),
             ],
             created_at: None,
             updated_at: None,

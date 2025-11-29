@@ -8,6 +8,7 @@ use crate::indicators::{
     parameters::create_period_parameter,
     types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
 };
+use crate::strategy::types::{ConditionOperator, PriceField};
 
 pub struct ATR {
     parameters: ParameterSet,
@@ -136,10 +137,10 @@ impl Indicator for ATR {
 
     fn build_rules(&self) -> IndicatorBuildRules {
         IndicatorBuildRules {
-            allowed_conditions: &["Above", "Below"],
+            allowed_conditions: &[ConditionOperator::Above, ConditionOperator::Below],
             price_compare: PriceCompareConfig::DISABLED,
             threshold_type: ThresholdType::PercentOfPrice {
-                base_price_fields: &["Close"],
+                base_price_fields: &[PriceField::Close],
             },
             indicator_compare: IndicatorCompareConfig::DISABLED,
             nesting: NestingConfig::VOLATILITY,
@@ -148,12 +149,12 @@ impl Indicator for ATR {
             can_compare_with_input_source: false,
             can_compare_with_nested_result: true,
             nested_compare_conditions: &[
-                "Above",
-                "Below",
-                "CrossesAbove",
-                "CrossesBelow",
-                "GreaterPercent",
-                "LowerPercent",
+                ConditionOperator::Above,
+                ConditionOperator::Below,
+                ConditionOperator::CrossesAbove,
+                ConditionOperator::CrossesBelow,
+                ConditionOperator::GreaterPercent,
+                ConditionOperator::LowerPercent,
             ],
         }
     }

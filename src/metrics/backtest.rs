@@ -1,6 +1,6 @@
 use crate::data_model::types::{Symbol, TimeFrame};
 use crate::data_model::vector_ops::unsafe_ops;
-use crate::position::{ClosedTrade, ExecutionReport};
+use crate::position::{ClosedTrade, ExecutionReport, StopHistoryEntry};
 use crate::strategy::types::PositionDirection;
 use chrono::{DateTime, Utc};
 
@@ -18,6 +18,7 @@ pub struct StrategyTrade {
     pub pnl: f64,
     pub entry_rule_id: Option<String>,
     pub exit_rule_id: Option<String>,
+    pub stop_history: Vec<StopHistoryEntry>,
 }
 
 /// Полный набор метрик производительности стратегии
@@ -854,6 +855,7 @@ impl From<&ClosedTrade> for StrategyTrade {
             pnl: trade.pnl,
             entry_rule_id: trade.entry_rule_id.clone(),
             exit_rule_id: trade.exit_rule_id.clone(),
+            stop_history: trade.stop_history.clone(),
         }
     }
 }

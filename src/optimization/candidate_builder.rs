@@ -1,3 +1,4 @@
+use crate::condition::ConditionParameterPresets;
 use crate::data_model::types::TimeFrame;
 use crate::discovery::types::{
     ConditionInfo, IndicatorInfo, NestedIndicator, StopHandlerConfig, StopHandlerInfo,
@@ -20,6 +21,21 @@ impl CandidateBuilder {
         Self {
             config,
             rng: rand::thread_rng(),
+        }
+    }
+
+    /// Создаёт optimization_params для stop/take handler из конфигурации
+    fn make_handler_params(
+        config: &StopHandlerConfig,
+    ) -> Vec<crate::discovery::ConditionParamInfo> {
+        if config.parameter_name.is_empty() {
+            Vec::new()
+        } else {
+            vec![crate::discovery::ConditionParamInfo {
+                name: config.parameter_name.clone(),
+                optimizable: true,
+                global_param_name: config.global_param_name.clone(),
+            }]
         }
     }
 
@@ -186,7 +202,7 @@ impl CandidateBuilder {
                     name: config.handler_name.clone(),
                     handler_name: config.handler_name.clone(),
                     stop_type: config.stop_type.clone(),
-                    optimization_params: Vec::new(),
+                    optimization_params: Self::make_handler_params(config),
                     priority: config.priority,
                 });
             }
@@ -433,7 +449,7 @@ impl CandidateBuilder {
                         name: config.handler_name.clone(),
                         handler_name: config.handler_name.clone(),
                         stop_type: config.stop_type.clone(),
-                        optimization_params: Vec::new(),
+                        optimization_params: Self::make_handler_params(config),
                         priority: config.priority,
                     });
                     return;
@@ -444,7 +460,7 @@ impl CandidateBuilder {
                     name: name.clone(),
                     handler_name: name.clone(),
                     stop_type: "take_profit".to_string(),
-                    optimization_params: Vec::new(),
+                    optimization_params: Vec::new(), // fallback без config
                     priority: 100,
                 });
             }
@@ -466,7 +482,7 @@ impl CandidateBuilder {
                         name: config.handler_name.clone(),
                         handler_name: config.handler_name.clone(),
                         stop_type: config.stop_type.clone(),
-                        optimization_params: Vec::new(),
+                        optimization_params: Self::make_handler_params(config),
                         priority: config.priority,
                     });
                     return;
@@ -477,7 +493,7 @@ impl CandidateBuilder {
                     name: name.clone(),
                     handler_name: name.clone(),
                     stop_type: "stop_loss".to_string(),
-                    optimization_params: Vec::new(),
+                    optimization_params: Vec::new(), // fallback без config
                     priority: 100,
                 });
             }
@@ -584,7 +600,7 @@ impl CandidateBuilder {
                 name: config.handler_name.clone(),
                 handler_name: config.handler_name.clone(),
                 stop_type: config.stop_type.clone(),
-                optimization_params: Vec::new(),
+                optimization_params: Self::make_handler_params(config),
                 priority: config.priority,
             })
     }
@@ -596,9 +612,9 @@ impl CandidateBuilder {
         timeframe: Option<TimeFrame>,
     ) -> Option<ConditionInfo> {
         let operator = if self.rng.gen_bool(0.5) {
-            ConditionOperator::GreaterThan
+            ConditionOperator::Above
         } else {
-            ConditionOperator::LessThan
+            ConditionOperator::Below
         };
 
         let condition_id = format!(
@@ -687,10 +703,16 @@ impl CandidateBuilder {
         is_entry: bool,
         timeframe: Option<TimeFrame>,
     ) -> Option<ConditionInfo> {
-        let operator = if self.rng.gen_bool(0.5) {
-            ConditionOperator::GreaterThan
+        let operator = if indicator.indicator_type == "volatility" {
+            if self.rng.gen_bool(0.5) {
+                ConditionOperator::GreaterPercent
+            } else {
+                ConditionOperator::LowerPercent
+            }
+        } else if self.rng.gen_bool(0.5) {
+            ConditionOperator::Above
         } else {
-            ConditionOperator::LessThan
+            ConditionOperator::Below
         };
 
         let condition_id = format!(
@@ -700,17 +722,16 @@ impl CandidateBuilder {
             self.rng.gen::<u32>()
         );
 
-        // Осцилляторы и volatility индикаторы ВСЕГДА используют indicator_constant
         let (condition_type, condition_name, constant_value, price_field, optimization_params) =
             if indicator.indicator_type == "oscillator" {
                 let const_val = if indicator.name == "RSI" {
-                    if operator == ConditionOperator::GreaterThan {
+                    if operator == ConditionOperator::Above {
                         self.rng.gen_range(70.0..=90.0)
                     } else {
                         self.rng.gen_range(10.0..=30.0)
                     }
                 } else if indicator.name == "Stochastic" {
-                    if operator == ConditionOperator::GreaterThan {
+                    if operator == ConditionOperator::Above {
                         self.rng.gen_range(80.0..=95.0)
                     } else {
                         self.rng.gen_range(5.0..=20.0)
@@ -1022,15 +1043,15 @@ impl CandidateBuilder {
 
         let operator = if condition_type == "trend_condition" {
             if self.rng.gen_bool(0.5) {
-                ConditionOperator::GreaterThan
+                ConditionOperator::RisingTrend
             } else {
-                ConditionOperator::LessThan
+                ConditionOperator::FallingTrend
             }
         } else if primary_indicator.indicator_type == "volatility" {
             if self.rng.gen_bool(0.5) {
-                ConditionOperator::GreaterThan
+                ConditionOperator::GreaterPercent
             } else {
-                ConditionOperator::LessThan
+                ConditionOperator::LowerPercent
             }
         } else if self.should_add(probabilities.use_crosses_operator) {
             if self.rng.gen_bool(0.5) {
@@ -1039,9 +1060,9 @@ impl CandidateBuilder {
                 ConditionOperator::CrossesBelow
             }
         } else if self.rng.gen_bool(0.5) {
-            ConditionOperator::GreaterThan
+            ConditionOperator::Above
         } else {
-            ConditionOperator::LessThan
+            ConditionOperator::Below
         };
 
         let (condition_id, condition_name) = if condition_type == "indicator_constant" {
@@ -1081,14 +1102,14 @@ impl CandidateBuilder {
                 percentage_range.0 + (step_index as f64 * percentage_range.2)
             } else if primary_indicator.name == "RSI" {
                 // RSI: 30 (перепроданность) или 70 (перекупленность)
-                if operator == ConditionOperator::GreaterThan {
+                if operator == ConditionOperator::Above {
                     self.rng.gen_range(70.0..=90.0)
                 } else {
                     self.rng.gen_range(10.0..=30.0)
                 }
             } else if primary_indicator.name == "Stochastic" {
                 // Stochastic: 20 (перепроданность) или 80 (перекупленность)
-                if operator == ConditionOperator::GreaterThan {
+                if operator == ConditionOperator::Above {
                     self.rng.gen_range(80.0..=95.0)
                 } else {
                     self.rng.gen_range(5.0..=20.0)
@@ -1118,10 +1139,11 @@ impl CandidateBuilder {
             };
             (id, name)
         } else if condition_type == "trend_condition" {
-            let period = self.rng.gen_range(10.0..=50.0);
+            let trend_range = ConditionParameterPresets::trend_period();
+            let period = self.rng.gen_range(trend_range.min..=trend_range.max);
             let trend_name = match operator {
-                ConditionOperator::GreaterThan => "RisingTrend",
-                ConditionOperator::LessThan => "FallingTrend",
+                ConditionOperator::RisingTrend => "RisingTrend",
+                ConditionOperator::FallingTrend => "FallingTrend",
                 _ => "RisingTrend",
             };
             let id = format!(
@@ -1174,13 +1196,13 @@ impl CandidateBuilder {
                     && !Self::is_oscillator_used_in_nested(primary_indicator, nested_indicators)
                 {
                     let const_val = if primary_indicator.name == "RSI" {
-                        if operator == ConditionOperator::GreaterThan {
+                        if operator == ConditionOperator::Above {
                             self.rng.gen_range(70.0..=90.0)
                         } else {
                             self.rng.gen_range(10.0..=30.0)
                         }
                     } else if primary_indicator.name == "Stochastic" {
-                        if operator == ConditionOperator::GreaterThan {
+                        if operator == ConditionOperator::Above {
                             self.rng.gen_range(80.0..=95.0)
                         } else {
                             self.rng.gen_range(5.0..=20.0)
@@ -1215,13 +1237,13 @@ impl CandidateBuilder {
                 && !Self::is_oscillator_used_in_nested(primary_indicator, nested_indicators)
             {
                 let const_val = if primary_indicator.name == "RSI" {
-                    if operator == ConditionOperator::GreaterThan {
+                    if operator == ConditionOperator::Above {
                         self.rng.gen_range(70.0..=90.0)
                     } else {
                         self.rng.gen_range(10.0..=30.0)
                     }
                 } else if primary_indicator.name == "Stochastic" {
-                    if operator == ConditionOperator::GreaterThan {
+                    if operator == ConditionOperator::Above {
                         self.rng.gen_range(80.0..=95.0)
                     } else {
                         self.rng.gen_range(5.0..=20.0)
@@ -1830,7 +1852,7 @@ impl CandidateBuilder {
                     name: config.handler_name.clone(),
                     handler_name: config.handler_name.clone(),
                     stop_type: config.stop_type.clone(),
-                    optimization_params: Vec::new(),
+                    optimization_params: Self::make_handler_params(config),
                     priority: config.priority,
                 });
             } else {
@@ -1902,8 +1924,8 @@ impl CandidateBuilder {
             operator,
             ConditionOperator::CrossesAbove
                 | ConditionOperator::CrossesBelow
-                | ConditionOperator::GreaterThan
-                | ConditionOperator::LessThan
+                | ConditionOperator::Above
+                | ConditionOperator::Below
         )
     }
 

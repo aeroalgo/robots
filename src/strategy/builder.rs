@@ -621,10 +621,23 @@ impl StrategyBuilder {
         }
         let mut prepared_conditions = Vec::with_capacity(self.definition.condition_bindings.len());
         for binding in &self.definition.condition_bindings {
+            let mut condition_params = binding.parameters.clone();
+            let condition_prefix = format!("condition_{}_", binding.id);
+            for (key, value) in &self.parameter_overrides {
+                if let Some(param_name) = key.strip_prefix(&condition_prefix) {
+                    let param_value = if let StrategyParamValue::Number(num_value) = value {
+                        *num_value as f32
+                    } else if let StrategyParamValue::Integer(int_value) = value {
+                        *int_value as f32
+                    } else {
+                        continue;
+                    };
+                    condition_params.insert(param_name.to_string(), param_value);
+                }
+            }
             let factory_name = binding.factory_name();
-            let condition =
-                ConditionFactory::create_condition(factory_name, binding.parameters.clone())
-                    .map_err(|err| map_condition_error(factory_name, err))?;
+            let condition = ConditionFactory::create_condition(factory_name, condition_params)
+                .map_err(|err| map_condition_error(factory_name, err))?;
             let metadata = ConditionFactory::get_condition_info(factory_name);
             prepared_conditions.push(PreparedCondition {
                 id: binding.id.clone(),
@@ -946,7 +959,6 @@ fn extract_condition_operator(
     )))
 }
 
-/// Парсит строковое представление оператора условия
 fn parse_condition_operator(value: &str) -> Option<ConditionOperator> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -954,10 +966,16 @@ fn parse_condition_operator(value: &str) -> Option<ConditionOperator> {
     }
     let upper = trimmed.to_ascii_uppercase();
     match upper.as_str() {
-        ">" | "GT" | "GREATER" | "GREATERTHAN" | "ABOVE" => {
-            return Some(ConditionOperator::GreaterThan)
+        ">" | "GT" | "GREATER" | "ABOVE" => return Some(ConditionOperator::Above),
+        "<" | "LT" | "LESS" | "BELOW" => return Some(ConditionOperator::Below),
+        "RISINGTREND" | "RISING_TREND" | "RISING" => return Some(ConditionOperator::RisingTrend),
+        "FALLINGTREND" | "FALLING_TREND" | "FALLING" => {
+            return Some(ConditionOperator::FallingTrend)
         }
-        "<" | "LT" | "LESS" | "LESSTHAN" | "BELOW" => return Some(ConditionOperator::LessThan),
+        "GREATERPERCENT" | "GREATER_PERCENT" | ">%" => {
+            return Some(ConditionOperator::GreaterPercent)
+        }
+        "LOWERPERCENT" | "LOWER_PERCENT" | "<%" => return Some(ConditionOperator::LowerPercent),
         "CROSSESABOVE" | "CROSSABOVE" | "CROSSUP" | "CROSS_UP" => {
             return Some(ConditionOperator::CrossesAbove)
         }
@@ -968,6 +986,12 @@ fn parse_condition_operator(value: &str) -> Option<ConditionOperator> {
         _ => {}
     }
     let lower = trimmed.to_ascii_lowercase();
+    if lower.contains("rising") && lower.contains("trend") {
+        return Some(ConditionOperator::RisingTrend);
+    }
+    if lower.contains("falling") && lower.contains("trend") {
+        return Some(ConditionOperator::FallingTrend);
+    }
     if lower.contains("cross") && lower.contains("above") {
         return Some(ConditionOperator::CrossesAbove);
     }
@@ -978,10 +1002,10 @@ fn parse_condition_operator(value: &str) -> Option<ConditionOperator> {
         return Some(ConditionOperator::Between);
     }
     if lower.contains('>') {
-        return Some(ConditionOperator::GreaterThan);
+        return Some(ConditionOperator::Above);
     }
     if lower.contains('<') {
-        return Some(ConditionOperator::LessThan);
+        return Some(ConditionOperator::Below);
     }
     None
 }
@@ -1059,12 +1083,17 @@ fn build_condition_input_spec(
     }
 
     match operator {
-        ConditionOperator::GreaterThan
-        | ConditionOperator::LessThan
+        ConditionOperator::Above
+        | ConditionOperator::Below
+        | ConditionOperator::GreaterPercent
+        | ConditionOperator::LowerPercent
         | ConditionOperator::CrossesAbove
         | ConditionOperator::CrossesBelow => Err(StrategyError::DefinitionError(
             "condition requires secondary source".to_string(),
         )),
+        ConditionOperator::RisingTrend | ConditionOperator::FallingTrend => {
+            Ok(ConditionInputSpec::Single { source: primary })
+        }
         ConditionOperator::Between => unreachable!("handled above"),
     }
 }

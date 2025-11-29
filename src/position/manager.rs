@@ -158,6 +158,14 @@ pub enum PositionEvent {
 }
 
 #[derive(Clone, Debug)]
+pub struct StopHistoryEntry {
+    pub bar_index: usize,
+    pub stop_level: f64,
+    pub max_high: f64,
+    pub min_low: f64,
+}
+
+#[derive(Clone, Debug)]
 pub struct ClosedTrade {
     pub position_id: String,
     pub symbol: Symbol,
@@ -171,6 +179,7 @@ pub struct ClosedTrade {
     pub pnl: f64,
     pub entry_rule_id: Option<String>,
     pub exit_rule_id: Option<String>,
+    pub stop_history: Vec<StopHistoryEntry>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -220,6 +229,9 @@ pub struct PositionManager {
     persistence: Option<Arc<dyn PositionPersistence>>,
     sequence: u64,
     portfolio: PortfolioSnapshot,
+    initial_capital: f64,
+    use_full_capital: bool,
+    reinvest_profits: bool,
 }
 
 impl PositionManager {
@@ -234,7 +246,37 @@ impl PositionManager {
             persistence: None,
             sequence: 0,
             portfolio: PortfolioSnapshot::default(),
+            initial_capital: 10000.0,
+            use_full_capital: false,
+            reinvest_profits: false,
         }
+    }
+
+    pub fn with_capital(
+        mut self,
+        initial_capital: f64,
+        use_full_capital: bool,
+        reinvest_profits: bool,
+    ) -> Self {
+        self.initial_capital = initial_capital;
+        self.use_full_capital = use_full_capital;
+        self.reinvest_profits = reinvest_profits;
+        self
+    }
+
+    pub fn set_capital(
+        &mut self,
+        initial_capital: f64,
+        use_full_capital: bool,
+        reinvest_profits: bool,
+    ) {
+        self.initial_capital = initial_capital;
+        self.use_full_capital = use_full_capital;
+        self.reinvest_profits = reinvest_profits;
+    }
+
+    pub fn initial_capital(&self) -> f64 {
+        self.initial_capital
     }
 
     pub fn reset(&mut self) {
@@ -328,14 +370,27 @@ impl PositionManager {
                 return Err(PositionError::UnsupportedDirection(PositionDirection::Both))
             }
         };
-        let mut quantity = signal.quantity.unwrap_or(1.0);
-        if quantity.abs() <= f64::EPSILON {
-            quantity = 1.0;
-        }
         let info = match Self::resolve_entry_snapshot(context, &signal.timeframe)? {
             Some(snapshot) => snapshot,
             None => return Ok(()),
         };
+        let mut quantity = if self.use_full_capital && signal.quantity.is_none() {
+            let capital = if self.reinvest_profits {
+                self.initial_capital + self.portfolio.total_equity
+            } else {
+                self.initial_capital
+            };
+            if info.price > 0.0 {
+                (capital / info.price).floor()
+            } else {
+                1.0
+            }
+        } else {
+            signal.quantity.unwrap_or(1.0)
+        };
+        if quantity.abs() <= f64::EPSILON {
+            quantity = 1.0;
+        }
         let position_group = signal
             .position_group
             .clone()
@@ -646,6 +701,7 @@ impl PositionManager {
             pnl,
             entry_rule_id: snapshot.key.entry_rule_id.clone(),
             exit_rule_id: exit_rule_id.clone(),
+            stop_history: Vec::new(),
         };
         let order = self.build_order(&position_id, &snapshot.key, exit_quantity, price);
         self.orders.insert(order.id.clone(), order.clone());
@@ -732,14 +788,14 @@ impl PositionManager {
 
     fn snapshot_active_positions_with_context(&self, context: &StrategyContext) -> PositionBook {
         let existing_positions = context.active_positions();
-        
+
         let entries: Vec<ActivePosition> = self
             .open_index
             .values()
             .filter_map(|position_id| self.positions.get(position_id))
             .map(|state| {
                 let existing = existing_positions.get(&state.id);
-                
+
                 ActivePosition {
                     id: state.id.clone(),
                     symbol: state.key.symbol.clone(),

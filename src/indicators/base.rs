@@ -2,6 +2,7 @@ use crate::indicators::types::{
     DataConverter, DataValidator, IndicatorCategory, IndicatorError, IndicatorMetadata,
     IndicatorResultData, IndicatorType, InputDataType, OHLCData, ParameterSet,
 };
+use crate::strategy::types::{ConditionOperator, PriceField};
 use std::collections::HashMap;
 
 /// Базовый трейт для всех индикаторов
@@ -319,39 +320,29 @@ impl<T: Indicator> ParameterOptimizer for T {
 // ПРАВИЛА ПОСТРОЕНИЯ СТРАТЕГИЙ
 // ============================================================================
 
-/// Тип порога для сравнения (абсолютное значение или процент от цены)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ThresholdType {
-    /// Не поддерживает сравнение с порогом
     None,
-    /// Абсолютное значение (0-100 для осцилляторов)
-    /// Диапазон берётся из ParameterPresets::get_threshold_range()
     Absolute,
-    /// Процент от цены (для volatility: ATR > Close * 2%)
-    /// base_price_fields указывает какие поля цены использовать как базу
-    /// Это НЕ прямое сравнение с ценой, а только база для расчёта процента
     PercentOfPrice {
-        base_price_fields: &'static [&'static str],
+        base_price_fields: &'static [PriceField],
     },
 }
 
 impl ThresholdType {
-    /// Создаёт PercentOfPrice с базой только Close
     pub const fn percent_of_close() -> Self {
         Self::PercentOfPrice {
-            base_price_fields: &["Close"],
+            base_price_fields: &[PriceField::Close],
         }
     }
 
-    /// Создаёт PercentOfPrice с указанными базовыми ценами
-    pub const fn percent_of(fields: &'static [&'static str]) -> Self {
+    pub const fn percent_of(fields: &'static [PriceField]) -> Self {
         Self::PercentOfPrice {
             base_price_fields: fields,
         }
     }
 
-    /// Получить базовые поля цены (для PercentOfPrice)
-    pub fn get_base_price_fields(&self) -> &[&str] {
+    pub fn get_base_price_fields(&self) -> &[PriceField] {
         match self {
             Self::PercentOfPrice { base_price_fields } => base_price_fields,
             _ => &[],
@@ -359,13 +350,10 @@ impl ThresholdType {
     }
 }
 
-/// Конфигурация сравнения с ценой
 #[derive(Debug, Clone)]
 pub struct PriceCompareConfig {
-    /// Можно ли сравнивать с ценой
     pub enabled: bool,
-    /// Допустимые поля цены
-    pub price_fields: &'static [&'static str],
+    pub price_fields: &'static [PriceField],
 }
 
 impl PriceCompareConfig {
@@ -376,12 +364,12 @@ impl PriceCompareConfig {
 
     pub const STANDARD: Self = Self {
         enabled: true,
-        price_fields: &["Close", "High", "Low"],
+        price_fields: &[PriceField::Close, PriceField::High, PriceField::Low],
     };
 
     pub const CLOSE_ONLY: Self = Self {
         enabled: true,
-        price_fields: &["Close"],
+        price_fields: &[PriceField::Close],
     };
 }
 
@@ -529,50 +517,29 @@ impl NestingConfig {
     }
 }
 
-/// Правила построения стратегий для индикатора
 #[derive(Debug, Clone)]
 pub struct IndicatorBuildRules {
-    /// Допустимые условия (имена из ConditionFactory)
-    /// Например: ["Above", "Below", "CrossesAbove", "CrossesBelow", "RisingTrend"]
-    pub allowed_conditions: &'static [&'static str],
-
-    /// Сравнение с ценой
+    pub allowed_conditions: &'static [ConditionOperator],
     pub price_compare: PriceCompareConfig,
-
-    /// Тип порога для сравнения (абсолютное значение или процент от цены)
     pub threshold_type: ThresholdType,
-
-    /// Сравнение с другими индикаторами
     pub indicator_compare: IndicatorCompareConfig,
-
-    /// Конфигурация вложенности
     pub nesting: NestingConfig,
-
-    /// Можно ли использовать в первой фазе построения
     pub phase_1_allowed: bool,
-
-    /// Поддерживает ли процентные условия (SMA > Close * 1.02%)
     pub supports_percent_condition: bool,
-
-    /// Если этот индикатор построен по другому (nested), может ли он сравниваться со своим источником?
-    /// SMA(RSI): SMA.can_compare_with_input_source = true → SMA(RSI) может сравниваться с RSI
-    /// RSI(SMA): RSI.can_compare_with_input_source = false → RSI(SMA) НЕ может сравниваться с SMA
     pub can_compare_with_input_source: bool,
-
-    /// Если по этому индикатору построен другой, может ли источник сравниваться с результатом?
-    /// RSI → SMA(RSI): RSI.can_compare_with_nested_result = true → RSI может сравниваться с SMA(RSI)
     pub can_compare_with_nested_result: bool,
-
-    /// Дополнительные условия при сравнении с nested индикаторами
-    /// ATR может использовать только Above/Below с ценой, но CrossesAbove/CrossesBelow с SMA(ATR)
-    /// Если пусто - используются allowed_conditions
-    pub nested_compare_conditions: &'static [&'static str],
+    pub nested_compare_conditions: &'static [ConditionOperator],
 }
 
 impl Default for IndicatorBuildRules {
     fn default() -> Self {
         Self {
-            allowed_conditions: &["Above", "Below", "CrossesAbove", "CrossesBelow"],
+            allowed_conditions: &[
+                ConditionOperator::Above,
+                ConditionOperator::Below,
+                ConditionOperator::CrossesAbove,
+                ConditionOperator::CrossesBelow,
+            ],
             price_compare: PriceCompareConfig::STANDARD,
             threshold_type: ThresholdType::None,
             indicator_compare: IndicatorCompareConfig::TREND_AND_CHANNEL,
@@ -587,15 +554,14 @@ impl Default for IndicatorBuildRules {
 }
 
 impl IndicatorBuildRules {
-    /// Правила для осциллятора (RSI, Stochastic)
     pub const OSCILLATOR: Self = Self {
         allowed_conditions: &[
-            "Above",
-            "Below",
-            "CrossesAbove",
-            "CrossesBelow",
-            "RisingTrend",
-            "FallingTrend",
+            ConditionOperator::Above,
+            ConditionOperator::Below,
+            ConditionOperator::CrossesAbove,
+            ConditionOperator::CrossesBelow,
+            ConditionOperator::RisingTrend,
+            ConditionOperator::FallingTrend,
         ],
         price_compare: PriceCompareConfig::DISABLED,
         threshold_type: ThresholdType::Absolute,
@@ -608,17 +574,16 @@ impl IndicatorBuildRules {
         nested_compare_conditions: &[],
     };
 
-    /// Правила для трендового индикатора (SMA, EMA)
     pub const TREND: Self = Self {
         allowed_conditions: &[
-            "Above",
-            "Below",
-            "CrossesAbove",
-            "CrossesBelow",
-            "RisingTrend",
-            "FallingTrend",
-            "GreaterPercent",
-            "LowerPercent",
+            ConditionOperator::Above,
+            ConditionOperator::Below,
+            ConditionOperator::CrossesAbove,
+            ConditionOperator::CrossesBelow,
+            ConditionOperator::RisingTrend,
+            ConditionOperator::FallingTrend,
+            ConditionOperator::GreaterPercent,
+            ConditionOperator::LowerPercent,
         ],
         price_compare: PriceCompareConfig::STANDARD,
         threshold_type: ThresholdType::None,
@@ -631,15 +596,14 @@ impl IndicatorBuildRules {
         nested_compare_conditions: &[],
     };
 
-    /// Правила для канального индикатора (BBUpper, KCLower)
     pub const CHANNEL: Self = Self {
         allowed_conditions: &[
-            "Above",
-            "Below",
-            "CrossesAbove",
-            "CrossesBelow",
-            "GreaterPercent",
-            "LowerPercent",
+            ConditionOperator::Above,
+            ConditionOperator::Below,
+            ConditionOperator::CrossesAbove,
+            ConditionOperator::CrossesBelow,
+            ConditionOperator::GreaterPercent,
+            ConditionOperator::LowerPercent,
         ],
         price_compare: PriceCompareConfig::STANDARD,
         threshold_type: ThresholdType::None,
@@ -652,15 +616,11 @@ impl IndicatorBuildRules {
         nested_compare_conditions: &[],
     };
 
-    /// Правила для volatility индикатора (ATR, WATR)
-    /// ATR НЕ сравнивается с ценой напрямую (ATR > Close — нет смысла)
-    /// ATR сравнивается с процентом от цены (ATR > 2% от Close)
-    /// ATR может быть входом для SMA → SMA(ATR), и сравниваться с SMA(ATR)
     pub const VOLATILITY: Self = Self {
-        allowed_conditions: &["Above", "Below"],
+        allowed_conditions: &[ConditionOperator::Above, ConditionOperator::Below],
         price_compare: PriceCompareConfig::DISABLED,
         threshold_type: ThresholdType::PercentOfPrice {
-            base_price_fields: &["Close"],
+            base_price_fields: &[PriceField::Close],
         },
         indicator_compare: IndicatorCompareConfig::DISABLED,
         nesting: NestingConfig::VOLATILITY,
@@ -669,18 +629,17 @@ impl IndicatorBuildRules {
         can_compare_with_input_source: false,
         can_compare_with_nested_result: true,
         nested_compare_conditions: &[
-            "Above",
-            "Below",
-            "CrossesAbove",
-            "CrossesBelow",
-            "GreaterPercent",
-            "LowerPercent",
+            ConditionOperator::Above,
+            ConditionOperator::Below,
+            ConditionOperator::CrossesAbove,
+            ConditionOperator::CrossesBelow,
+            ConditionOperator::GreaterPercent,
+            ConditionOperator::LowerPercent,
         ],
     };
 
-    /// Правила для volume индикатора
     pub const VOLUME: Self = Self {
-        allowed_conditions: &["Above", "Below"],
+        allowed_conditions: &[ConditionOperator::Above, ConditionOperator::Below],
         price_compare: PriceCompareConfig::DISABLED,
         threshold_type: ThresholdType::None,
         indicator_compare: IndicatorCompareConfig::DISABLED,
@@ -692,24 +651,20 @@ impl IndicatorBuildRules {
         nested_compare_conditions: &[],
     };
 
-    /// Проверяет, разрешено ли условие
-    pub fn is_condition_allowed(&self, condition_name: &str) -> bool {
-        self.allowed_conditions.contains(&condition_name)
+    pub fn is_condition_allowed(&self, condition: &ConditionOperator) -> bool {
+        self.allowed_conditions.contains(condition)
     }
 
-    /// Проверяет, разрешено ли условие при сравнении с nested индикатором
-    /// Если nested_compare_conditions пусто, используются allowed_conditions
-    pub fn is_nested_condition_allowed(&self, condition_name: &str) -> bool {
+    pub fn is_nested_condition_allowed(&self, condition: &ConditionOperator) -> bool {
         if self.nested_compare_conditions.is_empty() {
-            self.allowed_conditions.contains(&condition_name)
+            self.allowed_conditions.contains(condition)
         } else {
-            self.nested_compare_conditions.contains(&condition_name)
+            self.nested_compare_conditions.contains(condition)
         }
     }
 
-    /// Проверяет, можно ли сравнивать с указанным полем цены
-    pub fn can_compare_with_price(&self, price_field: &str) -> bool {
-        self.price_compare.enabled && self.price_compare.price_fields.contains(&price_field)
+    pub fn can_compare_with_price(&self, price_field: &PriceField) -> bool {
+        self.price_compare.enabled && self.price_compare.price_fields.contains(price_field)
     }
 
     /// Проверяет, можно ли сравнивать с порогом
@@ -722,8 +677,7 @@ impl IndicatorBuildRules {
         matches!(self.threshold_type, ThresholdType::PercentOfPrice { .. })
     }
 
-    /// Получить базовые поля цены для процентного порога
-    pub fn get_percent_base_price_fields(&self) -> &[&str] {
+    pub fn get_percent_base_price_fields(&self) -> &[PriceField] {
         self.threshold_type.get_base_price_fields()
     }
 

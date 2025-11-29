@@ -7,6 +7,7 @@ pub mod candles;
 pub mod condition;
 pub mod data_access;
 pub mod data_model;
+pub mod debug;
 pub mod discovery;
 pub mod indicators;
 pub mod metrics;

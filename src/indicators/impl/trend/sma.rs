@@ -8,6 +8,7 @@ use crate::indicators::{
     parameters::create_period_parameter,
     types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
 };
+use crate::strategy::types::{ConditionOperator, PriceField};
 
 pub struct SMA {
     parameters: ParameterSet,
@@ -89,14 +90,14 @@ impl Indicator for SMA {
     fn build_rules(&self) -> IndicatorBuildRules {
         IndicatorBuildRules {
             allowed_conditions: &[
-                "Above",
-                "Below",
-                "CrossesAbove",
-                "CrossesBelow",
-                "RisingTrend",
-                "FallingTrend",
-                "GreaterPercent",
-                "LowerPercent",
+                ConditionOperator::Above,
+                ConditionOperator::Below,
+                ConditionOperator::CrossesAbove,
+                ConditionOperator::CrossesBelow,
+                ConditionOperator::RisingTrend,
+                ConditionOperator::FallingTrend,
+                ConditionOperator::GreaterPercent,
+                ConditionOperator::LowerPercent,
             ],
             price_compare: PriceCompareConfig::STANDARD,
             threshold_type: ThresholdType::None,

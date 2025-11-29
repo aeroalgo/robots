@@ -60,8 +60,8 @@ pub fn example_strategy_generation() {
 
     // Операторы
     let operators = vec![
-        ConditionOperator::GreaterThan,
-        ConditionOperator::LessThan,
+        ConditionOperator::Above,
+        ConditionOperator::Below,
         ConditionOperator::CrossesAbove,
     ];
 

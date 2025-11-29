@@ -24,7 +24,7 @@ pub use factory::{
     get_take_optimization_range,
 };
 pub use manager::{RiskManager, StopHandlerEntry};
-pub use state::{PositionRiskState, RiskStateBook};
+pub use state::{PositionRiskState, RiskStateBook, StopHistoryRecord};
 pub use stops::{
     ATRTrailStopHandler, HILOTrailingStopHandler, IndicatorStopHandler,
     PercentTrailingStopHandler, StopLossPctHandler,

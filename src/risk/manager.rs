@@ -75,6 +75,13 @@ impl RiskManager {
         self.state_book.remove(position_id);
     }
 
+    pub fn take_stop_history(&mut self, position_id: &str) -> Vec<super::state::StopHistoryRecord> {
+        self.state_book
+            .get_mut(position_id)
+            .map(|state| state.take_stop_history())
+            .unwrap_or_default()
+    }
+
     pub fn on_new_bar(&mut self, context: &StrategyContext) {
         self.update_price_extremes(context);
         self.update_trailing_stops(context);
@@ -125,19 +132,25 @@ impl RiskManager {
     }
 
     fn update_trailing_stops(&mut self, context: &StrategyContext) {
-        let updates: Vec<(String, f64)> = context
+        let updates: Vec<(String, f64, usize)> = context
             .active_positions()
             .values()
             .filter_map(|position| {
                 let state = self.state_book.get(&position.id)?;
                 let new_stop = self.compute_stop_level(state, position, context)?;
-                Some((position.id.clone(), new_stop))
+                let bar_index = context
+                    .timeframe(&position.timeframe)
+                    .ok()
+                    .map(|tf| tf.index())
+                    .unwrap_or(0);
+                Some((position.id.clone(), new_stop, bar_index))
             })
             .collect();
 
-        for (position_id, new_stop) in updates {
+        for (position_id, new_stop, bar_index) in updates {
             if let Some(state) = self.state_book.get_mut(&position_id) {
                 state.update_stop(new_stop);
+                state.record_stop_history(bar_index);
             }
         }
     }

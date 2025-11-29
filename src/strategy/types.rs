@@ -281,8 +281,12 @@ pub enum ConditionInputSpec {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ConditionOperator {
-    GreaterThan,
-    LessThan,
+    Above,
+    Below,
+    RisingTrend,
+    FallingTrend,
+    GreaterPercent,
+    LowerPercent,
     CrossesAbove,
     CrossesBelow,
     Between,
@@ -291,37 +295,55 @@ pub enum ConditionOperator {
 impl ConditionOperator {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::GreaterThan => "greater_than",
-            Self::LessThan => "less_than",
+            Self::Above => "above",
+            Self::Below => "below",
+            Self::RisingTrend => "rising_trend",
+            Self::FallingTrend => "falling_trend",
+            Self::GreaterPercent => "greater_percent",
+            Self::LowerPercent => "lower_percent",
             Self::CrossesAbove => "crosses_above",
             Self::CrossesBelow => "crosses_below",
             Self::Between => "between",
         }
     }
 
-    pub fn display_with_context(&self, condition_type: &str, has_percentage: bool) -> String {
+    pub fn display_name(&self) -> &'static str {
         match self {
-            Self::GreaterThan => {
-                if condition_type == "trend_condition" {
-                    "RisingTrend (↗ растущий тренд)".to_string()
-                } else if has_percentage {
-                    "GreaterPercent (выше на %)".to_string()
-                } else {
-                    "Above (выше)".to_string()
-                }
-            }
-            Self::LessThan => {
-                if condition_type == "trend_condition" {
-                    "FallingTrend (↘ падающий тренд)".to_string()
-                } else if has_percentage {
-                    "LowerPercent (ниже на %)".to_string()
-                } else {
-                    "Below (ниже)".to_string()
-                }
-            }
-            Self::CrossesAbove => "CrossesAbove (↗ пересекает вверх)".to_string(),
-            Self::CrossesBelow => "CrossesBelow (↘ пересекает вниз)".to_string(),
-            Self::Between => "Between (между)".to_string(),
+            Self::Above => "Above (выше)",
+            Self::Below => "Below (ниже)",
+            Self::RisingTrend => "RisingTrend (↗ растущий тренд)",
+            Self::FallingTrend => "FallingTrend (↘ падающий тренд)",
+            Self::GreaterPercent => "GreaterPercent (выше на %)",
+            Self::LowerPercent => "LowerPercent (ниже на %)",
+            Self::CrossesAbove => "CrossesAbove (↗ пересекает вверх)",
+            Self::CrossesBelow => "CrossesBelow (↘ пересекает вниз)",
+            Self::Between => "Between (между)",
+        }
+    }
+
+    pub fn is_trend(&self) -> bool {
+        matches!(self, Self::RisingTrend | Self::FallingTrend)
+    }
+
+    pub fn is_percent(&self) -> bool {
+        matches!(self, Self::GreaterPercent | Self::LowerPercent)
+    }
+
+    pub fn is_crossover(&self) -> bool {
+        matches!(self, Self::CrossesAbove | Self::CrossesBelow)
+    }
+
+    pub fn opposite(&self) -> Self {
+        match self {
+            Self::Above => Self::Below,
+            Self::Below => Self::Above,
+            Self::RisingTrend => Self::FallingTrend,
+            Self::FallingTrend => Self::RisingTrend,
+            Self::GreaterPercent => Self::LowerPercent,
+            Self::LowerPercent => Self::GreaterPercent,
+            Self::CrossesAbove => Self::CrossesBelow,
+            Self::CrossesBelow => Self::CrossesAbove,
+            Self::Between => Self::Between,
         }
     }
 }
@@ -400,47 +422,15 @@ pub struct ConditionBindingSpec {
 
 impl ConditionBindingSpec {
     pub fn factory_name(&self) -> &'static str {
-        // Проверяем, является ли это трендовым условием (есть параметр "period" и Single input)
-        let is_trend_condition = self.parameters.contains_key("period")
-            && matches!(self.input, ConditionInputSpec::Single { .. });
-
         match self.declarative.operator {
-            ConditionOperator::GreaterThan => {
-                if is_trend_condition {
-                    "RISINGTREND"
-                } else {
-                    match self.input {
-                        ConditionInputSpec::DualWithPercent { .. } => "GREATERPERCENT",
-                        _ => "ABOVE",
-                    }
-                }
-            }
-            ConditionOperator::LessThan => {
-                if is_trend_condition {
-                    "FALLINGTREND"
-                } else {
-                    match self.input {
-                        ConditionInputSpec::DualWithPercent { .. } => "LOWERPERCENT",
-                        _ => "BELOW",
-                    }
-                }
-            }
-            ConditionOperator::CrossesAbove => {
-                // Для трендовых условий CrossesAbove не поддерживается, преобразуем в RisingTrend
-                if is_trend_condition {
-                    "RISINGTREND"
-                } else {
-                    "CROSSESABOVE"
-                }
-            }
-            ConditionOperator::CrossesBelow => {
-                // Для трендовых условий CrossesBelow не поддерживается, преобразуем в FallingTrend
-                if is_trend_condition {
-                    "FALLINGTREND"
-                } else {
-                    "CROSSESBELOW"
-                }
-            }
+            ConditionOperator::Above => "ABOVE",
+            ConditionOperator::Below => "BELOW",
+            ConditionOperator::RisingTrend => "RISINGTREND",
+            ConditionOperator::FallingTrend => "FALLINGTREND",
+            ConditionOperator::GreaterPercent => "GREATERPERCENT",
+            ConditionOperator::LowerPercent => "LOWERPERCENT",
+            ConditionOperator::CrossesAbove => "CROSSESABOVE",
+            ConditionOperator::CrossesBelow => "CROSSESBELOW",
             ConditionOperator::Between => "BETWEEN",
         }
     }

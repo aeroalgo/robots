@@ -4,10 +4,11 @@ use crate::indicators::{
         OscillatorIndicator, OverboughtOversoldZones, PriceCompareConfig,
         SimpleIndicator, ThresholdType,
     },
+    impl_::trend::EMA,
     parameters::create_period_parameter,
     types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
-    impl_::trend::EMA,
 };
+use crate::strategy::types::ConditionOperator;
 
 pub struct RSI {
     parameters: ParameterSet,
@@ -103,12 +104,12 @@ impl Indicator for RSI {
     fn build_rules(&self) -> IndicatorBuildRules {
         IndicatorBuildRules {
             allowed_conditions: &[
-                "Above",
-                "Below",
-                "CrossesAbove",
-                "CrossesBelow",
-                "RisingTrend",
-                "FallingTrend",
+                ConditionOperator::Above,
+                ConditionOperator::Below,
+                ConditionOperator::CrossesAbove,
+                ConditionOperator::CrossesBelow,
+                ConditionOperator::RisingTrend,
+                ConditionOperator::FallingTrend,
             ],
             price_compare: PriceCompareConfig::DISABLED,
             threshold_type: ThresholdType::Absolute,
@@ -144,5 +145,7 @@ impl OscillatorIndicator for RSI {
         }
     }
 }
+
+
 
 

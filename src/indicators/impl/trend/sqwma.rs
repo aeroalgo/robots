@@ -107,3 +107,5 @@ impl TrendIndicator for SQWMA {
 }
 
 
+
+

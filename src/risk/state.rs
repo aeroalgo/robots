@@ -3,6 +3,14 @@ use std::collections::HashMap;
 use crate::strategy::types::PositionDirection;
 
 #[derive(Clone, Debug)]
+pub struct StopHistoryRecord {
+    pub bar_index: usize,
+    pub stop_level: f64,
+    pub max_high: f64,
+    pub min_low: f64,
+}
+
+#[derive(Clone, Debug)]
 pub struct PositionRiskState {
     pub position_id: String,
     pub direction: PositionDirection,
@@ -11,6 +19,7 @@ pub struct PositionRiskState {
     pub min_low_since_entry: f64,
     pub current_stop: Option<f64>,
     pub entry_bar_index: Option<usize>,
+    pub stop_history: Vec<StopHistoryRecord>,
 }
 
 impl PositionRiskState {
@@ -29,6 +38,7 @@ impl PositionRiskState {
             min_low_since_entry: initial_low,
             current_stop: None,
             entry_bar_index: None,
+            stop_history: Vec::new(),
         }
     }
 
@@ -55,6 +65,21 @@ impl PositionRiskState {
             }
             _ => {}
         }
+    }
+
+    pub fn record_stop_history(&mut self, bar_index: usize) {
+        if let Some(stop_level) = self.current_stop {
+            self.stop_history.push(StopHistoryRecord {
+                bar_index,
+                stop_level,
+                max_high: self.max_high_since_entry,
+                min_low: self.min_low_since_entry,
+            });
+        }
+    }
+
+    pub fn take_stop_history(&mut self) -> Vec<StopHistoryRecord> {
+        std::mem::take(&mut self.stop_history)
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::condition::ConditionParameterPresets;
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
 use crate::discovery::StopHandlerConfig;
@@ -9,6 +10,7 @@ use crate::optimization::sds::StochasticDiffusionSearch;
 use crate::optimization::types::{
     EvaluatedStrategy, GeneticAlgorithmConfig, GeneticIndividual, Population,
 };
+use crate::strategy::executor::BacktestConfig;
 use crate::strategy::types::{ConditionOperator, PriceField, StrategyParameterMap};
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -49,8 +51,12 @@ impl GeneticAlgorithmV3 {
         let price_fields = vec![PriceField::Close];
 
         let operators = vec![
-            ConditionOperator::GreaterThan,
-            ConditionOperator::LessThan,
+            ConditionOperator::Above,
+            ConditionOperator::Below,
+            ConditionOperator::RisingTrend,
+            ConditionOperator::FallingTrend,
+            ConditionOperator::GreaterPercent,
+            ConditionOperator::LowerPercent,
             ConditionOperator::CrossesAbove,
             ConditionOperator::CrossesBelow,
         ];
@@ -66,6 +72,11 @@ impl GeneticAlgorithmV3 {
             operators,
             stop_handler_configs,
         }
+    }
+
+    pub fn with_backtest_config(mut self, config: BacktestConfig) -> Self {
+        self.evaluator.set_backtest_config(config);
+        self
     }
 
     pub async fn evolve_generation(
@@ -432,7 +443,10 @@ impl GeneticAlgorithmV3 {
             for (cond, _parent, weight) in &unique_conditions {
                 if child1_conditions.len() < max_conditions
                     && rng.gen::<f64>() < *weight
-                    && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child1_conditions)
+                    && !CandidateBuilder::has_conflicting_comparison_operator(
+                        cond,
+                        &child1_conditions,
+                    )
                 {
                     child1_conditions.push(cond.clone());
                 }
@@ -442,7 +456,10 @@ impl GeneticAlgorithmV3 {
                 let inverse_weight = 1.0 - weight;
                 if child2_conditions.len() < max_conditions
                     && rng.gen::<f64>() < inverse_weight
-                    && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child2_conditions)
+                    && !CandidateBuilder::has_conflicting_comparison_operator(
+                        cond,
+                        &child2_conditions,
+                    )
                 {
                     child2_conditions.push(cond.clone());
                 }
@@ -457,21 +474,33 @@ impl GeneticAlgorithmV3 {
 
                 if rng.gen::<f64>() < 0.5 {
                     if child1_conditions.len() < max_conditions
-                        && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child1_conditions)
+                        && !CandidateBuilder::has_conflicting_comparison_operator(
+                            cond,
+                            &child1_conditions,
+                        )
                     {
                         child1_conditions.push(cond.clone());
                     } else if child2_conditions.len() < max_conditions
-                        && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child2_conditions)
+                        && !CandidateBuilder::has_conflicting_comparison_operator(
+                            cond,
+                            &child2_conditions,
+                        )
                     {
                         child2_conditions.push(cond.clone());
                     }
                 } else {
                     if child2_conditions.len() < max_conditions
-                        && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child2_conditions)
+                        && !CandidateBuilder::has_conflicting_comparison_operator(
+                            cond,
+                            &child2_conditions,
+                        )
                     {
                         child2_conditions.push(cond.clone());
                     } else if child1_conditions.len() < max_conditions
-                        && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child1_conditions)
+                        && !CandidateBuilder::has_conflicting_comparison_operator(
+                            cond,
+                            &child1_conditions,
+                        )
                     {
                         child1_conditions.push(cond.clone());
                     }
@@ -593,7 +622,10 @@ impl GeneticAlgorithmV3 {
                 let idx = rng.gen_range(0..fallback_parent.conditions.len());
                 let cond = &fallback_parent.conditions[idx];
                 if !child.conditions.iter().any(|c| c.id == cond.id)
-                    && !CandidateBuilder::has_conflicting_comparison_operator(cond, &child.conditions)
+                    && !CandidateBuilder::has_conflicting_comparison_operator(
+                        cond,
+                        &child.conditions,
+                    )
                 {
                     child.conditions.push(cond.clone());
 
@@ -815,9 +847,15 @@ impl GeneticAlgorithmV3 {
 
         let operator = if condition_type == "trend_condition" {
             if rng.gen::<f64>() < 0.5 {
-                ConditionOperator::GreaterThan
+                ConditionOperator::RisingTrend
             } else {
-                ConditionOperator::LessThan
+                ConditionOperator::FallingTrend
+            }
+        } else if indicator.indicator_type == "volatility" {
+            if rng.gen::<f64>() < 0.5 {
+                ConditionOperator::GreaterPercent
+            } else {
+                ConditionOperator::LowerPercent
             }
         } else if rng.gen::<f64>() < probabilities.use_crosses_operator {
             if rng.gen::<f64>() < 0.5 {
@@ -826,9 +864,9 @@ impl GeneticAlgorithmV3 {
                 ConditionOperator::CrossesBelow
             }
         } else if rng.gen::<f64>() < 0.5 {
-            ConditionOperator::GreaterThan
+            ConditionOperator::Above
         } else {
-            ConditionOperator::LessThan
+            ConditionOperator::Below
         };
 
         let (condition_id, condition_name, constant_value, price_field, optimization_params) =
@@ -836,13 +874,13 @@ impl GeneticAlgorithmV3 {
                 let const_val = if indicator.indicator_type == "volatility" {
                     rng.gen_range(0.2..=10.0)
                 } else if indicator.name == "RSI" {
-                    if operator == ConditionOperator::GreaterThan {
+                    if operator == ConditionOperator::Above {
                         rng.gen_range(70.0..=90.0)
                     } else {
                         rng.gen_range(10.0..=30.0)
                     }
                 } else if indicator.name == "Stochastic" {
-                    if operator == ConditionOperator::GreaterThan {
+                    if operator == ConditionOperator::Above {
                         rng.gen_range(80.0..=95.0)
                     } else {
                         rng.gen_range(5.0..=20.0)
@@ -882,10 +920,11 @@ impl GeneticAlgorithmV3 {
 
                 (id, name, Some(const_val), None, opt_params)
             } else if condition_type == "trend_condition" {
-                let period = rng.gen_range(10.0..=50.0);
+                let trend_range = ConditionParameterPresets::trend_period();
+                let period = rng.gen_range(trend_range.min..=trend_range.max);
                 let trend_name = match operator {
-                    ConditionOperator::GreaterThan => "RisingTrend",
-                    ConditionOperator::LessThan => "FallingTrend",
+                    ConditionOperator::RisingTrend => "RisingTrend",
+                    ConditionOperator::FallingTrend => "FallingTrend",
                     _ => "RisingTrend",
                 };
                 let id = format!(
@@ -926,20 +965,25 @@ impl GeneticAlgorithmV3 {
                         rng.gen::<u32>()
                     );
                     let name = format!("{} {:?} {}", indicator.name, operator, secondary.name);
-                    let (opt_params, percent_val) =
-                        if rng.gen::<f64>() < probabilities.use_percent_condition {
-                            let percent = rng.gen_range(0.1..=5.0);
-                            (
-                                vec![crate::discovery::ConditionParamInfo {
-                                    name: "percentage".to_string(),
-                                    optimizable: true,
-                                    global_param_name: None,
-                                }],
-                                Some(percent),
-                            )
-                        } else {
-                            (Vec::new(), None)
-                        };
+                    let supports_percentage = matches!(
+                        operator,
+                        ConditionOperator::Above | ConditionOperator::Below
+                    );
+                    let (opt_params, percent_val) = if supports_percentage
+                        && rng.gen::<f64>() < probabilities.use_percent_condition
+                    {
+                        let percent = rng.gen_range(0.1..=5.0);
+                        (
+                            vec![crate::discovery::ConditionParamInfo {
+                                name: "percentage".to_string(),
+                                optimizable: true,
+                                global_param_name: None,
+                            }],
+                            Some(percent),
+                        )
+                    } else {
+                        (Vec::new(), None)
+                    };
                     let final_name = if let Some(percent) = percent_val {
                         format!("{} на {:.2}%", name, percent)
                     } else {
@@ -959,20 +1003,25 @@ impl GeneticAlgorithmV3 {
                     )
                 };
 
-                let (opt_params, percent_val) =
-                    if rng.gen::<f64>() < probabilities.use_percent_condition {
-                        let percent = rng.gen_range(0.1..=5.0);
-                        (
-                            vec![crate::discovery::ConditionParamInfo {
-                                name: "percentage".to_string(),
-                                optimizable: true,
-                                global_param_name: None,
-                            }],
-                            Some(percent),
-                        )
-                    } else {
-                        (Vec::new(), None)
-                    };
+                let supports_percentage = matches!(
+                    operator,
+                    ConditionOperator::Above | ConditionOperator::Below
+                );
+                let (opt_params, percent_val) = if supports_percentage
+                    && rng.gen::<f64>() < probabilities.use_percent_condition
+                {
+                    let percent = rng.gen_range(0.1..=5.0);
+                    (
+                        vec![crate::discovery::ConditionParamInfo {
+                            name: "percentage".to_string(),
+                            optimizable: true,
+                            global_param_name: None,
+                        }],
+                        Some(percent),
+                    )
+                } else {
+                    (Vec::new(), None)
+                };
 
                 let id = format!(
                     "{}_{}_{}",
@@ -1005,13 +1054,7 @@ impl GeneticAlgorithmV3 {
     }
 
     fn flip_operator(operator: &ConditionOperator) -> ConditionOperator {
-        match operator {
-            ConditionOperator::GreaterThan => ConditionOperator::LessThan,
-            ConditionOperator::LessThan => ConditionOperator::GreaterThan,
-            ConditionOperator::CrossesAbove => ConditionOperator::CrossesBelow,
-            ConditionOperator::CrossesBelow => ConditionOperator::CrossesAbove,
-            ConditionOperator::Between => ConditionOperator::Between,
-        }
+        operator.opposite()
     }
 
     fn get_safe_flipped_operator(
@@ -1019,7 +1062,7 @@ impl GeneticAlgorithmV3 {
         idx: usize,
     ) -> Option<ConditionOperator> {
         let condition = &conditions[idx];
-        
+
         if condition.condition_type == "trend_condition" {
             return Some(Self::flip_operator(&condition.operator));
         }
@@ -1029,18 +1072,21 @@ impl GeneticAlgorithmV3 {
         }
 
         let new_operator = Self::flip_operator(&condition.operator);
-        
+
         let mut test_condition = condition.clone();
         test_condition.operator = new_operator.clone();
-        
+
         let other_conditions: Vec<crate::discovery::ConditionInfo> = conditions
             .iter()
             .enumerate()
             .filter(|(i, _)| *i != idx)
             .map(|(_, c)| c.clone())
             .collect();
-        
-        if !CandidateBuilder::has_conflicting_comparison_operator(&test_condition, &other_conditions) {
+
+        if !CandidateBuilder::has_conflicting_comparison_operator(
+            &test_condition,
+            &other_conditions,
+        ) {
             Some(new_operator)
         } else {
             None
@@ -1128,7 +1174,10 @@ impl GeneticAlgorithmV3 {
                         price_fields,
                         operators,
                     ) {
-                        if !CandidateBuilder::has_conflicting_comparison_operator(&condition, &candidate.conditions) {
+                        if !CandidateBuilder::has_conflicting_comparison_operator(
+                            &condition,
+                            &candidate.conditions,
+                        ) {
                             candidate.conditions.push(condition);
                         }
                     }
@@ -1146,7 +1195,10 @@ impl GeneticAlgorithmV3 {
                     price_fields,
                     operators,
                 ) {
-                    if !CandidateBuilder::has_conflicting_comparison_operator(&condition, &candidate.conditions) {
+                    if !CandidateBuilder::has_conflicting_comparison_operator(
+                        &condition,
+                        &candidate.conditions,
+                    ) {
                         candidate.conditions.push(condition);
                     }
                 }
@@ -1162,7 +1214,9 @@ impl GeneticAlgorithmV3 {
                 Self::remove_unused_indicators(candidate);
             } else if rng.gen::<f64>() < 0.3 && !candidate.conditions.is_empty() {
                 let idx = rng.gen_range(0..candidate.conditions.len());
-                if let Some(new_operator) = Self::get_safe_flipped_operator(&candidate.conditions, idx) {
+                if let Some(new_operator) =
+                    Self::get_safe_flipped_operator(&candidate.conditions, idx)
+                {
                     candidate.conditions[idx].operator = new_operator;
                 }
             } else {
@@ -1177,7 +1231,10 @@ impl GeneticAlgorithmV3 {
                         price_fields,
                         operators,
                     ) {
-                        if !CandidateBuilder::has_conflicting_comparison_operator(&condition, &candidate.conditions) {
+                        if !CandidateBuilder::has_conflicting_comparison_operator(
+                            &condition,
+                            &candidate.conditions,
+                        ) {
                             candidate.conditions.push(condition);
                         }
                     }
@@ -1206,7 +1263,9 @@ impl GeneticAlgorithmV3 {
                 Self::remove_unused_indicators(candidate);
             } else if rng.gen::<f64>() < 0.3 && !candidate.exit_conditions.is_empty() {
                 let idx = rng.gen_range(0..candidate.exit_conditions.len());
-                if let Some(new_operator) = Self::get_safe_flipped_operator(&candidate.exit_conditions, idx) {
+                if let Some(new_operator) =
+                    Self::get_safe_flipped_operator(&candidate.exit_conditions, idx)
+                {
                     candidate.exit_conditions[idx].operator = new_operator;
                 }
             } else {
@@ -1221,7 +1280,10 @@ impl GeneticAlgorithmV3 {
                         price_fields,
                         operators,
                     ) {
-                        if !CandidateBuilder::has_conflicting_comparison_operator(&condition, &candidate.exit_conditions) {
+                        if !CandidateBuilder::has_conflicting_comparison_operator(
+                            &condition,
+                            &candidate.exit_conditions,
+                        ) {
                             candidate.exit_conditions.push(condition);
                         }
                     }

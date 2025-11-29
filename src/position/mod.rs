@@ -3,6 +3,6 @@ pub mod view;
 
 pub use manager::{
     ClosedTrade, ExecutionReport, PositionError, PositionEvent, PositionEventListener,
-    PositionManager, PositionPersistence,
+    PositionManager, PositionPersistence, StopHistoryEntry,
 };
 pub use view::{ActivePosition, PositionBook, PositionInsights};

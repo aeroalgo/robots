@@ -306,6 +306,32 @@ impl TimeframeData {
         self.auxiliary_indicators.keys().collect()
     }
 
+    pub fn indicator_aliases(&self) -> &[String] {
+        &self.indicator_alias_order
+    }
+
+    pub fn indicators_count(&self) -> usize {
+        self.indicators.len()
+    }
+
+    pub fn condition_ids(&self) -> Vec<&String> {
+        self.condition_id_to_index.keys().collect()
+    }
+
+    pub fn condition_ids_ordered(&self) -> Vec<(&String, usize)> {
+        let mut pairs: Vec<_> = self.condition_id_to_index.iter().collect();
+        pairs.sort_by_key(|(_, idx)| *idx);
+        pairs.iter().map(|(k, v)| (*k, **v)).collect()
+    }
+
+    pub fn conditions_count(&self) -> usize {
+        self.condition_results.len()
+    }
+
+    pub fn timestamps_slice(&self) -> Option<&[i64]> {
+        self.timestamps.as_ref().map(|ts| ts.as_slice())
+    }
+
     pub fn insert_condition_result(
         &mut self,
         condition_id: impl Into<String>,

@@ -32,6 +32,23 @@ pub enum StrategyExecutionError {
     Feed(String),
 }
 
+#[derive(Clone, Debug)]
+pub struct BacktestConfig {
+    pub initial_capital: f64,
+    pub use_full_capital: bool,
+    pub reinvest_profits: bool,
+}
+
+impl Default for BacktestConfig {
+    fn default() -> Self {
+        Self {
+            initial_capital: 10000.0,
+            use_full_capital: false,
+            reinvest_profits: false,
+        }
+    }
+}
+
 pub struct BacktestExecutor {
     strategy: Box<dyn Strategy>,
     position_manager: PositionManager,
@@ -45,6 +62,7 @@ pub struct BacktestExecutor {
     cached_equity: Option<f64>,
     last_equity_bar: usize,
     initial_capital: f64,
+    config: BacktestConfig,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -204,13 +222,12 @@ impl BacktestExecutor {
             .collect();
 
         let context = feed.initialize_context_ordered(&timeframe_order);
-        let position_manager = PositionManager::new(strategy.id().to_string());
+        let config = BacktestConfig::default();
+        let position_manager = PositionManager::new(strategy.id().to_string())
+            .with_capital(config.initial_capital, config.use_full_capital, config.reinvest_profits);
         let risk_manager = Self::build_risk_manager(&*strategy);
         let cached_session_duration = feed.primary_timeframe.as_ref().and_then(|tf| tf.duration());
-        let initial_capital = position_manager
-            .portfolio_snapshot()
-            .total_equity
-            .max(10000.0);
+        let initial_capital = config.initial_capital;
         Ok(Self {
             strategy,
             position_manager,
@@ -224,7 +241,20 @@ impl BacktestExecutor {
             cached_equity: None,
             last_equity_bar: 0,
             initial_capital,
+            config,
         })
+    }
+
+    pub fn with_config(mut self, config: BacktestConfig) -> Self {
+        self.initial_capital = config.initial_capital;
+        self.position_manager
+            .set_capital(config.initial_capital, config.use_full_capital, config.reinvest_profits);
+        self.config = config;
+        self
+    }
+
+    pub fn config(&self) -> &BacktestConfig {
+        &self.config
     }
 
     fn build_risk_manager(strategy: &dyn Strategy) -> RiskManager {
@@ -361,11 +391,6 @@ impl BacktestExecutor {
         self.populate_auxiliary_indicators()?;
         self.populate_custom_data()?;
         self.populate_conditions()?;
-        self.initial_capital = self
-            .position_manager
-            .portfolio_snapshot()
-            .total_equity
-            .max(10000.0);
         self.analytics.push_equity_point(self.initial_capital);
         let mut processed_bars = 0usize;
         let mut needs_session_check = true;
@@ -425,10 +450,24 @@ impl BacktestExecutor {
             let equity_changed = !decision.is_empty();
             let had_new_entries = !decision.entries.is_empty();
             if equity_changed {
-                let report = self
+                let mut report = self
                     .position_manager
                     .process_decision(&mut self.context, &decision)
                     .map_err(StrategyExecutionError::Position)?;
+
+                for trade in &mut report.closed_trades {
+                    let history = self.risk_manager.take_stop_history(&trade.position_id);
+                    trade.stop_history = history
+                        .into_iter()
+                        .map(|h| crate::position::StopHistoryEntry {
+                            bar_index: h.bar_index,
+                            stop_level: h.stop_level,
+                            max_high: h.max_high,
+                            min_low: h.min_low,
+                        })
+                        .collect();
+                }
+
                 self.collect_report(&report);
                 self.cached_equity = None;
 
@@ -937,10 +976,24 @@ impl BacktestExecutor {
 
             let mut decision = StrategyDecision::empty();
             decision.stop_signals = stop_signals;
-            let report = self
+            let mut report = self
                 .position_manager
                 .process_decision(&mut self.context, &decision)
                 .map_err(StrategyExecutionError::Position)?;
+
+            for trade in &mut report.closed_trades {
+                let history = self.risk_manager.take_stop_history(&trade.position_id);
+                trade.stop_history = history
+                    .into_iter()
+                    .map(|h| crate::position::StopHistoryEntry {
+                        bar_index: h.bar_index,
+                        stop_level: h.stop_level,
+                        max_high: h.max_high,
+                        min_low: h.min_low,
+                    })
+                    .collect();
+            }
+
             self.collect_report(&report);
 
             for position_id in &closed_ids {

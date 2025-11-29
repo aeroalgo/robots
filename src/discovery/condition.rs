@@ -343,8 +343,8 @@ impl ConditionCombinationGenerator {
     fn is_valid_operator_for_indicator_price(operator: &ConditionOperator) -> bool {
         matches!(
             operator,
-            ConditionOperator::GreaterThan
-                | ConditionOperator::LessThan
+            ConditionOperator::Above
+                | ConditionOperator::Below
                 | ConditionOperator::CrossesAbove
                 | ConditionOperator::CrossesBelow
         )
@@ -354,8 +354,8 @@ impl ConditionCombinationGenerator {
     fn is_valid_operator_for_indicator_indicator(operator: &ConditionOperator) -> bool {
         matches!(
             operator,
-            ConditionOperator::GreaterThan
-                | ConditionOperator::LessThan
+            ConditionOperator::Above
+                | ConditionOperator::Below
                 | ConditionOperator::CrossesAbove
                 | ConditionOperator::CrossesBelow
                 | ConditionOperator::Between
@@ -367,15 +367,19 @@ impl ConditionCombinationGenerator {
     fn is_valid_operator_for_indicator_constant(operator: &ConditionOperator) -> bool {
         matches!(
             operator,
-            ConditionOperator::GreaterThan | ConditionOperator::LessThan
+            ConditionOperator::Above | ConditionOperator::Below
         )
     }
 
     /// Преобразует оператор в строковое представление
     fn operator_to_str(operator: &ConditionOperator) -> &'static str {
         match operator {
-            ConditionOperator::GreaterThan => ">",
-            ConditionOperator::LessThan => "<",
+            ConditionOperator::Above => ">",
+            ConditionOperator::Below => "<",
+            ConditionOperator::RisingTrend => "RisingTrend",
+            ConditionOperator::FallingTrend => "FallingTrend",
+            ConditionOperator::GreaterPercent => ">%",
+            ConditionOperator::LowerPercent => "<%",
             ConditionOperator::CrossesAbove => "Crosses Above",
             ConditionOperator::CrossesBelow => "Crosses Below",
             ConditionOperator::Between => "Between",

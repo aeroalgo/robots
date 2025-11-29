@@ -6,7 +6,7 @@ use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
 use crate::discovery::{StrategyCandidate, StrategyConverter};
 use crate::metrics::backtest::BacktestReport;
-use crate::strategy::executor::BacktestExecutor;
+use crate::strategy::executor::{BacktestConfig, BacktestExecutor};
 use crate::strategy::types::StrategyParameterMap;
 use anyhow::{Context, Result};
 
@@ -58,6 +58,7 @@ pub struct StrategyEvaluationRunner {
     base_timeframe: TimeFrame,
     available_higher_timeframes: Vec<TimeFrame>,
     cache: Arc<RwLock<HashMap<CacheKey, BacktestReport>>>,
+    backtest_config: BacktestConfig,
 }
 
 impl StrategyEvaluationRunner {
@@ -85,7 +86,17 @@ impl StrategyEvaluationRunner {
             base_timeframe,
             available_higher_timeframes,
             cache: Arc::new(RwLock::new(HashMap::new())),
+            backtest_config: BacktestConfig::default(),
         }
+    }
+
+    pub fn with_backtest_config(mut self, config: BacktestConfig) -> Self {
+        self.backtest_config = config;
+        self
+    }
+
+    pub fn set_backtest_config(&mut self, config: BacktestConfig) {
+        self.backtest_config = config;
     }
 
 
@@ -103,19 +114,21 @@ impl StrategyEvaluationRunner {
             }
         }
 
-        let definition =
-            StrategyConverter::candidate_to_definition(candidate, self.base_timeframe.clone())
-                .context("Не удалось конвертировать StrategyCandidate в StrategyDefinition")?;
-
+        let definition = StrategyConverter::candidate_to_definition_with_params(
+            candidate,
+            self.base_timeframe.clone(),
+            Some(&parameters),
+        )
+        .context("Не удалось конвертировать StrategyCandidate в StrategyDefinition")?;
 
         let mut frames_clone = HashMap::with_capacity(self.frames.len());
         for (k, v) in self.frames.iter() {
             frames_clone.insert(k.clone(), v.clone());
         }
 
-        let mut executor =
-            BacktestExecutor::from_definition(definition, Some(parameters.clone()), frames_clone)
-                .context("Не удалось создать BacktestExecutor")?;
+        let mut executor = BacktestExecutor::from_definition(definition, None, frames_clone)
+            .context("Не удалось создать BacktestExecutor")?
+            .with_config(self.backtest_config.clone());
 
         let report = executor
             .run_backtest()
@@ -139,6 +152,7 @@ impl Clone for StrategyEvaluationRunner {
             base_timeframe: self.base_timeframe.clone(),
             available_higher_timeframes: self.available_higher_timeframes.clone(),
             cache: Arc::clone(&self.cache),
+            backtest_config: self.backtest_config.clone(),
         }
     }
 }

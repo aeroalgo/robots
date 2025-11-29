@@ -1,5 +1,6 @@
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
+use crate::discovery::strategy_converter::StrategyConverter;
 use crate::discovery::StrategyCandidate;
 use crate::optimization::candidate_builder::{CandidateBuilder, CandidateElements};
 use crate::optimization::candidate_builder_config::CandidateBuilderConfig;
@@ -139,61 +140,177 @@ impl InitialPopulationGenerator {
                     param_variant + 1
                 );
 
-                if param_variant == 0 {
+                // Детальный вывод для вариантов 1, 6, 11, 16, 21... (каждый 5-й начиная с первого)
+                if current_strategy % 5 == 1 {
                     println!("      📊 Структура кандидата:");
                     println!("         Таймфреймы: {:?}", candidate.timeframes);
-                    println!(
-                        "         Индикаторы: {:?}",
-                        candidate
-                            .indicators
+
+                    // Индикаторы с параметрами и таймфреймами
+                    println!("         Индикаторы:");
+                    for ind in &candidate.indicators {
+                        let params: Vec<String> = ind
+                            .parameters
                             .iter()
-                            .map(|i| format!("{}({})", i.name, i.alias))
-                            .collect::<Vec<_>>()
-                    );
-                    println!(
-                        "         Nested индикаторы: {:?}",
-                        candidate
-                            .nested_indicators
-                            .iter()
-                            .map(|n| format!(
-                                "{}({}) на {}",
-                                n.indicator.name, n.indicator.alias, n.input_indicator_alias
-                            ))
-                            .collect::<Vec<_>>()
-                    );
-                    println!(
-                        "         Entry условия: {:?}",
-                        candidate
+                            .map(|p| format!("{}:{:?}", p.name, p.param_type))
+                            .collect();
+
+                        // Собираем таймфреймы из условий где используется этот индикатор
+                        let mut ind_timeframes: Vec<String> = candidate
                             .conditions
                             .iter()
-                            .map(|c| format!(
-                                "id={}, name={} [type={}, tf={:?}]",
-                                c.id, c.name, c.condition_type, c.primary_timeframe
-                            ))
-                            .collect::<Vec<_>>()
-                    );
-                    println!(
-                        "         Exit условия: {:?}",
-                        candidate
-                            .exit_conditions
+                            .chain(candidate.exit_conditions.iter())
+                            .filter(|c| c.name.starts_with(&ind.name))
+                            .filter_map(|c| c.primary_timeframe.as_ref())
+                            .map(|tf| tf.identifier())
+                            .collect();
+                        ind_timeframes.sort();
+                        ind_timeframes.dedup();
+
+                        let tf_str = if ind_timeframes.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" TF:[{}]", ind_timeframes.join(","))
+                        };
+
+                        if params.is_empty() {
+                            println!("            {} (нет параметров){}", ind.name, tf_str);
+                        } else {
+                            println!("            {} [{}]{}", ind.name, params.join(", "), tf_str);
+                        }
+                    }
+
+                    // Nested индикаторы с параметрами и таймфреймами
+                    if !candidate.nested_indicators.is_empty() {
+                        println!("         Nested индикаторы:");
+                        for n in &candidate.nested_indicators {
+                            let params: Vec<String> = n
+                                .indicator
+                                .parameters
+                                .iter()
+                                .map(|p| format!("{}:{:?}", p.name, p.param_type))
+                                .collect();
+
+                            // Собираем таймфреймы из условий где используется этот nested индикатор
+                            let mut ind_timeframes: Vec<String> = candidate
+                                .conditions
+                                .iter()
+                                .chain(candidate.exit_conditions.iter())
+                                .filter(|c| c.name.starts_with(&n.indicator.name))
+                                .filter_map(|c| c.primary_timeframe.as_ref())
+                                .map(|tf| tf.identifier())
+                                .collect();
+                            ind_timeframes.sort();
+                            ind_timeframes.dedup();
+
+                            let tf_str = if ind_timeframes.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" TF:[{}]", ind_timeframes.join(","))
+                            };
+
+                            println!(
+                                "            {} на {} [{}]{}",
+                                n.indicator.name,
+                                n.input_indicator_alias,
+                                params.join(", "),
+                                tf_str
+                            );
+                        }
+                    }
+
+                    // Entry условия
+                    println!("         Entry условия:");
+                    for c in &candidate.conditions {
+                        let params: Vec<String> = c
+                            .optimization_params
                             .iter()
-                            .map(|c| format!(
-                                "{} [type={}, tf={:?}]",
-                                c.name, c.condition_type, c.primary_timeframe
-                            ))
-                            .collect::<Vec<_>>()
-                    );
-                    println!(
-                        "         Stop handlers: {:?}",
-                        candidate
-                            .stop_handlers
+                            .map(|p| p.name.clone())
+                            .collect();
+                        let params_str = if params.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" params=[{}]", params.join(", "))
+                        };
+                        let tf_str = c
+                            .primary_timeframe
+                            .as_ref()
+                            .map(|tf| format!(" TF:{}", tf.identifier()))
+                            .unwrap_or_default();
+                        println!(
+                            "            {} [{}]{}{}",
+                            c.name, c.condition_type, params_str, tf_str
+                        );
+                    }
+
+                    // Exit условия
+                    if !candidate.exit_conditions.is_empty() {
+                        println!("         Exit условия:");
+                        for c in &candidate.exit_conditions {
+                            let tf_str = c
+                                .primary_timeframe
+                                .as_ref()
+                                .map(|tf| format!(" TF:{}", tf.identifier()))
+                                .unwrap_or_default();
+                            println!("            {} [{}]{}", c.name, c.condition_type, tf_str);
+                        }
+                    }
+
+                    // Stop handlers с параметрами
+                    println!("         Stop handlers:");
+                    for s in &candidate.stop_handlers {
+                        let params: Vec<String> = s
+                            .optimization_params
                             .iter()
-                            .map(|s| &s.handler_name)
-                            .collect::<Vec<_>>()
-                    );
+                            .map(|p| p.name.clone())
+                            .collect();
+                        if params.is_empty() {
+                            println!("            {}", s.handler_name);
+                        } else {
+                            println!("            {} [{}]", s.handler_name, params.join(", "));
+                        }
+                    }
                 }
 
                 let random_params = self.generate_random_parameters(candidate);
+
+                // Выводим сгенерированные значения параметров для каждого 5-го варианта теста
+                if current_strategy % 5 == 1 {
+                    println!("         📈 Значения параметров:");
+                    let mut sorted_params: Vec<_> = random_params.iter().collect();
+                    sorted_params.sort_by(|a, b| a.0.cmp(b.0));
+                    for (key, value) in sorted_params {
+                        let val_str = match value {
+                            crate::strategy::types::StrategyParamValue::Number(n) => {
+                                format!("{:.2}", n)
+                            }
+                            crate::strategy::types::StrategyParamValue::Integer(i) => {
+                                format!("{}", i)
+                            }
+                            crate::strategy::types::StrategyParamValue::Text(s) => s.clone(),
+                            crate::strategy::types::StrategyParamValue::Flag(b) => format!("{}", b),
+                            crate::strategy::types::StrategyParamValue::List(_) => {
+                                "[...]".to_string()
+                            }
+                        };
+                        println!("            {} = {}", key, val_str);
+                    }
+
+                    // Выводим StrategyDefinition с применёнными параметрами
+                    match StrategyConverter::candidate_to_definition_with_params(
+                        candidate,
+                        self.discovery_config.base_timeframe.clone(),
+                        Some(&random_params),
+                    ) {
+                        Ok(definition) => {
+                            println!("         📋 StrategyDefinition:");
+                            println!("{:#?}", definition);
+                        }
+                        Err(e) => {
+                            eprintln!("         ⚠️ Ошибка создания StrategyDefinition: {:?}", e);
+                        }
+                    }
+                }
+
                 let report = match self
                     .evaluator
                     .evaluate_strategy(candidate, random_params.clone())
@@ -859,7 +976,7 @@ impl InitialPopulationGenerator {
                     .any(|p| p.name == "percentage");
                 let operator_display = condition
                     .operator
-                    .display_with_context(&condition.condition_type, has_percentage);
+                    .display_name();
                 println!("      {}. {} [TF: {}]", idx + 1, condition.name, tf_str);
                 println!("         Тип: {}", condition.condition_type);
                 println!("         Условие: {}", operator_display);
@@ -912,7 +1029,7 @@ impl InitialPopulationGenerator {
                     .any(|p| p.name == "percentage");
                 let operator_display = condition
                     .operator
-                    .display_with_context(&condition.condition_type, has_percentage);
+                    .display_name();
                 println!("      {}. {} [TF: {}]", idx + 1, condition.name, tf_str);
                 println!("         Тип: {}", condition.condition_type);
                 println!("         Условие: {}", operator_display);
