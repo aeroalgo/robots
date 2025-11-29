@@ -13,9 +13,9 @@ pub fn default_trend_direction(values: Vec<f32>) -> Result<TrendDirection, Indic
     if let Some(last_value) = values.last() {
         if let Some(prev_value) = values.get(values.len().saturating_sub(2)) {
             if last_value > prev_value {
-                Ok(TrendDirection::Up)
+                Ok(TrendDirection::Rising)
             } else if last_value < prev_value {
-                Ok(TrendDirection::Down)
+                Ok(TrendDirection::Falling)
             } else {
                 Ok(TrendDirection::Sideways)
             }

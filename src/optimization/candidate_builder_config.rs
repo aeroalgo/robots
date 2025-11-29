@@ -6,7 +6,7 @@ use std::path::Path;
 pub struct CandidateBuilderConfig {
     pub probabilities: ElementProbabilities,
     pub constraints: ElementConstraints,
-    pub condition_config: ConditionConfig,
+    pub condition_config: PriceFieldConfig,
     pub rules: BuildRules,
 }
 
@@ -15,7 +15,7 @@ impl Default for CandidateBuilderConfig {
         Self {
             probabilities: ElementProbabilities::default(),
             constraints: ElementConstraints::default(),
-            condition_config: ConditionConfig::default(),
+            condition_config: PriceFieldConfig::default(),
             rules: BuildRules::default(),
         }
     }
@@ -186,8 +186,7 @@ impl Default for ElementConstraints {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConditionConfig {
-    /// Поля цены, из которых случайно выбирается для условий типа indicator_price (по умолчанию только Close)
+pub struct PriceFieldConfig {
     #[serde(default = "default_price_fields")]
     pub price_fields: Vec<String>,
 }
@@ -196,7 +195,7 @@ fn default_price_fields() -> Vec<String> {
     vec!["Close".to_string()]
 }
 
-impl Default for ConditionConfig {
+impl Default for PriceFieldConfig {
     fn default() -> Self {
         Self {
             price_fields: vec!["Close".to_string()],

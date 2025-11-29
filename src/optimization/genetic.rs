@@ -3,7 +3,9 @@ use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
 use crate::discovery::StopHandlerConfig;
 use crate::discovery::StrategyCandidate;
+use crate::optimization::builders::ConditionBuilder;
 use crate::optimization::candidate_builder::CandidateBuilder;
+use crate::optimization::candidate_builder_config::ConditionProbabilities;
 use crate::optimization::evaluator::StrategyEvaluationRunner;
 use crate::optimization::population::PopulationManager;
 use crate::optimization::sds::StochasticDiffusionSearch;
@@ -788,12 +790,9 @@ impl GeneticAlgorithmV3 {
         candidate: &StrategyCandidate,
         is_entry: bool,
         config: &GeneticAlgorithmConfig,
-        price_fields: &[PriceField],
+        _price_fields: &[PriceField],
         _operators: &[ConditionOperator],
     ) -> Option<crate::discovery::ConditionInfo> {
-        use crate::optimization::candidate_builder_config::ConditionProbabilities;
-        let mut rng = rand::thread_rng();
-
         let default_probabilities = ConditionProbabilities::default();
         let probabilities = config
             .candidate_builder_config
@@ -801,256 +800,12 @@ impl GeneticAlgorithmV3 {
             .map(|c| &c.probabilities.conditions)
             .unwrap_or(&default_probabilities);
 
-        let all_indicators: Vec<&crate::discovery::IndicatorInfo> = candidate
-            .indicators
-            .iter()
-            .chain(candidate.nested_indicators.iter().map(|n| &n.indicator))
-            .collect();
-
-        let is_built_on_oscillator = candidate
-            .nested_indicators
-            .iter()
-            .find(|n| n.indicator.alias == indicator.alias)
-            .and_then(|nested| {
-                all_indicators
-                    .iter()
-                    .find(|ind| ind.alias == nested.input_indicator_alias)
-                    .map(|input| input.indicator_type == "oscillator")
-            })
-            .unwrap_or(false);
-
-        let is_oscillator_used_in_nested = candidate
-            .nested_indicators
-            .iter()
-            .any(|nested| nested.input_indicator_alias == indicator.alias);
-
-        let condition_type =
-            if indicator.indicator_type == "oscillator" && !is_oscillator_used_in_nested {
-                "indicator_constant"
-            } else if indicator.indicator_type == "volatility" {
-                "indicator_constant"
-            } else if is_built_on_oscillator {
-                "indicator_indicator"
-            } else if rng.gen::<f64>() < probabilities.use_trend_condition {
-                "trend_condition"
-            } else if indicator.indicator_type == "trend" || indicator.indicator_type == "channel" {
-                if rng.gen::<f64>() < probabilities.use_indicator_indicator_condition {
-                    "indicator_indicator"
-                } else {
-                    "indicator_price"
-                }
-            } else if rng.gen::<f64>() < probabilities.use_indicator_indicator_condition {
-                "indicator_indicator"
-            } else {
-                "indicator_price"
-            };
-
-        let operator = if condition_type == "trend_condition" {
-            if rng.gen::<f64>() < 0.5 {
-                ConditionOperator::RisingTrend
-            } else {
-                ConditionOperator::FallingTrend
-            }
-        } else if indicator.indicator_type == "volatility" {
-            if rng.gen::<f64>() < 0.5 {
-                ConditionOperator::GreaterPercent
-            } else {
-                ConditionOperator::LowerPercent
-            }
-        } else if rng.gen::<f64>() < probabilities.use_crosses_operator {
-            if rng.gen::<f64>() < 0.5 {
-                ConditionOperator::CrossesAbove
-            } else {
-                ConditionOperator::CrossesBelow
-            }
-        } else if rng.gen::<f64>() < 0.5 {
-            ConditionOperator::Above
-        } else {
-            ConditionOperator::Below
-        };
-
-        let (condition_id, condition_name, constant_value, price_field, optimization_params) =
-            if condition_type == "indicator_constant" {
-                let const_val = if indicator.indicator_type == "volatility" {
-                    rng.gen_range(0.2..=10.0)
-                } else if indicator.name == "RSI" {
-                    if operator == ConditionOperator::Above {
-                        rng.gen_range(70.0..=90.0)
-                    } else {
-                        rng.gen_range(10.0..=30.0)
-                    }
-                } else if indicator.name == "Stochastic" {
-                    if operator == ConditionOperator::Above {
-                        rng.gen_range(80.0..=95.0)
-                    } else {
-                        rng.gen_range(5.0..=20.0)
-                    }
-                } else {
-                    rng.gen_range(0.0..=100.0)
-                };
-
-                let id = format!(
-                    "{}_{}_{}",
-                    if is_entry { "entry" } else { "exit" },
-                    indicator.alias,
-                    rng.gen::<u32>()
-                );
-                let name = if indicator.indicator_type == "volatility" {
-                    format!(
-                        "{} {:?} Close * {:.2}%",
-                        indicator.name, operator, const_val
-                    )
-                } else {
-                    format!("{} {:?} {:.1}", indicator.name, operator, const_val)
-                };
-
-                let opt_params = if indicator.indicator_type == "volatility" {
-                    vec![crate::discovery::ConditionParamInfo {
-                        name: "percentage".to_string(),
-                        optimizable: true,
-                        global_param_name: None,
-                    }]
-                } else {
-                    vec![crate::discovery::ConditionParamInfo {
-                        name: "threshold".to_string(),
-                        optimizable: true,
-                        global_param_name: None,
-                    }]
-                };
-
-                (id, name, Some(const_val), None, opt_params)
-            } else if condition_type == "trend_condition" {
-                let trend_range = ConditionParameterPresets::trend_period();
-                let period = rng.gen_range(trend_range.min..=trend_range.max);
-                let trend_name = match operator {
-                    ConditionOperator::RisingTrend => "RisingTrend",
-                    ConditionOperator::FallingTrend => "FallingTrend",
-                    _ => "RisingTrend",
-                };
-                let id = format!(
-                    "{}_{}_{}_{}",
-                    if is_entry { "entry" } else { "exit" },
-                    indicator.alias,
-                    trend_name.to_lowercase(),
-                    rng.gen::<u32>()
-                );
-                let name = format!("{} {} (period: {:.0})", indicator.name, trend_name, period);
-                let opt_params = vec![crate::discovery::ConditionParamInfo {
-                    name: "period".to_string(),
-                    optimizable: true,
-                    global_param_name: None,
-                }];
-                (id, name, None, None, opt_params)
-            } else if condition_type == "indicator_indicator" {
-                let available_secondary: Vec<&crate::discovery::IndicatorInfo> = all_indicators
-                    .iter()
-                    .filter(|ind| ind.alias != indicator.alias)
-                    .filter(|ind| {
-                        Self::can_compare_indicators_for_mutation(
-                            indicator,
-                            *ind,
-                            &candidate.nested_indicators,
-                            &candidate.indicators,
-                        )
-                    })
-                    .copied()
-                    .collect();
-
-                if let Some(secondary) = available_secondary.choose(&mut rng) {
-                    let id = format!(
-                        "{}_{}_{}_{}",
-                        if is_entry { "entry" } else { "exit" },
-                        indicator.alias,
-                        secondary.alias,
-                        rng.gen::<u32>()
-                    );
-                    let name = format!("{} {:?} {}", indicator.name, operator, secondary.name);
-                    let supports_percentage = matches!(
-                        operator,
-                        ConditionOperator::Above | ConditionOperator::Below
-                    );
-                    let (opt_params, percent_val) = if supports_percentage
-                        && rng.gen::<f64>() < probabilities.use_percent_condition
-                    {
-                        let percent = rng.gen_range(0.1..=5.0);
-                        (
-                            vec![crate::discovery::ConditionParamInfo {
-                                name: "percentage".to_string(),
-                                optimizable: true,
-                                global_param_name: None,
-                            }],
-                            Some(percent),
-                        )
-                    } else {
-                        (Vec::new(), None)
-                    };
-                    let final_name = if let Some(percent) = percent_val {
-                        format!("{} на {:.2}%", name, percent)
-                    } else {
-                        name
-                    };
-                    (id, final_name, percent_val, None, opt_params)
-                } else {
-                    return None;
-                }
-            } else {
-                let price_field_str = if price_fields.len() == 1 {
-                    format!("{:?}", price_fields[0])
-                } else {
-                    format!(
-                        "{:?}",
-                        price_fields.choose(&mut rng).unwrap_or(&PriceField::Close)
-                    )
-                };
-
-                let supports_percentage = matches!(
-                    operator,
-                    ConditionOperator::Above | ConditionOperator::Below
-                );
-                let (opt_params, percent_val) = if supports_percentage
-                    && rng.gen::<f64>() < probabilities.use_percent_condition
-                {
-                    let percent = rng.gen_range(0.1..=5.0);
-                    (
-                        vec![crate::discovery::ConditionParamInfo {
-                            name: "percentage".to_string(),
-                            optimizable: true,
-                            global_param_name: None,
-                        }],
-                        Some(percent),
-                    )
-                } else {
-                    (Vec::new(), None)
-                };
-
-                let id = format!(
-                    "{}_{}_{}",
-                    if is_entry { "entry" } else { "exit" },
-                    indicator.alias,
-                    rng.gen::<u32>()
-                );
-                let name = if let Some(percent) = percent_val {
-                    format!(
-                        "{} {:?} {} на {:.2}%",
-                        indicator.name, operator, "target", percent
-                    )
-                } else {
-                    format!("{} {:?} {}", indicator.name, operator, "target")
-                };
-                (id, name, percent_val, Some(price_field_str), opt_params)
-            };
-
-        Some(crate::discovery::types::ConditionInfo {
-            id: condition_id,
-            name: condition_name,
-            operator,
-            condition_type: condition_type.to_string(),
-            optimization_params,
-            constant_value,
-            primary_timeframe: None,
-            secondary_timeframe: None,
-            price_field,
-        })
+        ConditionBuilder::create_for_candidate_indicator(
+            indicator,
+            candidate,
+            is_entry,
+            probabilities,
+        )
     }
 
     fn flip_operator(operator: &ConditionOperator) -> ConditionOperator {
@@ -1099,40 +854,12 @@ impl GeneticAlgorithmV3 {
         nested_indicators: &[crate::discovery::NestedIndicator],
         all_indicators: &[crate::discovery::IndicatorInfo],
     ) -> bool {
-        if primary.indicator_type == "oscillator" && secondary.indicator_type == "oscillator" {
-            return false;
-        }
-
-        let is_built_on_oscillator = |indicator: &crate::discovery::IndicatorInfo| -> bool {
-            if let Some(nested) = nested_indicators
-                .iter()
-                .find(|n| n.indicator.alias == indicator.alias)
-            {
-                if let Some(input_indicator) = all_indicators
-                    .iter()
-                    .find(|ind| ind.alias == nested.input_indicator_alias)
-                {
-                    input_indicator.indicator_type == "oscillator"
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        };
-
-        let primary_built_on_oscillator = is_built_on_oscillator(primary);
-        let secondary_built_on_oscillator = is_built_on_oscillator(secondary);
-
-        if primary.indicator_type == "oscillator" && !primary_built_on_oscillator {
-            return secondary_built_on_oscillator;
-        }
-
-        if secondary.indicator_type == "oscillator" && !secondary_built_on_oscillator {
-            return primary_built_on_oscillator;
-        }
-
-        true
+        ConditionBuilder::can_compare_indicators(
+            primary,
+            secondary,
+            nested_indicators,
+            all_indicators,
+        )
     }
 
     fn mutate_structure(

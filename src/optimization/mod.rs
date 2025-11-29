@@ -1,3 +1,4 @@
+pub mod builders;
 pub mod candidate_builder;
 pub mod candidate_builder_config;
 pub mod evaluator;

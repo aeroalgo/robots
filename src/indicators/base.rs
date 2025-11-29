@@ -216,10 +216,10 @@ pub trait OHLCIndicator: Indicator {
 }
 
 /// Направление тренда
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TrendDirection {
-    Up,       // Восходящий тренд
-    Down,     // Нисходящий тренд
+    Rising,   // Восходящий тренд (Up)
+    Falling,  // Нисходящий тренд (Down)
     Sideways, // Боковой тренд
     Unknown,  // Неизвестно
 }

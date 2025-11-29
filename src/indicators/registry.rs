@@ -496,59 +496,59 @@ impl IndicatorFactory {
     }
 
     /// Получить информацию об индикаторе
-    pub fn get_indicator_info(name: &str) -> Option<IndicatorInfo> {
+    pub fn get_indicator_info(name: &str) -> Option<IndicatorMetadata> {
         match name.to_uppercase().as_str() {
             // OHLC индикаторы
-            "ATR" => Some(IndicatorInfo {
+            "ATR" => Some(IndicatorMetadata {
                 name: "ATR".to_string(),
                 category: IndicatorCategory::Volatility,
                 indicator_type: IndicatorType::OHLC,
                 description: "Average True Range - индикатор волатильности".to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "TRUERANGE" => Some(IndicatorInfo {
+            "TRUERANGE" => Some(IndicatorMetadata {
                 name: "TrueRange".to_string(),
                 category: IndicatorCategory::Volatility,
                 indicator_type: IndicatorType::OHLC,
                 description: "True Range - истинный диапазон без сглаживания".to_string(),
                 parameters: Vec::new(),
             }),
-            "SUPERTREND" => Some(IndicatorInfo {
+            "SUPERTREND" => Some(IndicatorMetadata {
                 name: "SuperTrend".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::OHLC,
                 description: "SuperTrend - трендовый индикатор с полосами ATR".to_string(),
                 parameters: vec!["period".to_string(), "coeff_atr".to_string()],
             }),
-            "STOCHASTIC" => Some(IndicatorInfo {
+            "STOCHASTIC" => Some(IndicatorMetadata {
                 name: "Stochastic".to_string(),
                 category: IndicatorCategory::Oscillator,
                 indicator_type: IndicatorType::OHLC,
                 description: "Stochastic Oscillator - стохастический осциллятор".to_string(),
                 parameters: vec!["k_period".to_string()],
             }),
-            "WATR" => Some(IndicatorInfo {
+            "WATR" => Some(IndicatorMetadata {
                 name: "WATR".to_string(),
                 category: IndicatorCategory::Volatility,
                 indicator_type: IndicatorType::OHLC,
                 description: "Weighted Average True Range - взвешенный ATR".to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "VTRAND" => Some(IndicatorInfo {
+            "VTRAND" => Some(IndicatorMetadata {
                 name: "VTRAND".to_string(),
                 category: IndicatorCategory::Volatility,
                 indicator_type: IndicatorType::OHLC,
                 description: "Volatility True Range Random - случайный волатильность".to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "MAXFOR" => Some(IndicatorInfo {
+            "MAXFOR" => Some(IndicatorMetadata {
                 name: "MAXFOR".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::OHLC,
                 description: "Maximum For Period - максимальное значение за период".to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "MINFOR" => Some(IndicatorInfo {
+            "MINFOR" => Some(IndicatorMetadata {
                 name: "MINFOR".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::OHLC,
@@ -557,14 +557,14 @@ impl IndicatorFactory {
             }),
 
             // Простые индикаторы
-            "SMA" => Some(IndicatorInfo {
+            "SMA" => Some(IndicatorMetadata {
                 name: "SMA".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::Simple,
                 description: "Simple Moving Average - простое скользящее среднее".to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "EMA" => Some(IndicatorInfo {
+            "EMA" => Some(IndicatorMetadata {
                 name: "EMA".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::Simple,
@@ -572,28 +572,28 @@ impl IndicatorFactory {
                     .to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "RSI" => Some(IndicatorInfo {
+            "RSI" => Some(IndicatorMetadata {
                 name: "RSI".to_string(),
                 category: IndicatorCategory::Oscillator,
                 indicator_type: IndicatorType::Simple,
                 description: "Relative Strength Index - индекс относительной силы".to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "WMA" => Some(IndicatorInfo {
+            "WMA" => Some(IndicatorMetadata {
                 name: "WMA".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::Simple,
                 description: "Weighted Moving Average - взвешенное скользящее среднее".to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "AMA" => Some(IndicatorInfo {
+            "AMA" => Some(IndicatorMetadata {
                 name: "AMA".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::Simple,
                 description: "Adaptive Moving Average - адаптивное скользящее среднее".to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "ZLEMA" => Some(IndicatorInfo {
+            "ZLEMA" => Some(IndicatorMetadata {
                 name: "ZLEMA".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::Simple,
@@ -601,14 +601,14 @@ impl IndicatorFactory {
                     .to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "GEOMEAN" => Some(IndicatorInfo {
+            "GEOMEAN" => Some(IndicatorMetadata {
                 name: "GEOMEAN".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::Simple,
                 description: "Geometric Mean - геометрическое среднее".to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "AMMA" => Some(IndicatorInfo {
+            "AMMA" => Some(IndicatorMetadata {
                 name: "AMMA".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::Simple,
@@ -617,7 +617,7 @@ impl IndicatorFactory {
                         .to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "SQWMA" => Some(IndicatorInfo {
+            "SQWMA" => Some(IndicatorMetadata {
                 name: "SQWMA".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::Simple,
@@ -625,7 +625,7 @@ impl IndicatorFactory {
                     .to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "SINEWMA" => Some(IndicatorInfo {
+            "SINEWMA" => Some(IndicatorMetadata {
                 name: "SINEWMA".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::Simple,
@@ -633,7 +633,7 @@ impl IndicatorFactory {
                     .to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "TPBF" => Some(IndicatorInfo {
+            "TPBF" => Some(IndicatorMetadata {
                 name: "TPBF".to_string(),
                 category: IndicatorCategory::Trend,
                 indicator_type: IndicatorType::Simple,
@@ -643,21 +643,21 @@ impl IndicatorFactory {
             }),
 
             // Bollinger Bands компоненты
-            "BBMIDDLE" => Some(IndicatorInfo {
+            "BBMIDDLE" => Some(IndicatorMetadata {
                 name: "BBMiddle".to_string(),
                 category: IndicatorCategory::Channel,
                 indicator_type: IndicatorType::Simple,
                 description: "Bollinger Bands Middle Line (SMA)".to_string(),
                 parameters: vec!["period".to_string(), "deviation".to_string()],
             }),
-            "BBUPPER" => Some(IndicatorInfo {
+            "BBUPPER" => Some(IndicatorMetadata {
                 name: "BBUpper".to_string(),
                 category: IndicatorCategory::Channel,
                 indicator_type: IndicatorType::Simple,
                 description: "Bollinger Bands Upper Line (SMA + deviation)".to_string(),
                 parameters: vec!["period".to_string(), "deviation".to_string()],
             }),
-            "BBLOWER" => Some(IndicatorInfo {
+            "BBLOWER" => Some(IndicatorMetadata {
                 name: "BBLower".to_string(),
                 category: IndicatorCategory::Channel,
                 indicator_type: IndicatorType::Simple,
@@ -666,14 +666,14 @@ impl IndicatorFactory {
             }),
 
             // Keltner Channel компоненты
-            "KCMIDDLE" => Some(IndicatorInfo {
+            "KCMIDDLE" => Some(IndicatorMetadata {
                 name: "KCMiddle".to_string(),
                 category: IndicatorCategory::Channel,
                 indicator_type: IndicatorType::OHLC,
                 description: "Keltner Channel Middle Line (EMA)".to_string(),
                 parameters: vec!["period".to_string()],
             }),
-            "KCUPPER" => Some(IndicatorInfo {
+            "KCUPPER" => Some(IndicatorMetadata {
                 name: "KCUpper".to_string(),
                 category: IndicatorCategory::Channel,
                 indicator_type: IndicatorType::OHLC,
@@ -684,7 +684,7 @@ impl IndicatorFactory {
                     "atr_multiplier".to_string(),
                 ],
             }),
-            "KCLOWER" => Some(IndicatorInfo {
+            "KCLOWER" => Some(IndicatorMetadata {
                 name: "KCLower".to_string(),
                 category: IndicatorCategory::Channel,
                 indicator_type: IndicatorType::OHLC,
@@ -700,9 +700,9 @@ impl IndicatorFactory {
     }
 }
 
-/// Информация об индикаторе
+/// Метаданные индикатора для реестра
 #[derive(Debug, Clone)]
-pub struct IndicatorInfo {
+pub struct IndicatorMetadata {
     pub name: String,
     pub category: IndicatorCategory,
     pub indicator_type: IndicatorType,

@@ -23,13 +23,7 @@ pub enum ConditionError {
 /// Результат выполнения условия
 pub type ConditionResult<T> = Result<T, ConditionError>;
 
-/// Направление тренда
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TrendDirection {
-    Rising,
-    Falling,
-    Sideways,
-}
+pub use crate::indicators::base::TrendDirection;
 
 /// Сила сигнала
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

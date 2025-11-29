@@ -7,6 +7,7 @@ use crate::strategy::types::ConditionOperator;
 use rand::seq::SliceRandom;
 use rand::Rng;
 
+use super::builders::ConditionBuilder;
 use super::candidate_builder_config::{
     CandidateBuilderConfig, ElementConstraints, ElementProbabilities, ElementSelector,
 };
@@ -1920,149 +1921,22 @@ impl CandidateBuilder {
     }
 
     pub fn is_comparison_operator(operator: &ConditionOperator) -> bool {
-        matches!(
-            operator,
-            ConditionOperator::CrossesAbove
-                | ConditionOperator::CrossesBelow
-                | ConditionOperator::Above
-                | ConditionOperator::Below
-        )
+        ConditionBuilder::is_comparison_operator(operator)
     }
 
     pub fn extract_operands(condition: &ConditionInfo) -> Option<ConditionOperands> {
-        if condition.condition_type == "trend_condition" {
-            return None;
-        }
-
-        let primary_alias = Self::extract_indicator_alias_from_condition_id(&condition.id)?;
-
-        if condition.condition_type == "indicator_indicator" {
-            let parts: Vec<&str> = condition.id.split('_').collect();
-            if parts.len() >= 3 {
-                let secondary_alias =
-                    if condition.id.starts_with("entry_") || condition.id.starts_with("exit_") {
-                        parts.get(2).map(|s| s.to_string())
-                    } else if condition.id.starts_with("ind_ind_") {
-                        parts.get(3).map(|s| s.to_string())
-                    } else {
-                        parts.get(2).map(|s| s.to_string())
-                    };
-
-                if let Some(secondary) = secondary_alias {
-                    return Some(ConditionOperands::IndicatorIndicator {
-                        primary_alias,
-                        secondary_alias: secondary,
-                    });
-                }
-            }
-        } else if condition.condition_type == "indicator_price" {
-            let price_field = condition
-                .price_field
-                .clone()
-                .unwrap_or_else(|| "Close".to_string());
-            return Some(ConditionOperands::IndicatorPrice {
-                indicator_alias: primary_alias,
-                price_field,
-            });
-        } else if condition.condition_type == "indicator_constant" {
-            return Some(ConditionOperands::IndicatorConstant {
-                indicator_alias: primary_alias,
-            });
-        }
-
-        None
+        ConditionBuilder::extract_operands(condition)
     }
 
     pub fn has_conflicting_comparison_operator(
         new_condition: &ConditionInfo,
         existing_conditions: &[ConditionInfo],
     ) -> bool {
-        if new_condition.condition_type == "trend_condition" {
-            return false;
-        }
-
-        if !Self::is_comparison_operator(&new_condition.operator) {
-            return false;
-        }
-
-        let new_operands = match Self::extract_operands(new_condition) {
-            Some(ops) => ops,
-            None => return false,
-        };
-
-        for existing in existing_conditions {
-            if existing.condition_type == "trend_condition" {
-                continue;
-            }
-
-            if !Self::is_comparison_operator(&existing.operator) {
-                continue;
-            }
-
-            let existing_operands = match Self::extract_operands(existing) {
-                Some(ops) => ops,
-                None => continue,
-            };
-
-            if new_operands.same_operands(&existing_operands) {
-                return true;
-            }
-        }
-
-        false
+        ConditionBuilder::has_conflicting_comparison_operator(new_condition, existing_conditions)
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ConditionOperands {
-    IndicatorPrice {
-        indicator_alias: String,
-        price_field: String,
-    },
-    IndicatorIndicator {
-        primary_alias: String,
-        secondary_alias: String,
-    },
-    IndicatorConstant {
-        indicator_alias: String,
-    },
-}
-
-impl ConditionOperands {
-    pub fn same_operands(&self, other: &ConditionOperands) -> bool {
-        match (self, other) {
-            (
-                ConditionOperands::IndicatorPrice {
-                    indicator_alias: a1,
-                    price_field: p1,
-                },
-                ConditionOperands::IndicatorPrice {
-                    indicator_alias: a2,
-                    price_field: p2,
-                },
-            ) => a1 == a2 && p1 == p2,
-            (
-                ConditionOperands::IndicatorIndicator {
-                    primary_alias: p1,
-                    secondary_alias: s1,
-                },
-                ConditionOperands::IndicatorIndicator {
-                    primary_alias: p2,
-                    secondary_alias: s2,
-                },
-            ) => (p1 == p2 && s1 == s2) || (p1 == s2 && s1 == p2),
-            (
-                ConditionOperands::IndicatorConstant {
-                    indicator_alias: a1,
-                },
-                ConditionOperands::IndicatorConstant {
-                    indicator_alias: a2,
-                },
-            ) => a1 == a2,
-            _ => false,
-        }
-    }
-}
+pub use super::builders::condition_builder::ConditionOperands;
 
 pub struct CandidateElements {
     pub indicators: Vec<IndicatorInfo>,

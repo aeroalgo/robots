@@ -6,6 +6,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub use super::common::LogicalOperator;
+
 /// Базовый Query Builder для ClickHouse
 #[derive(Clone)]
 pub struct ClickHouseQueryBuilder {
@@ -60,12 +62,7 @@ pub enum ComparisonOperator {
     IsNotNull,
 }
 
-/// Логические операторы
-#[derive(Debug, Clone)]
-pub enum LogicalOperator {
-    And,
-    Or,
-}
+
 
 /// Упорядочивание
 #[derive(Debug, Clone)]

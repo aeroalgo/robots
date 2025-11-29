@@ -5,6 +5,8 @@ use crate::data_access::{DataAccessError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub use super::common::{LogicalOperator, SortDirection};
+
 /// Базовый Arrow Query Builder
 #[derive(Debug, Clone)]
 pub struct ArrowQueryBuilder {
@@ -55,13 +57,6 @@ pub enum FilterValue {
     Null,
 }
 
-/// Логический оператор
-#[derive(Debug, Clone)]
-pub enum LogicalOperator {
-    And,
-    Or,
-}
-
 /// Агрегация
 #[derive(Debug, Clone)]
 pub struct Aggregation {
@@ -90,13 +85,6 @@ pub enum AggregationFunction {
 pub struct OrderBy {
     pub column: String,
     pub direction: SortDirection,
-}
-
-/// Направление сортировки
-#[derive(Debug, Clone)]
-pub enum SortDirection {
-    Asc,
-    Desc,
 }
 
 impl ArrowQueryBuilder {

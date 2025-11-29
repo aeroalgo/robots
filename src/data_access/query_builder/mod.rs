@@ -2,15 +2,19 @@
 
 pub mod arrow;
 pub mod clickhouse;
+pub mod common;
 pub mod mongodb;
 pub mod postgresql;
 pub mod redis;
+
+// Re-export общих типов
+pub use common::{LogicalOperator, SortDirection};
 
 // Re-export для удобства использования
 pub use arrow::{
     Aggregation, AggregationFunction, ArrowQueryBuilder, ArrowQueryUtils,
     BacktestArrowQueryBuilder, CandleArrowQueryBuilder, FilterCondition, FilterOperator,
-    FilterValue, LogicalOperator, OrderBy, SortDirection, TradeArrowQueryBuilder,
+    FilterValue, OrderBy, TradeArrowQueryBuilder,
 };
 pub use clickhouse::{
     // Специализированные билдеры для всех таблиц
@@ -37,8 +41,6 @@ pub use mongodb::{
     MongoDBQuery,
     MongoDBQueryBuilder,
     MongoDBUtils,
-    SortDirection as MongoDBSortDirection,
-    // Новые билдеры для конфигураций и метаданных
     StrategyConfigQueryBuilder,
     StrategyQueryBuilder as MongoDBStrategyQueryBuilder,
     SystemConfigQueryBuilder,

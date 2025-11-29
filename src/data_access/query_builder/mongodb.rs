@@ -5,6 +5,8 @@ use crate::data_access::{DataAccessError, Result};
 use chrono::{DateTime, Utc};
 use mongodb::bson::{doc, Document};
 
+pub use super::common::SortDirection;
+
 /// Базовый Query Builder для MongoDB
 #[derive(Clone)]
 pub struct MongoDBQueryBuilder {
@@ -385,13 +387,6 @@ impl MongoDBQueryBuilder {
 
         Ok(query)
     }
-}
-
-/// Направление сортировки
-#[derive(Debug, Clone)]
-pub enum SortDirection {
-    Asc,
-    Desc,
 }
 
 /// MongoDB запрос
