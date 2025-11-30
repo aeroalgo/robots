@@ -1,11 +1,13 @@
 use crate::indicators::{
     base::{
-        Indicator, SimpleIndicator, TrendDirection, TrendIndicator,
+        Indicator, IndicatorBuildRules, IndicatorCompareConfig, NestingConfig, PriceCompareConfig,
+        SimpleIndicator, ThresholdType, TrendDirection, TrendIndicator,
     },
+    impl_::common::{adjust_period, default_trend_direction},
     parameters::create_period_parameter,
     types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
-    impl_::common::{adjust_period, default_trend_direction},
 };
+use crate::strategy::types::ConditionOperator;
 
 pub struct SQWMA {
     parameters: ParameterSet,
@@ -92,6 +94,30 @@ impl Indicator for SQWMA {
         self.calculate_simple(&data.close)
     }
 
+    fn build_rules(&self) -> IndicatorBuildRules {
+        IndicatorBuildRules {
+            allowed_conditions: &[
+                ConditionOperator::Above,
+                ConditionOperator::Below,
+                ConditionOperator::CrossesAbove,
+                ConditionOperator::CrossesBelow,
+                ConditionOperator::RisingTrend,
+                ConditionOperator::FallingTrend,
+                ConditionOperator::GreaterPercent,
+                ConditionOperator::LowerPercent,
+            ],
+            price_compare: PriceCompareConfig::CLOSE_ONLY,
+            threshold_type: ThresholdType::None,
+            indicator_compare: IndicatorCompareConfig::TREND_AND_CHANNEL,
+            nesting: NestingConfig::TREND,
+            phase_1_allowed: true,
+            supports_percent_condition: true,
+            can_compare_with_input_source: true,
+            can_compare_with_nested_result: true,
+            nested_compare_conditions: &[],
+        }
+    }
+
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
         Box::new(Self::new(self.parameters.get_value("period").unwrap()).unwrap())
     }
@@ -105,6 +131,7 @@ impl TrendIndicator for SQWMA {
         default_trend_direction(values)
     }
 }
+
 
 
 

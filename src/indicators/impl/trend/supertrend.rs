@@ -1,10 +1,14 @@
 use crate::indicators::{
-    base::{Indicator, TrendDirection, TrendIndicator},
+    base::{
+        Indicator, IndicatorBuildRules, IndicatorCompareConfig, NestingConfig, PriceCompareConfig,
+        ThresholdType, TrendDirection, TrendIndicator,
+    },
     impl_::common::{adjust_period, default_trend_direction},
     impl_::volatility::{ATR, WATR},
     parameters::{create_multiplier_parameter, create_period_parameter},
     types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
 };
+use crate::strategy::types::ConditionOperator;
 
 pub struct SuperTrend {
     parameters: ParameterSet,
@@ -154,6 +158,30 @@ impl Indicator for SuperTrend {
         }
 
         Ok(supertrend_values)
+    }
+
+    fn build_rules(&self) -> IndicatorBuildRules {
+        IndicatorBuildRules {
+            allowed_conditions: &[
+                ConditionOperator::Above,
+                ConditionOperator::Below,
+                ConditionOperator::CrossesAbove,
+                ConditionOperator::CrossesBelow,
+                ConditionOperator::RisingTrend,
+                ConditionOperator::FallingTrend,
+                ConditionOperator::GreaterPercent,
+                ConditionOperator::LowerPercent,
+            ],
+            price_compare: PriceCompareConfig::CLOSE_ONLY,
+            threshold_type: ThresholdType::None,
+            indicator_compare: IndicatorCompareConfig::TREND_AND_CHANNEL,
+            nesting: NestingConfig::TREND,
+            phase_1_allowed: true,
+            supports_percent_condition: true,
+            can_compare_with_input_source: true,
+            can_compare_with_nested_result: true,
+            nested_compare_conditions: &[],
+        }
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {

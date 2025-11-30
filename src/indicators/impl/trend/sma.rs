@@ -99,7 +99,7 @@ impl Indicator for SMA {
                 ConditionOperator::GreaterPercent,
                 ConditionOperator::LowerPercent,
             ],
-            price_compare: PriceCompareConfig::STANDARD,
+            price_compare: PriceCompareConfig::CLOSE_ONLY,
             threshold_type: ThresholdType::None,
             indicator_compare: IndicatorCompareConfig::TREND_AND_CHANNEL,
             nesting: NestingConfig::TREND,

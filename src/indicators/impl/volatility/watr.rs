@@ -87,3 +87,4 @@ impl VolatilityIndicator for WATR {
 
 
 
+

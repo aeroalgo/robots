@@ -1,10 +1,14 @@
 use crate::indicators::{
-    base::{Indicator, SimpleIndicator, TrendDirection, TrendIndicator},
+    base::{
+        Indicator, IndicatorBuildRules, IndicatorCompareConfig, NestingConfig, PriceCompareConfig,
+        SimpleIndicator, ThresholdType, TrendDirection, TrendIndicator,
+    },
     impl_::common::default_trend_direction,
     impl_::trend::SMA,
     parameters::create_period_parameter,
     types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
 };
+use crate::strategy::types::ConditionOperator;
 
 pub struct AMMA {
     parameters: ParameterSet,
@@ -80,6 +84,30 @@ impl Indicator for AMMA {
 
     fn calculate_ohlc(&self, data: &OHLCData) -> Result<Vec<f32>, IndicatorError> {
         self.calculate_simple(&data.close)
+    }
+
+    fn build_rules(&self) -> IndicatorBuildRules {
+        IndicatorBuildRules {
+            allowed_conditions: &[
+                ConditionOperator::Above,
+                ConditionOperator::Below,
+                ConditionOperator::CrossesAbove,
+                ConditionOperator::CrossesBelow,
+                ConditionOperator::RisingTrend,
+                ConditionOperator::FallingTrend,
+                ConditionOperator::GreaterPercent,
+                ConditionOperator::LowerPercent,
+            ],
+            price_compare: PriceCompareConfig::CLOSE_ONLY,
+            threshold_type: ThresholdType::None,
+            indicator_compare: IndicatorCompareConfig::TREND_AND_CHANNEL,
+            nesting: NestingConfig::TREND,
+            phase_1_allowed: true,
+            supports_percent_condition: true,
+            can_compare_with_input_source: true,
+            can_compare_with_nested_result: true,
+            nested_compare_conditions: &[],
+        }
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
