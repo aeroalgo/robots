@@ -1,9 +1,14 @@
 use crate::indicators::{
-    base::Indicator,
+    base::{
+        Indicator, IndicatorBuildRules, IndicatorCompareConfig, NestingConfig, PriceCompareConfig,
+        ThresholdType, TrendDirection, TrendIndicator,
+    },
+    impl_::auxiliary::{MAXFOR, MINFOR},
+    impl_::common::default_trend_direction,
     parameters::create_period_parameter,
     types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
-    impl_::auxiliary::{MAXFOR, MINFOR},
 };
+use crate::strategy::types::ConditionOperator;
 
 pub struct VTRAND {
     parameters: ParameterSet,
@@ -66,12 +71,47 @@ impl Indicator for VTRAND {
         Ok(vtrand_values)
     }
 
+    fn build_rules(&self) -> IndicatorBuildRules {
+        IndicatorBuildRules {
+            allowed_conditions: &[
+                ConditionOperator::Above,
+                ConditionOperator::Below,
+                ConditionOperator::CrossesAbove,
+                ConditionOperator::CrossesBelow,
+                ConditionOperator::RisingTrend,
+                ConditionOperator::FallingTrend,
+                ConditionOperator::GreaterPercent,
+                ConditionOperator::LowerPercent,
+            ],
+            price_compare: PriceCompareConfig::CLOSE_ONLY,
+            threshold_type: ThresholdType::None,
+            indicator_compare: IndicatorCompareConfig::TREND_AND_CHANNEL,
+            nesting: NestingConfig::TREND,
+            phase_1_allowed: true,
+            supports_percent_condition: true,
+            can_compare_with_input_source: true,
+            can_compare_with_nested_result: true,
+            nested_compare_conditions: &[],
+        }
+    }
+
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
         Box::new(Self::new(self.parameters.get_value("period").unwrap()).unwrap())
     }
 }
 
-
-
-
+impl TrendIndicator for VTRAND {
+    fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
+        let ohlc = OHLCData {
+            open: data.to_vec(),
+            high: data.to_vec(),
+            low: data.to_vec(),
+            close: data.to_vec(),
+            volume: None,
+            timestamp: None,
+        };
+        let values = self.calculate_ohlc(&ohlc)?;
+        default_trend_direction(values)
+    }
+}
 

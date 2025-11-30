@@ -1,11 +1,15 @@
 use crate::indicators::{
-    base::{Indicator, VolatilityIndicator},
+    base::{
+        Indicator, IndicatorBuildRules, IndicatorCompareConfig, NestingConfig, PriceCompareConfig,
+        ThresholdType, VolatilityIndicator,
+    },
+    impl_::common::adjust_period,
+    impl_::trend::WMA,
+    impl_::volatility::TrueRange,
     parameters::create_period_parameter,
     types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
-    impl_::common::adjust_period,
-    impl_::volatility::TrueRange,
-    impl_::trend::WMA,
 };
+use crate::strategy::types::{ConditionOperator, PriceField};
 
 pub struct WATR {
     parameters: ParameterSet,
@@ -73,6 +77,35 @@ impl Indicator for WATR {
         wma_indicator.calculate_simple(&true_ranges)
     }
 
+    fn build_rules(&self) -> IndicatorBuildRules {
+        IndicatorBuildRules {
+            allowed_conditions: &[
+                ConditionOperator::Above,
+                ConditionOperator::Below,
+                ConditionOperator::RisingTrend,
+                ConditionOperator::FallingTrend,
+            ],
+            price_compare: PriceCompareConfig::DISABLED,
+            threshold_type: ThresholdType::PercentOfPrice {
+                base_price_fields: &[PriceField::Close],
+            },
+            indicator_compare: IndicatorCompareConfig::DISABLED,
+            nesting: NestingConfig::VOLATILITY,
+            phase_1_allowed: false,
+            supports_percent_condition: false,
+            can_compare_with_input_source: false,
+            can_compare_with_nested_result: true,
+            nested_compare_conditions: &[
+                ConditionOperator::Above,
+                ConditionOperator::Below,
+                ConditionOperator::CrossesAbove,
+                ConditionOperator::CrossesBelow,
+                ConditionOperator::GreaterPercent,
+                ConditionOperator::LowerPercent,
+            ],
+        }
+    }
+
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {
         Box::new(Self::new(self.parameters.get_value("period").unwrap()).unwrap())
     }
@@ -83,8 +116,3 @@ impl VolatilityIndicator for WATR {
         Err(IndicatorError::OHLCDataRequired)
     }
 }
-
-
-
-
-

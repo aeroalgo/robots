@@ -92,7 +92,7 @@ async fn run() -> Result<()> {
     let mut frames = HashMap::new();
     frames.insert(timeframe.clone(), frame);
 
-    let strategy_name = "ZLEMA_PERCENT_TRAILING";
+    let strategy_name = "VTRAND_MULTI_TIMEFRAME";
 
     let definition = default_strategy_definitions()
         .into_iter()
@@ -196,21 +196,21 @@ async fn run_genetic_optimization(
 
     println!("⚙️  Создание конфигурации генетического алгоритма...");
     let config = GeneticAlgorithmConfig {
-        population_size: 70,
+        population_size: 80,
         lambda_size: 50,
         max_generations: 80,
         crossover_rate: 0.8,
         mutation_rate: 0.2,
         elitism_count: 3,
         islands_count: 5,
-        migration_interval: 3,
+        migration_interval: 5,
         migration_rate: 0.06,
         fitness_thresholds: FitnessThresholds {
             min_sharpe_ratio: None,
             max_drawdown_pct: None,
             min_win_rate: None,
             min_profit_factor: Some(1.0),
-            min_trades_count: Some(200),
+            min_trades_count: Some(150),
             min_cagr: None,
             min_recovery_factor: None,
         },

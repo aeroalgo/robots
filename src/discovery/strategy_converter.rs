@@ -1,18 +1,17 @@
 use chrono::Utc;
+use rand::Rng;
 use std::collections::{BTreeMap, HashMap};
 
-use crate::condition::ConditionParameterPresets;
 use crate::data_model::types::TimeFrame;
+use crate::discovery::config::StrategyDiscoveryConfig;
 use crate::discovery::engine::StrategyCandidate;
-use crate::discovery::types::{ConditionInfo, IndicatorInfo};
-use crate::indicators::parameters::ParameterPresets;
-use crate::risk::parameters::StopParameterPresets;
+use crate::discovery::types::{ConditionInfo, IndicatorInfo, NestedIndicator, StopHandlerInfo};
 use crate::strategy::types::{
-    ConditionBindingSpec, ConditionDeclarativeSpec, ConditionInputSpec, DataSeriesSource,
-    IndicatorBindingSpec, IndicatorSourceSpec, PositionDirection, RuleLogic, StopHandlerSpec,
-    StrategyCategory, StrategyDefinition, StrategyMetadata, StrategyParamValue,
-    StrategyParameterMap, StrategyParameterSpec, StrategyRuleSpec, StrategySignalType,
-    TakeHandlerSpec,
+    ConditionBindingSpec, ConditionDeclarativeSpec, ConditionInputSpec, ConditionOperandSpec,
+    ConditionOperator, DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec,
+    PositionDirection, RuleLogic, StopHandlerSpec, StrategyCategory, StrategyDefinition,
+    StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyParameterSpec,
+    StrategyRuleSpec, StrategySignalType, TakeHandlerSpec,
 };
 
 pub struct StrategyConverter;
@@ -22,32 +21,22 @@ impl StrategyConverter {
         candidate: &StrategyCandidate,
         base_timeframe: TimeFrame,
     ) -> Result<StrategyDefinition, StrategyConversionError> {
-        Self::candidate_to_definition_with_params(candidate, base_timeframe, None)
-    }
-
-    pub fn candidate_to_definition_with_params(
-        candidate: &StrategyCandidate,
-        base_timeframe: TimeFrame,
-        param_values: Option<&StrategyParameterMap>,
-    ) -> Result<StrategyDefinition, StrategyConversionError> {
         let metadata = Self::create_metadata(candidate);
-        let parameters = Self::extract_parameters_with_values(candidate, param_values);
-        let defaults = Self::extract_defaults_with_values(candidate, param_values);
+        let parameters = Self::extract_parameters(candidate);
+        let defaults = Self::extract_defaults(candidate);
         let base_tf = base_timeframe.clone();
 
-        let indicator_bindings =
-            Self::create_indicator_bindings_with_params(candidate, base_tf.clone(), param_values)?;
-        let condition_bindings =
-            Self::create_condition_bindings_with_params(candidate, base_tf.clone(), param_values)?;
+        let indicator_bindings = Self::create_indicator_bindings(candidate, base_tf.clone())?;
+        let condition_bindings = Self::create_condition_bindings(candidate, base_tf.clone())?;
         let (mut stop_handlers, mut take_handlers) =
-            Self::create_stop_and_take_handlers_with_params(candidate, base_tf.clone(), param_values)?;
+            Self::create_stop_and_take_handlers(candidate, base_tf.clone())?;
 
-        let exit_condition_bindings =
-            Self::create_condition_bindings_for_exit_with_params(candidate, base_tf, param_values)?;
+        let exit_condition_bindings = Self::create_condition_bindings_for_exit(candidate, base_tf)?;
 
         let entry_rules = Self::create_entry_rules(candidate, &condition_bindings)?;
         let exit_rules = Self::create_exit_rules(candidate, &exit_condition_bindings)?;
 
+        // Устанавливаем target_entry_ids для stop и take handlers на ID entry rules
         let entry_rule_ids: Vec<String> = entry_rules.iter().map(|r| r.id.clone()).collect();
         for stop_handler in &mut stop_handlers {
             if stop_handler.target_entry_ids.is_empty() {
@@ -116,25 +105,31 @@ impl StrategyConverter {
         }
     }
 
-    fn extract_parameters_with_values(
-        candidate: &StrategyCandidate,
-        param_values: Option<&StrategyParameterMap>,
-    ) -> Vec<StrategyParameterSpec> {
+    fn extract_parameters(candidate: &StrategyCandidate) -> Vec<StrategyParameterSpec> {
+        use crate::indicators::parameters::ParameterPresets;
+
         let mut params = Vec::new();
 
         for indicator in &candidate.indicators {
             for param in &indicator.parameters {
                 if param.optimizable {
                     let param_name = Self::make_parameter_name(&indicator.alias, &param.name);
-                    let value = param_values
-                        .and_then(|pv| pv.get(&param_name))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
                     let range = ParameterPresets::get_range_for_parameter(
                         &indicator.name,
                         &param.name,
                         &param.param_type,
                     );
+                    let (default_val, min_val, max_val, step_val) = if let Some(r) = range {
+                        let default = ((r.start + r.end) / 2.0) as f64;
+                        (
+                            default,
+                            Some(r.start as f64),
+                            Some(r.end as f64),
+                            Some(r.step as f64),
+                        )
+                    } else {
+                        (50.0, Some(10.0), Some(200.0), Some(10.0))
+                    };
                     params.push(StrategyParameterSpec {
                         name: param_name,
                         description: Some(format!(
@@ -143,11 +138,11 @@ impl StrategyConverter {
                         )),
                         default_value: Self::param_value_to_strategy_param_from_enum(
                             &param.param_type,
-                            value,
+                            default_val,
                         ),
-                        min: range.as_ref().map(|r| r.start as f64),
-                        max: range.as_ref().map(|r| r.end as f64),
-                        step: range.as_ref().map(|r| r.step as f64),
+                        min: min_val,
+                        max: max_val,
+                        step: step_val,
                         discrete_values: None,
                         optimize: true,
                     });
@@ -160,15 +155,22 @@ impl StrategyConverter {
                 if param.optimizable {
                     let param_name =
                         Self::make_parameter_name(&nested.indicator.alias, &param.name);
-                    let value = param_values
-                        .and_then(|pv| pv.get(&param_name))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
                     let range = ParameterPresets::get_range_for_parameter(
                         &nested.indicator.name,
                         &param.name,
                         &param.param_type,
                     );
+                    let (default_val, min_val, max_val, step_val) = if let Some(r) = range {
+                        let default = ((r.start + r.end) / 2.0) as f64;
+                        (
+                            default,
+                            Some(r.start as f64),
+                            Some(r.end as f64),
+                            Some(r.step as f64),
+                        )
+                    } else {
+                        (50.0, Some(10.0), Some(200.0), Some(10.0))
+                    };
                     params.push(StrategyParameterSpec {
                         name: param_name,
                         description: Some(format!(
@@ -177,11 +179,11 @@ impl StrategyConverter {
                         )),
                         default_value: Self::param_value_to_strategy_param_from_enum(
                             &param.param_type,
-                            value,
+                            default_val,
                         ),
-                        min: range.as_ref().map(|r| r.start as f64),
-                        max: range.as_ref().map(|r| r.end as f64),
-                        step: range.as_ref().map(|r| r.step as f64),
+                        min: min_val,
+                        max: max_val,
+                        step: step_val,
                         discrete_values: None,
                         optimize: true,
                     });
@@ -193,21 +195,23 @@ impl StrategyConverter {
             for param in &condition.optimization_params {
                 if param.optimizable {
                     let param_name = Self::make_parameter_name(&condition.id, &param.name);
-                    let value = param_values
-                        .and_then(|pv| pv.get(&param_name))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                    let range = ConditionParameterPresets::get_range_for_condition(&condition.name);
+                    let (default_val, min_val, max_val, step_val) = if param.name == "period" {
+                        (3.0, Some(2.0), Some(10.0), Some(1.0))
+                    } else if param.name == "percentage" {
+                        (2.0, Some(0.5), Some(10.0), Some(0.5))
+                    } else {
+                        (1.0, None, None, None)
+                    };
                     params.push(StrategyParameterSpec {
                         name: param_name,
                         description: Some(format!(
                             "{} parameter for entry condition {}",
                             param.name, condition.name
                         )),
-                        default_value: StrategyParamValue::Number(value),
-                        min: range.as_ref().map(|r| r.min as f64),
-                        max: range.as_ref().map(|r| r.max as f64),
-                        step: range.as_ref().map(|r| r.step as f64),
+                        default_value: StrategyParamValue::Number(default_val),
+                        min: min_val,
+                        max: max_val,
+                        step: step_val,
                         discrete_values: None,
                         optimize: true,
                     });
@@ -220,21 +224,23 @@ impl StrategyConverter {
                 if param.optimizable {
                     let param_name =
                         Self::make_parameter_name(&format!("exit_{}", condition.id), &param.name);
-                    let value = param_values
-                        .and_then(|pv| pv.get(&param_name))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                    let range = ConditionParameterPresets::get_range_for_condition(&condition.name);
+                    let (default_val, min_val, max_val, step_val) = if param.name == "period" {
+                        (3.0, Some(2.0), Some(10.0), Some(1.0))
+                    } else if param.name == "percentage" {
+                        (2.0, Some(0.5), Some(10.0), Some(0.5))
+                    } else {
+                        (1.0, None, None, None)
+                    };
                     params.push(StrategyParameterSpec {
                         name: param_name,
                         description: Some(format!(
                             "{} parameter for exit condition {}",
                             param.name, condition.name
                         )),
-                        default_value: StrategyParamValue::Number(value),
-                        min: range.as_ref().map(|r| r.min as f64),
-                        max: range.as_ref().map(|r| r.max as f64),
-                        step: range.as_ref().map(|r| r.step as f64),
+                        default_value: StrategyParamValue::Number(default_val),
+                        min: min_val,
+                        max: max_val,
+                        step: step_val,
                         discrete_values: None,
                         optimize: true,
                     });
@@ -246,21 +252,65 @@ impl StrategyConverter {
             for param in &stop_handler.optimization_params {
                 if param.optimizable {
                     let param_name = Self::make_parameter_name(&stop_handler.id, &param.name);
-                    let value = param_values
-                        .and_then(|pv| pv.get(&param_name))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                    let range = StopParameterPresets::get_range(&stop_handler.name, &param.name);
+                    let range_opt = crate::risk::get_stop_optimization_range(
+                        &stop_handler.handler_name,
+                        &param.name,
+                    );
+                    let (default_val, min_val, max_val, step_val) = if let Some(range) = range_opt {
+                        (
+                            ((range.start + range.end) / 2.0) as f64,
+                            Some(range.start as f64),
+                            Some(range.end as f64),
+                            Some(range.step as f64),
+                        )
+                    } else {
+                        (50.0, Some(10.0), Some(150.0), Some(10.0))
+                    };
                     params.push(StrategyParameterSpec {
                         name: param_name,
                         description: Some(format!(
                             "{} parameter for stop handler {}",
                             param.name, stop_handler.name
                         )),
-                        default_value: StrategyParamValue::Number(value),
-                        min: range.as_ref().map(|r| r.start as f64),
-                        max: range.as_ref().map(|r| r.end as f64),
-                        step: range.as_ref().map(|r| r.step as f64),
+                        default_value: StrategyParamValue::Number(default_val),
+                        min: min_val,
+                        max: max_val,
+                        step: step_val,
+                        discrete_values: None,
+                        optimize: true,
+                    });
+                }
+            }
+        }
+
+        for take_handler in &candidate.take_handlers {
+            for param in &take_handler.optimization_params {
+                if param.optimizable {
+                    let param_name = Self::make_parameter_name(&take_handler.id, &param.name);
+                    let range_opt = crate::risk::get_stop_optimization_range(
+                        &take_handler.handler_name,
+                        &param.name,
+                    );
+                    let (default_val, min_val, max_val, step_val) = if let Some(range) = range_opt {
+                        (
+                            ((range.start + range.end) / 2.0) as f64,
+                            Some(range.start as f64),
+                            Some(range.end as f64),
+                            Some(range.step as f64),
+                        )
+                    } else {
+                        (10.0, Some(5.0), Some(30.0), Some(1.0))
+                    };
+                    params.push(StrategyParameterSpec {
+                        name: param_name,
+                        description: Some(format!(
+                            "{} parameter for take handler {}",
+                            param.name, take_handler.name
+                        )),
+                        default_value: StrategyParamValue::Number(default_val),
+                        min: min_val,
+                        max: max_val,
+                        step: step_val,
                         discrete_values: None,
                         optimize: true,
                     });
@@ -271,23 +321,31 @@ impl StrategyConverter {
         params
     }
 
-    fn extract_defaults_with_values(
-        candidate: &StrategyCandidate,
-        param_values: Option<&StrategyParameterMap>,
-    ) -> StrategyParameterMap {
+    fn extract_defaults(candidate: &StrategyCandidate) -> StrategyParameterMap {
+        use crate::indicators::parameters::ParameterPresets;
+
         let mut defaults = HashMap::new();
 
         for indicator in &candidate.indicators {
             for param in &indicator.parameters {
                 if param.optimizable {
                     let param_name = Self::make_parameter_name(&indicator.alias, &param.name);
-                    let value = param_values
-                        .and_then(|pv| pv.get(&param_name))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
+                    let range = ParameterPresets::get_range_for_parameter(
+                        &indicator.name,
+                        &param.name,
+                        &param.param_type,
+                    );
+                    let default_val = if let Some(r) = range {
+                        ((r.start + r.end) / 2.0) as f64
+                    } else {
+                        50.0
+                    };
                     defaults.insert(
                         param_name,
-                        Self::param_value_to_strategy_param_from_enum(&param.param_type, value),
+                        Self::param_value_to_strategy_param_from_enum(
+                            &param.param_type,
+                            default_val,
+                        ),
                     );
                 }
             }
@@ -298,13 +356,22 @@ impl StrategyConverter {
                 if param.optimizable {
                     let param_name =
                         Self::make_parameter_name(&nested.indicator.alias, &param.name);
-                    let value = param_values
-                        .and_then(|pv| pv.get(&param_name))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
+                    let range = ParameterPresets::get_range_for_parameter(
+                        &nested.indicator.name,
+                        &param.name,
+                        &param.param_type,
+                    );
+                    let default_val = if let Some(r) = range {
+                        ((r.start + r.end) / 2.0) as f64
+                    } else {
+                        50.0
+                    };
                     defaults.insert(
                         param_name,
-                        Self::param_value_to_strategy_param_from_enum(&param.param_type, value),
+                        Self::param_value_to_strategy_param_from_enum(
+                            &param.param_type,
+                            default_val,
+                        ),
                     );
                 }
             }
@@ -314,11 +381,14 @@ impl StrategyConverter {
             for param in &condition.optimization_params {
                 if param.optimizable {
                     let param_name = Self::make_parameter_name(&condition.id, &param.name);
-                    let value = param_values
-                        .and_then(|pv| pv.get(&param_name))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                    defaults.insert(param_name, StrategyParamValue::Number(value));
+                    let default_val = if param.name == "period" {
+                        3.0
+                    } else if param.name == "percentage" {
+                        2.0
+                    } else {
+                        1.0
+                    };
+                    defaults.insert(param_name, StrategyParamValue::Number(default_val));
                 }
             }
         }
@@ -328,11 +398,14 @@ impl StrategyConverter {
                 if param.optimizable {
                     let param_name =
                         Self::make_parameter_name(&format!("exit_{}", condition.id), &param.name);
-                    let value = param_values
-                        .and_then(|pv| pv.get(&param_name))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                    defaults.insert(param_name, StrategyParamValue::Number(value));
+                    let default_val = if param.name == "period" {
+                        3.0
+                    } else if param.name == "percentage" {
+                        2.0
+                    } else {
+                        1.0
+                    };
+                    defaults.insert(param_name, StrategyParamValue::Number(default_val));
                 }
             }
         }
@@ -341,11 +414,34 @@ impl StrategyConverter {
             for param in &stop_handler.optimization_params {
                 if param.optimizable {
                     let param_name = Self::make_parameter_name(&stop_handler.id, &param.name);
-                    let value = param_values
-                        .and_then(|pv| pv.get(&param_name))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                    defaults.insert(param_name, StrategyParamValue::Number(value));
+                    let range_opt = crate::risk::get_stop_optimization_range(
+                        &stop_handler.handler_name,
+                        &param.name,
+                    );
+                    let default_val = if let Some(range) = range_opt {
+                        ((range.start + range.end) / 2.0) as f64
+                    } else {
+                        50.0
+                    };
+                    defaults.insert(param_name, StrategyParamValue::Number(default_val));
+                }
+            }
+        }
+
+        for take_handler in &candidate.take_handlers {
+            for param in &take_handler.optimization_params {
+                if param.optimizable {
+                    let param_name = Self::make_parameter_name(&take_handler.id, &param.name);
+                    let range_opt = crate::risk::get_stop_optimization_range(
+                        &take_handler.handler_name,
+                        &param.name,
+                    );
+                    let default_val = if let Some(range) = range_opt {
+                        ((range.start + range.end) / 2.0) as f64
+                    } else {
+                        10.0
+                    };
+                    defaults.insert(param_name, StrategyParamValue::Number(default_val));
                 }
             }
         }
@@ -353,71 +449,115 @@ impl StrategyConverter {
         defaults
     }
 
-    fn create_indicator_bindings_with_params(
+    fn create_indicator_bindings(
         candidate: &StrategyCandidate,
         base_timeframe: TimeFrame,
-        param_values: Option<&StrategyParameterMap>,
     ) -> Result<Vec<IndicatorBindingSpec>, StrategyConversionError> {
         let mut bindings = Vec::new();
         let mut binding_keys = std::collections::HashSet::new();
 
-        let mut required_timeframes = std::collections::HashSet::new();
-        required_timeframes.insert(base_timeframe.clone());
+        // Собираем какие индикаторы на каких TF реально используются в условиях
+        let mut required_indicator_timeframes: std::collections::HashMap<
+            String,
+            std::collections::HashSet<TimeFrame>,
+        > = std::collections::HashMap::new();
 
         for condition in candidate
             .conditions
             .iter()
             .chain(candidate.exit_conditions.iter())
         {
-            let primary_tf = condition
-                .primary_timeframe
-                .as_ref()
-                .unwrap_or(&base_timeframe);
-            required_timeframes.insert(primary_tf.clone());
+            // Извлекаем alias индикатора из condition.id
+            if let Some(alias) = Self::extract_indicator_alias_from_condition_id(&condition.id) {
+                let tf = condition
+                    .primary_timeframe
+                    .clone()
+                    .unwrap_or_else(|| base_timeframe.clone());
+                required_indicator_timeframes
+                    .entry(alias)
+                    .or_default()
+                    .insert(tf);
+            }
 
-            let secondary_tf = condition
-                .secondary_timeframe
-                .as_ref()
-                .unwrap_or(&base_timeframe);
-            required_timeframes.insert(secondary_tf.clone());
+            // Для indicator_indicator также нужен secondary индикатор
+            if condition.condition_type == "indicator_indicator" {
+                if let Some(aliases) =
+                    Self::extract_indicator_aliases_from_condition_id(&condition.id)
+                {
+                    if aliases.len() > 1 {
+                        let secondary_tf = condition
+                            .secondary_timeframe
+                            .clone()
+                            .unwrap_or_else(|| base_timeframe.clone());
+                        required_indicator_timeframes
+                            .entry(aliases[1].clone())
+                            .or_default()
+                            .insert(secondary_tf);
+                    }
+                }
+            }
         }
 
+        // Индикаторы БЕЗ условий (не используются) - добавляем на базовый TF
+        // чтобы они хотя бы где-то были (защита от пустых bindings)
         for indicator in &candidate.indicators {
-            let params =
-                Self::extract_indicator_params_with_values(indicator, param_values)?;
-            for timeframe in &required_timeframes {
-                let key = format!("{}:{:?}", indicator.alias, timeframe);
-                if !binding_keys.contains(&key) {
-                    binding_keys.insert(key.clone());
-                    bindings.push(IndicatorBindingSpec {
-                        alias: indicator.alias.clone(),
-                        timeframe: timeframe.clone(),
-                        source: IndicatorSourceSpec::Registry {
-                            name: indicator.name.clone(),
-                            parameters: params.clone(),
-                        },
-                        tags: vec!["base".to_string()],
-                    });
+            if !required_indicator_timeframes.contains_key(&indicator.alias) {
+                required_indicator_timeframes
+                    .entry(indicator.alias.clone())
+                    .or_default()
+                    .insert(base_timeframe.clone());
+            }
+        }
+        for nested in &candidate.nested_indicators {
+            if !required_indicator_timeframes.contains_key(&nested.indicator.alias) {
+                required_indicator_timeframes
+                    .entry(nested.indicator.alias.clone())
+                    .or_default()
+                    .insert(base_timeframe.clone());
+            }
+        }
+
+        // Создаём bindings только для используемых комбинаций indicator+TF
+        for indicator in &candidate.indicators {
+            let params = Self::extract_indicator_params(indicator)?;
+
+            if let Some(timeframes) = required_indicator_timeframes.get(&indicator.alias) {
+                for timeframe in timeframes {
+                    let key = format!("{}:{:?}", indicator.alias, timeframe);
+                    if !binding_keys.contains(&key) {
+                        binding_keys.insert(key.clone());
+                        bindings.push(IndicatorBindingSpec {
+                            alias: indicator.alias.clone(),
+                            timeframe: timeframe.clone(),
+                            source: IndicatorSourceSpec::Registry {
+                                name: indicator.name.clone(),
+                                parameters: params.clone(),
+                            },
+                            tags: vec!["base".to_string()],
+                        });
+                    }
                 }
             }
         }
 
         for nested in &candidate.nested_indicators {
-            let params =
-                Self::extract_indicator_params_with_values(&nested.indicator, param_values)?;
-            for timeframe in &required_timeframes {
-                let key = format!("{}:{:?}", nested.indicator.alias, timeframe);
-                if !binding_keys.contains(&key) {
-                    binding_keys.insert(key.clone());
-                    bindings.push(IndicatorBindingSpec {
-                        alias: nested.indicator.alias.clone(),
-                        timeframe: timeframe.clone(),
-                        source: IndicatorSourceSpec::Registry {
-                            name: nested.indicator.name.clone(),
-                            parameters: params.clone(),
-                        },
-                        tags: vec!["nested".to_string(), format!("depth_{}", nested.depth)],
-                    });
+            let params = Self::extract_indicator_params(&nested.indicator)?;
+
+            if let Some(timeframes) = required_indicator_timeframes.get(&nested.indicator.alias) {
+                for timeframe in timeframes {
+                    let key = format!("{}:{:?}", nested.indicator.alias, timeframe);
+                    if !binding_keys.contains(&key) {
+                        binding_keys.insert(key.clone());
+                        bindings.push(IndicatorBindingSpec {
+                            alias: nested.indicator.alias.clone(),
+                            timeframe: timeframe.clone(),
+                            source: IndicatorSourceSpec::Registry {
+                                name: nested.indicator.name.clone(),
+                                parameters: params.clone(),
+                            },
+                            tags: vec!["nested".to_string(), format!("depth_{}", nested.depth)],
+                        });
+                    }
                 }
             }
         }
@@ -425,71 +565,36 @@ impl StrategyConverter {
         Ok(bindings)
     }
 
-    fn extract_indicator_params_with_values(
+    fn extract_indicator_params(
         indicator: &IndicatorInfo,
-        param_values: Option<&StrategyParameterMap>,
     ) -> Result<HashMap<String, f32>, StrategyConversionError> {
         use crate::indicators::parameters::ParameterPresets;
+        let mut rng = rand::thread_rng();
         let mut params = HashMap::new();
 
         for param in &indicator.parameters {
-            let param_key = format!("{}_{}", indicator.alias, param.name);
-            
-            let value = if let Some(values) = param_values {
-                if let Some(val) = values.get(&param_key) {
-                    match val {
-                        StrategyParamValue::Number(n) => *n as f32,
-                        StrategyParamValue::Integer(i) => *i as f32,
-                        _ => {
-                            let range = ParameterPresets::get_range_for_parameter(
-                                &indicator.name,
-                                &param.name,
-                                &param.param_type,
-                            )
-                            .ok_or_else(|| StrategyConversionError::MissingParameterRange {
-                                indicator_name: indicator.name.clone(),
-                                parameter_name: param.name.clone(),
-                                parameter_type: format!("{:?}", param.param_type),
-                            })?;
-                            range.start
-                        }
-                    }
-                } else {
-                    let range = ParameterPresets::get_range_for_parameter(
-                        &indicator.name,
-                        &param.name,
-                        &param.param_type,
-                    )
-                    .ok_or_else(|| StrategyConversionError::MissingParameterRange {
-                        indicator_name: indicator.name.clone(),
-                        parameter_name: param.name.clone(),
-                        parameter_type: format!("{:?}", param.param_type),
-                    })?;
-                    range.start
-                }
-            } else {
-                let range = ParameterPresets::get_range_for_parameter(
-                    &indicator.name,
-                    &param.name,
-                    &param.param_type,
-                )
-                .ok_or_else(|| StrategyConversionError::MissingParameterRange {
-                    indicator_name: indicator.name.clone(),
-                    parameter_name: param.name.clone(),
-                    parameter_type: format!("{:?}", param.param_type),
-                })?;
-                range.start
-            };
+            let range = ParameterPresets::get_range_for_parameter(
+                &indicator.name,
+                &param.name,
+                &param.param_type,
+            )
+            .ok_or_else(|| StrategyConversionError::MissingParameterRange {
+                indicator_name: indicator.name.clone(),
+                parameter_name: param.name.clone(),
+                parameter_type: format!("{:?}", param.param_type),
+            })?;
 
+            let steps = ((range.end - range.start) / range.step) as usize;
+            let step_index = rng.gen_range(0..=steps);
+            let value = range.start + (step_index as f32 * range.step);
             params.insert(param.name.clone(), value);
         }
         Ok(params)
     }
 
-    fn create_condition_bindings_with_params(
+    fn create_condition_bindings(
         candidate: &StrategyCandidate,
         base_timeframe: TimeFrame,
-        param_values: Option<&StrategyParameterMap>,
     ) -> Result<Vec<ConditionBindingSpec>, StrategyConversionError> {
         let mut bindings = Vec::new();
 
@@ -504,33 +609,15 @@ impl StrategyConverter {
             let mut parameters = HashMap::new();
             for param in &condition.optimization_params {
                 if param.optimizable {
-                    let param_key = format!("condition_{}_{}", condition.id, param.name);
-                    let value = if let Some(values) = param_values {
-                        if let Some(val) = values.get(&param_key) {
-                            match val {
-                                StrategyParamValue::Number(n) => *n as f32,
-                                StrategyParamValue::Integer(i) => *i as f32,
-                                _ => condition.constant_value.unwrap_or(0.0) as f32,
-                            }
-                        } else {
-                            condition.constant_value.unwrap_or(0.0) as f32
-                        }
-                    } else {
-                        condition.constant_value.unwrap_or(0.0) as f32
-                    };
+                    let value = condition.constant_value.unwrap_or(0.0) as f32;
                     parameters.insert(param.name.clone(), value);
                 }
             }
 
-            let condition_timeframe = condition
-                .primary_timeframe
-                .clone()
-                .unwrap_or_else(|| base_timeframe.clone());
-
             bindings.push(ConditionBindingSpec {
                 id: condition.id.clone(),
                 name: condition.name.clone(),
-                timeframe: condition_timeframe,
+                timeframe: base_timeframe.clone(),
                 declarative,
                 parameters,
                 input,
@@ -697,10 +784,9 @@ impl StrategyConverter {
         }
     }
 
-    fn create_stop_and_take_handlers_with_params(
+    fn create_stop_and_take_handlers(
         candidate: &StrategyCandidate,
         base_timeframe: TimeFrame,
-        param_values: Option<&StrategyParameterMap>,
     ) -> Result<(Vec<StopHandlerSpec>, Vec<TakeHandlerSpec>), StrategyConversionError> {
         let mut stop_handlers = Vec::new();
         let mut take_handlers = Vec::new();
@@ -709,17 +795,16 @@ impl StrategyConverter {
             let mut parameters = StrategyParameterMap::new();
             for param in &stop_handler.optimization_params {
                 if param.optimizable {
-                    let param_key = format!("stop_{}_{}", stop_handler.name, param.name);
-                    let value = if let Some(values) = param_values {
-                        if let Some(val) = values.get(&param_key) {
-                            val.clone()
-                        } else {
-                            StrategyParamValue::Number(0.0)
-                        }
+                    let range_opt = crate::risk::get_stop_optimization_range(
+                        &stop_handler.handler_name,
+                        &param.name,
+                    );
+                    let default_val = if let Some(range) = range_opt {
+                        ((range.start + range.end) / 2.0) as f64
                     } else {
-                        StrategyParamValue::Number(0.0)
+                        50.0
                     };
-                    parameters.insert(param.name.clone(), value);
+                    parameters.insert(param.name.clone(), StrategyParamValue::Number(default_val));
                 }
             }
 
@@ -741,17 +826,16 @@ impl StrategyConverter {
             let mut parameters = StrategyParameterMap::new();
             for param in &take_handler.optimization_params {
                 if param.optimizable {
-                    let param_key = format!("take_{}_{}", take_handler.name, param.name);
-                    let value = if let Some(values) = param_values {
-                        if let Some(val) = values.get(&param_key) {
-                            val.clone()
-                        } else {
-                            StrategyParamValue::Number(0.0)
-                        }
+                    let range_opt = crate::risk::get_stop_optimization_range(
+                        &take_handler.handler_name,
+                        &param.name,
+                    );
+                    let default_val = if let Some(range) = range_opt {
+                        ((range.start + range.end) / 2.0) as f64
                     } else {
-                        StrategyParamValue::Number(0.0)
+                        10.0
                     };
-                    parameters.insert(param.name.clone(), value);
+                    parameters.insert(param.name.clone(), StrategyParamValue::Number(default_val));
                 }
             }
 
@@ -796,10 +880,9 @@ impl StrategyConverter {
         }])
     }
 
-    fn create_condition_bindings_for_exit_with_params(
+    fn create_condition_bindings_for_exit(
         candidate: &StrategyCandidate,
         base_timeframe: TimeFrame,
-        param_values: Option<&StrategyParameterMap>,
     ) -> Result<Vec<ConditionBindingSpec>, StrategyConversionError> {
         let mut bindings = Vec::new();
 
@@ -814,33 +897,15 @@ impl StrategyConverter {
             let mut parameters = HashMap::new();
             for param in &condition.optimization_params {
                 if param.optimizable {
-                    let param_key = format!("condition_exit_{}_{}", condition.id, param.name);
-                    let value = if let Some(values) = param_values {
-                        if let Some(val) = values.get(&param_key) {
-                            match val {
-                                StrategyParamValue::Number(n) => *n as f32,
-                                StrategyParamValue::Integer(i) => *i as f32,
-                                _ => condition.constant_value.unwrap_or(0.0) as f32,
-                            }
-                        } else {
-                            condition.constant_value.unwrap_or(0.0) as f32
-                        }
-                    } else {
-                        condition.constant_value.unwrap_or(0.0) as f32
-                    };
+                    let value = condition.constant_value.unwrap_or(0.0) as f32;
                     parameters.insert(param.name.clone(), value);
                 }
             }
 
-            let condition_timeframe = condition
-                .primary_timeframe
-                .clone()
-                .unwrap_or_else(|| base_timeframe.clone());
-
             bindings.push(ConditionBindingSpec {
                 id: format!("exit_{}", condition.id),
                 name: format!("Exit: {}", condition.name),
-                timeframe: condition_timeframe,
+                timeframe: base_timeframe.clone(),
                 declarative,
                 parameters,
                 input,
@@ -927,11 +992,11 @@ impl StrategyConverter {
         if let Some(separator_pos) = rest.find("::") {
             return Some(rest[..separator_pos].to_string());
         }
-        
+
         if let Some(last_underscore) = rest.rfind('_') {
             return Some(rest[..last_underscore].to_string());
         }
-        
+
         None
     }
 
@@ -942,7 +1007,7 @@ impl StrategyConverter {
             } else {
                 condition_id.strip_prefix("exit_")?
             };
-            
+
             if let Some(separator_pos) = rest.find("::") {
                 let alias1 = &rest[..separator_pos];
                 let after_separator = &rest[separator_pos + 2..];

@@ -1,0 +1,273 @@
+pub struct ConditionId;
+
+impl ConditionId {
+    pub fn indicator_price(prefix: &str, alias: &str, random: u32) -> String {
+        format!("{}_{}_{}", prefix, alias, random)
+    }
+
+    pub fn indicator_constant(prefix: &str, alias: &str, random: u32) -> String {
+        format!("{}_{}_{}", prefix, alias, random)
+    }
+
+    pub fn indicator_indicator(
+        prefix: &str,
+        primary_alias: &str,
+        secondary_alias: &str,
+        random: u32,
+    ) -> String {
+        format!(
+            "{}_{}::{}_{}",
+            prefix, primary_alias, secondary_alias, random
+        )
+    }
+
+    pub fn trend_condition(
+        prefix: &str,
+        alias: &str,
+        trend_type: TrendType,
+        random: u32,
+    ) -> String {
+        format!("{}_{}_{}_{}", prefix, alias, trend_type.as_str(), random)
+    }
+
+    pub fn parse(condition_id: &str) -> Option<ParsedConditionId> {
+        let (prefix, rest) = Self::extract_prefix(condition_id)?;
+
+        if rest.contains("::") {
+            return Self::parse_indicator_indicator(prefix, rest);
+        }
+
+        if let Some(pos) = rest.find("_risingtrend_") {
+            return Self::parse_trend_condition(prefix, rest, pos, TrendType::Rising);
+        }
+        if let Some(pos) = rest.find("_fallingtrend_") {
+            return Self::parse_trend_condition(prefix, rest, pos, TrendType::Falling);
+        }
+
+        Self::parse_simple(prefix, rest)
+    }
+
+    pub fn extract_primary_alias(condition_id: &str) -> Option<String> {
+        Self::parse(condition_id).map(|p| p.primary_alias)
+    }
+
+    pub fn extract_aliases(condition_id: &str) -> Option<Vec<String>> {
+        let parsed = Self::parse(condition_id)?;
+        let mut aliases = vec![parsed.primary_alias];
+        if let Some(secondary) = parsed.secondary_alias {
+            aliases.push(secondary);
+        }
+        Some(aliases)
+    }
+
+    fn extract_prefix(condition_id: &str) -> Option<(ConditionPrefix, &str)> {
+        if condition_id.starts_with("entry_") {
+            Some((ConditionPrefix::Entry, condition_id.strip_prefix("entry_")?))
+        } else if condition_id.starts_with("exit_") {
+            Some((ConditionPrefix::Exit, condition_id.strip_prefix("exit_")?))
+        } else if condition_id.starts_with("ind_price_") {
+            Some((
+                ConditionPrefix::IndPrice,
+                condition_id.strip_prefix("ind_price_")?,
+            ))
+        } else if condition_id.starts_with("ind_const_") {
+            Some((
+                ConditionPrefix::IndConst,
+                condition_id.strip_prefix("ind_const_")?,
+            ))
+        } else if condition_id.starts_with("ind_ind_") {
+            Some((
+                ConditionPrefix::IndInd,
+                condition_id.strip_prefix("ind_ind_")?,
+            ))
+        } else {
+            None
+        }
+    }
+
+    fn parse_indicator_indicator(prefix: ConditionPrefix, rest: &str) -> Option<ParsedConditionId> {
+        let separator_pos = rest.find("::")?;
+        let primary_alias = rest[..separator_pos].to_string();
+        let after_separator = &rest[separator_pos + 2..];
+        let last_underscore = after_separator.rfind('_')?;
+        let secondary_alias = after_separator[..last_underscore].to_string();
+
+        Some(ParsedConditionId {
+            prefix,
+            condition_type: ConditionIdType::IndicatorIndicator,
+            primary_alias,
+            secondary_alias: Some(secondary_alias),
+            trend_type: None,
+        })
+    }
+
+    fn parse_trend_condition(
+        prefix: ConditionPrefix,
+        rest: &str,
+        pos: usize,
+        trend_type: TrendType,
+    ) -> Option<ParsedConditionId> {
+        let primary_alias = rest[..pos].to_string();
+
+        Some(ParsedConditionId {
+            prefix,
+            condition_type: ConditionIdType::TrendCondition,
+            primary_alias,
+            secondary_alias: None,
+            trend_type: Some(trend_type),
+        })
+    }
+
+    fn parse_simple(prefix: ConditionPrefix, rest: &str) -> Option<ParsedConditionId> {
+        let last_underscore = rest.rfind('_')?;
+        let primary_alias = rest[..last_underscore].to_string();
+
+        Some(ParsedConditionId {
+            prefix,
+            condition_type: ConditionIdType::Simple,
+            primary_alias,
+            secondary_alias: None,
+            trend_type: None,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionPrefix {
+    Entry,
+    Exit,
+    IndPrice,
+    IndConst,
+    IndInd,
+}
+
+impl ConditionPrefix {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ConditionPrefix::Entry => "entry",
+            ConditionPrefix::Exit => "exit",
+            ConditionPrefix::IndPrice => "ind_price",
+            ConditionPrefix::IndConst => "ind_const",
+            ConditionPrefix::IndInd => "ind_ind",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrendType {
+    Rising,
+    Falling,
+}
+
+impl TrendType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TrendType::Rising => "risingtrend",
+            TrendType::Falling => "fallingtrend",
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            TrendType::Rising => "RisingTrend",
+            TrendType::Falling => "FallingTrend",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConditionIdType {
+    Simple,
+    IndicatorIndicator,
+    TrendCondition,
+}
+
+#[derive(Debug, Clone)]
+pub struct ParsedConditionId {
+    pub prefix: ConditionPrefix,
+    pub condition_type: ConditionIdType,
+    pub primary_alias: String,
+    pub secondary_alias: Option<String>,
+    pub trend_type: Option<TrendType>,
+}
+
+impl ParsedConditionId {
+    pub fn is_indicator_indicator(&self) -> bool {
+        self.condition_type == ConditionIdType::IndicatorIndicator
+    }
+
+    pub fn is_trend_condition(&self) -> bool {
+        self.condition_type == ConditionIdType::TrendCondition
+    }
+
+    pub fn is_entry(&self) -> bool {
+        self.prefix == ConditionPrefix::Entry
+    }
+
+    pub fn is_exit(&self) -> bool {
+        self.prefix == ConditionPrefix::Exit
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_indicator_price() {
+        let id = ConditionId::indicator_price("entry", "sma", 123);
+        assert_eq!(id, "entry_sma_123");
+    }
+
+    #[test]
+    fn test_create_indicator_indicator() {
+        let id = ConditionId::indicator_indicator("entry", "vtrand", "zlema", 456);
+        assert_eq!(id, "entry_vtrand::zlema_456");
+    }
+
+    #[test]
+    fn test_create_trend_condition() {
+        let id = ConditionId::trend_condition("entry", "amma", TrendType::Rising, 789);
+        assert_eq!(id, "entry_amma_risingtrend_789");
+    }
+
+    #[test]
+    fn test_parse_indicator_price() {
+        let parsed = ConditionId::parse("entry_sma_123").unwrap();
+        assert_eq!(parsed.primary_alias, "sma");
+        assert!(parsed.secondary_alias.is_none());
+        assert_eq!(parsed.condition_type, ConditionIdType::Simple);
+    }
+
+    #[test]
+    fn test_parse_indicator_indicator() {
+        let parsed = ConditionId::parse("entry_vtrand::zlema_456").unwrap();
+        assert_eq!(parsed.primary_alias, "vtrand");
+        assert_eq!(parsed.secondary_alias, Some("zlema".to_string()));
+        assert!(parsed.is_indicator_indicator());
+    }
+
+    #[test]
+    fn test_parse_trend_condition() {
+        let parsed = ConditionId::parse("entry_amma_risingtrend_789").unwrap();
+        assert_eq!(parsed.primary_alias, "amma");
+        assert!(parsed.is_trend_condition());
+        assert_eq!(parsed.trend_type, Some(TrendType::Rising));
+    }
+
+    #[test]
+    fn test_parse_nested_alias() {
+        let parsed = ConditionId::parse("entry_geomean_on_rsi_risingtrend_111").unwrap();
+        assert_eq!(parsed.primary_alias, "geomean_on_rsi");
+        assert!(parsed.is_trend_condition());
+    }
+
+    #[test]
+    fn test_extract_aliases_indicator_indicator() {
+        let aliases = ConditionId::extract_aliases("entry_rsi::geomean_on_rsi_222").unwrap();
+        assert_eq!(
+            aliases,
+            vec!["rsi".to_string(), "geomean_on_rsi".to_string()]
+        );
+    }
+}

@@ -1,11 +1,13 @@
 use crate::indicators::{
     base::{
-        Indicator, OscillatorIndicator, OverboughtOversoldZones,
+        Indicator, IndicatorBuildRules, IndicatorCompareConfig, NestingConfig,
+        OscillatorIndicator, OverboughtOversoldZones, PriceCompareConfig, ThresholdType,
     },
+    impl_::common::adjust_period,
     parameters::create_period_parameter,
     types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
-    impl_::common::adjust_period,
 };
+use crate::strategy::types::ConditionOperator;
 
 pub struct Stochastic {
     parameters: ParameterSet,
@@ -87,6 +89,28 @@ impl Indicator for Stochastic {
         }
 
         Ok(stochastic_values)
+    }
+
+    fn build_rules(&self) -> IndicatorBuildRules {
+        IndicatorBuildRules {
+            allowed_conditions: &[
+                ConditionOperator::Above,
+                ConditionOperator::Below,
+                ConditionOperator::CrossesAbove,
+                ConditionOperator::CrossesBelow,
+                ConditionOperator::RisingTrend,
+                ConditionOperator::FallingTrend,
+            ],
+            price_compare: PriceCompareConfig::DISABLED,
+            threshold_type: ThresholdType::Absolute,
+            indicator_compare: IndicatorCompareConfig::DISABLED,
+            nesting: NestingConfig::OSCILLATOR,
+            phase_1_allowed: true,
+            supports_percent_condition: false,
+            can_compare_with_input_source: false,
+            can_compare_with_nested_result: true,
+            nested_compare_conditions: &[],
+        }
     }
 
     fn clone_box(&self) -> Box<dyn Indicator + Send + Sync> {

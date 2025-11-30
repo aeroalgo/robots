@@ -7,6 +7,10 @@ use crate::strategy::types::ConditionOperator;
 use rand::seq::SliceRandom;
 use rand::Rng;
 
+use super::build_rules_provider::{
+    can_accept_nested_input, get_allowed_conditions, has_absolute_threshold,
+    has_percent_of_price_threshold, is_oscillator_like, is_phase_1_allowed,
+};
 use super::builders::ConditionBuilder;
 use super::candidate_builder_config::{
     CandidateBuilderConfig, ElementConstraints, ElementProbabilities, ElementSelector,
@@ -96,21 +100,6 @@ impl CandidateBuilder {
             &candidate.nested_indicators,
             &mut candidate.entry_conditions,
             &candidate.exit_conditions,
-            &constraints,
-        );
-
-        // Добавляем higher timeframes с вероятностью (если ещё не добавлены)
-        self.add_higher_timeframes_with_probability(
-            &mut candidate,
-            available_timeframes,
-            &constraints,
-            &probabilities.timeframes,
-        );
-
-        self.ensure_higher_timeframes_used(
-            &mut candidate,
-            available_timeframes,
-            &probabilities.conditions,
             &constraints,
         );
 
@@ -233,7 +222,11 @@ impl CandidateBuilder {
             return true;
         }
 
+        // Пытаемся добавить higher TF с индикатором и условием
+        let mut added_higher_tf_indicator = false;
         if candidate.timeframes.len() < constraints.max_timeframes
+            && candidate.indicators.len() < constraints.max_indicators
+            && candidate.entry_conditions.len() < constraints.max_entry_conditions
             && available_timeframes.len() > 1
             && self.should_add(probabilities.timeframes.use_higher_timeframe)
         {
@@ -244,11 +237,52 @@ impl CandidateBuilder {
                 .collect();
 
             if let Some(higher_tf) = higher_timeframes.choose(&mut self.rng) {
-                candidate.timeframes.push((*higher_tf).clone());
+                // Выбираем индикатор для higher TF
+                let exclude_aliases: Vec<String> = candidate
+                    .indicators
+                    .iter()
+                    .map(|i| i.alias.clone())
+                    .collect();
+
+                if let Some(mut indicator) = self.select_single_indicator(
+                    available_indicators,
+                    probabilities,
+                    &exclude_aliases,
+                    false,
+                ) {
+                    // Добавляем TF к alias индикатора чтобы различать
+                    let higher_tf_minutes = higher_tf.total_minutes().unwrap_or(0);
+                    indicator.alias = format!("{}_{}", indicator.alias, higher_tf_minutes);
+
+                    // Создаём условие для этого индикатора на higher TF
+                    let condition = self.build_condition_simple_with_timeframe(
+                        &indicator,
+                        true,
+                        Some((*higher_tf).clone()),
+                    );
+
+                    if let Some(cond) = condition {
+                        if !Self::is_duplicate_condition(&cond, &candidate.entry_conditions)
+                            && !Self::has_conflicting_comparison_operator(
+                                &cond,
+                                &candidate.entry_conditions,
+                            )
+                        {
+                            // Добавляем TF, индикатор и условие вместе
+                            candidate.timeframes.push((*higher_tf).clone());
+                            candidate.indicators.push(indicator);
+                            candidate.entry_conditions.push(cond);
+                            added_higher_tf_indicator = true;
+                        }
+                    }
+                }
             }
         }
 
-        if candidate.indicators.len() < constraints.max_indicators && self.should_add(0.5) {
+        if !added_higher_tf_indicator
+            && candidate.indicators.len() < constraints.max_indicators
+            && self.should_add(0.5)
+        {
             let exclude_aliases: Vec<String> = candidate
                 .indicators
                 .iter()
@@ -548,12 +582,8 @@ impl CandidateBuilder {
                     return false;
                 }
                 // В первой фазе нельзя добавлять volatility и volume индикаторы
-                if is_phase_1 {
-                    if indicator.indicator_type == "volatility"
-                        || indicator.indicator_type == "volume"
-                    {
-                        return false;
-                    }
+                if is_phase_1 && !is_phase_1_allowed(&indicator.name) {
+                    return false;
                 }
                 let weight = match indicator.indicator_type.as_str() {
                     "trend" => probabilities.indicators.add_trend_indicator,
@@ -704,17 +734,70 @@ impl CandidateBuilder {
         is_entry: bool,
         timeframe: Option<TimeFrame>,
     ) -> Option<ConditionInfo> {
-        let operator = if indicator.indicator_type == "volatility" {
-            if self.rng.gen_bool(0.5) {
-                ConditionOperator::GreaterPercent
-            } else {
-                ConditionOperator::LowerPercent
+        // Для higher TF (timeframe.is_some()) используем ограниченный набор операторов:
+        // Above, Below, RisingTrend, FallingTrend
+        // Для базового TF - только Above, Below
+        let operator = if timeframe.is_some() {
+            // Higher TF: 4 оператора
+            match self.rng.gen_range(0..4) {
+                0 => ConditionOperator::Above,
+                1 => ConditionOperator::Below,
+                2 => ConditionOperator::RisingTrend,
+                _ => ConditionOperator::FallingTrend,
             }
-        } else if self.rng.gen_bool(0.5) {
-            ConditionOperator::Above
         } else {
-            ConditionOperator::Below
+            // Базовый TF: только Above/Below
+            if self.rng.gen_bool(0.5) {
+                ConditionOperator::Above
+            } else {
+                ConditionOperator::Below
+            }
         };
+
+        // Для trend условий (RisingTrend/FallingTrend) создаём trend_condition
+        if matches!(
+            operator,
+            ConditionOperator::RisingTrend | ConditionOperator::FallingTrend
+        ) {
+            let trend_range = ConditionParameterPresets::trend_period();
+            let period = self.rng.gen_range(trend_range.min..=trend_range.max);
+            let trend_name = match operator {
+                ConditionOperator::RisingTrend => "risingtrend",
+                _ => "fallingtrend",
+            };
+            let trend_display = match operator {
+                ConditionOperator::RisingTrend => "RisingTrend",
+                _ => "FallingTrend",
+            };
+            let prefix = if is_entry { "entry" } else { "exit" };
+            let condition_id = format!(
+                "{}_{}_{}_{}",
+                prefix,
+                indicator.alias,
+                trend_name,
+                self.rng.gen::<u32>()
+            );
+            let condition_name = format!(
+                "{} {} (period: {:.0})",
+                indicator.name, trend_display, period
+            );
+
+            return Some(ConditionInfo {
+                id: condition_id,
+                name: condition_name,
+                operator,
+                condition_type: "trend_condition".to_string(),
+                optimization_params: vec![crate::discovery::ConditionParamInfo {
+                    name: "period".to_string(),
+                    optimizable: true,
+                    global_param_name: None,
+                }],
+                constant_value: Some(period as f64),
+                primary_timeframe: timeframe,
+                secondary_timeframe: None,
+                price_field: None,
+            });
+        }
 
         let condition_id = format!(
             "{}_{}_{}",
@@ -724,7 +807,7 @@ impl CandidateBuilder {
         );
 
         let (condition_type, condition_name, constant_value, price_field, optimization_params) =
-            if indicator.indicator_type == "oscillator" {
+            if has_absolute_threshold(&indicator.name) {
                 let const_val = if indicator.name == "RSI" {
                     if operator == ConditionOperator::Above {
                         self.rng.gen_range(70.0..=90.0)
@@ -747,10 +830,9 @@ impl CandidateBuilder {
                     None,
                     Vec::new(),
                 )
-            } else if indicator.indicator_type == "volatility" {
-                // Volatility индикаторы: процент от цены (0.2% - 10.0%)
+            } else if has_percent_of_price_threshold(&indicator.name) {
                 let rules = &self.config.rules.indicator_parameter_rules;
-                let mut percentage_range = (0.2, 10.0, 0.1); // По умолчанию
+                let mut percentage_range = (0.2, 10.0, 0.1);
 
                 for rule in rules {
                     if rule.indicator_type == "volatility" {
@@ -848,120 +930,6 @@ impl CandidateBuilder {
         })
     }
 
-    fn add_higher_timeframes_with_probability(
-        &mut self,
-        candidate: &mut CandidateElements,
-        available_timeframes: &[TimeFrame],
-        constraints: &ElementConstraints,
-        timeframe_probs: &super::candidate_builder_config::TimeframeProbabilities,
-    ) {
-        if available_timeframes.len() <= 1 {
-            return;
-        }
-
-        // Добавляем higher timeframe с вероятностью use_higher_timeframe
-        if candidate.timeframes.len() < constraints.max_timeframes
-            && self.should_add(timeframe_probs.use_higher_timeframe)
-        {
-            let higher_timeframes: Vec<&TimeFrame> = available_timeframes
-                .iter()
-                .skip(1)
-                .filter(|tf| !candidate.timeframes.contains(tf))
-                .collect();
-
-            if let Some(higher_tf) = higher_timeframes.choose(&mut self.rng) {
-                candidate.timeframes.push((*higher_tf).clone());
-            }
-        }
-
-        // Добавляем ещё один timeframe с вероятностью use_multiple_timeframes
-        if available_timeframes.len() > 2
-            && candidate.timeframes.len() >= 2
-            && candidate.timeframes.len() < constraints.max_timeframes
-            && self.should_add(timeframe_probs.use_multiple_timeframes)
-        {
-            let remaining_timeframes: Vec<&TimeFrame> = available_timeframes
-                .iter()
-                .filter(|tf| !candidate.timeframes.contains(tf))
-                .collect();
-
-            if let Some(tf) = remaining_timeframes.choose(&mut self.rng) {
-                candidate.timeframes.push((*tf).clone());
-            }
-        }
-    }
-
-    fn ensure_higher_timeframes_used(
-        &mut self,
-        candidate: &mut CandidateElements,
-        available_timeframes: &[TimeFrame],
-        _probabilities: &super::candidate_builder_config::ConditionProbabilities,
-        constraints: &ElementConstraints,
-    ) {
-        if available_timeframes.is_empty() || candidate.timeframes.is_empty() {
-            return;
-        }
-
-        let base_timeframe = &available_timeframes[0];
-        let higher_timeframes: Vec<&TimeFrame> = candidate
-            .timeframes
-            .iter()
-            .filter(|tf| *tf != base_timeframe)
-            .collect();
-
-        if higher_timeframes.is_empty() {
-            return;
-        }
-
-        let all_indicators: Vec<&IndicatorInfo> = candidate
-            .indicators
-            .iter()
-            .chain(candidate.nested_indicators.iter().map(|n| &n.indicator))
-            .collect();
-
-        if all_indicators.is_empty() {
-            return;
-        }
-
-        for higher_tf in higher_timeframes {
-            if candidate.entry_conditions.len() >= constraints.max_entry_conditions {
-                break;
-            }
-
-            let is_used = candidate
-                .entry_conditions
-                .iter()
-                .chain(candidate.exit_conditions.iter())
-                .any(|cond| {
-                    cond.primary_timeframe.as_ref() == Some(higher_tf)
-                        || cond.secondary_timeframe.as_ref() == Some(higher_tf)
-                });
-
-            if !is_used {
-                // Выбираем случайный индикатор из доступных
-                if let Some(indicator) = all_indicators.choose(&mut self.rng) {
-                    // Создаем условие, где индикатор будет построен по higher timeframe
-                    // (через primary_timeframe)
-                    let condition = self.build_condition_simple_with_timeframe(
-                        indicator,
-                        true,
-                        Some(higher_tf.clone()), // Индикатор строится по этому higher timeframe
-                    );
-                    if let Some(cond) = condition {
-                        if !Self::is_duplicate_condition(&cond, &candidate.entry_conditions)
-                            && !Self::has_conflicting_comparison_operator(
-                                &cond,
-                                &candidate.entry_conditions,
-                            )
-                        {
-                            candidate.entry_conditions.push(cond);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     fn extract_indicator_alias_from_condition_id(condition_id: &str) -> Option<String> {
         let rest = if condition_id.starts_with("entry_") {
             condition_id.strip_prefix("entry_")?
@@ -1026,15 +994,15 @@ impl CandidateBuilder {
                 all_indicators_for_check
                     .iter()
                     .find(|ind| ind.alias == nested.input_indicator_alias)
-                    .map(|input| input.indicator_type == "oscillator")
+                    .map(|input| has_absolute_threshold(&input.name))
             })
             .unwrap_or(false);
 
-        let condition_type = if primary_indicator.indicator_type == "oscillator"
+        let condition_type = if has_absolute_threshold(&primary_indicator.name)
             && !Self::is_oscillator_used_in_nested(primary_indicator, nested_indicators)
         {
             "indicator_constant"
-        } else if primary_indicator.indicator_type == "volatility" {
+        } else if has_percent_of_price_threshold(&primary_indicator.name) {
             "indicator_constant"
         } else if is_built_on_oscillator {
             self.weighted_choice_for_oscillator_based(probabilities)
@@ -1042,39 +1010,55 @@ impl CandidateBuilder {
             self.weighted_condition_type_choice(probabilities)
         };
 
+        // Получаем разрешённые операторы из build_rules индикатора
+        let allowed_conditions = get_allowed_conditions(&primary_indicator.name);
+
         let operator = if condition_type == "trend_condition" {
-            if self.rng.gen_bool(0.5) {
+            // Для trend_condition выбираем только RisingTrend/FallingTrend
+            let trend_ops: Vec<_> = allowed_conditions
+                .iter()
+                .filter(|op| {
+                    matches!(
+                        op,
+                        ConditionOperator::RisingTrend | ConditionOperator::FallingTrend
+                    )
+                })
+                .collect();
+            if let Some(op) = trend_ops.choose(&mut self.rng) {
+                (*op).clone()
+            } else if self.rng.gen_bool(0.5) {
                 ConditionOperator::RisingTrend
             } else {
                 ConditionOperator::FallingTrend
             }
-        } else if primary_indicator.indicator_type == "volatility" {
-            if self.rng.gen_bool(0.5) {
-                ConditionOperator::GreaterPercent
-            } else {
-                ConditionOperator::LowerPercent
-            }
-        } else if self.should_add(probabilities.use_crosses_operator) {
-            if self.rng.gen_bool(0.5) {
-                ConditionOperator::CrossesAbove
-            } else {
-                ConditionOperator::CrossesBelow
-            }
-        } else if self.rng.gen_bool(0.5) {
-            ConditionOperator::Above
         } else {
-            ConditionOperator::Below
+            // Для других типов условий выбираем из allowed_conditions
+            // исключая RisingTrend/FallingTrend (они только для trend_condition)
+            let non_trend_ops: Vec<_> = allowed_conditions
+                .iter()
+                .filter(|op| {
+                    !matches!(
+                        op,
+                        ConditionOperator::RisingTrend | ConditionOperator::FallingTrend
+                    )
+                })
+                .collect();
+            if let Some(op) = non_trend_ops.choose(&mut self.rng) {
+                (*op).clone()
+            } else if self.rng.gen_bool(0.5) {
+                ConditionOperator::Above
+            } else {
+                ConditionOperator::Below
+            }
         };
 
         let (condition_id, condition_name) = if condition_type == "indicator_constant" {
             // Для indicator_constant генерируем случайное значение константы
             // Для осцилляторов обычно используются значения от 0 до 100
             // Для volatility индикаторов - процент от цены (0.2% - 10.0%)
-            let constant_value = if primary_indicator.indicator_type == "volatility" {
-                // Volatility индикаторы: процент от цены (0.2% - 10.0%)
-                // Получаем диапазон из конфигурации
+            let constant_value = if has_percent_of_price_threshold(&primary_indicator.name) {
                 let rules = &self.config.rules.indicator_parameter_rules;
-                let mut percentage_range = (0.2, 10.0, 0.1); // По умолчанию
+                let mut percentage_range = (0.2, 10.0, 0.1);
 
                 for rule in rules {
                     if rule.indicator_type == "volatility" {
@@ -1126,8 +1110,7 @@ impl CandidateBuilder {
                 primary_indicator.alias,
                 self.rng.gen::<u32>()
             );
-            let name = if primary_indicator.indicator_type == "volatility" {
-                // Для volatility: показываем процент от цены
+            let name = if has_percent_of_price_threshold(&primary_indicator.name) {
                 format!(
                     "{} {:?} Close * {:.2}%",
                     primary_indicator.name, operator, constant_value
@@ -1191,9 +1174,7 @@ impl CandidateBuilder {
                 );
                 (id, name)
             } else {
-                // Если нет подходящего второго индикатора и это осциллятор (не во вложенных),
-                // создаем indicator_constant, иначе indicator_price
-                if primary_indicator.indicator_type == "oscillator"
+                if has_absolute_threshold(&primary_indicator.name)
                     && !Self::is_oscillator_used_in_nested(primary_indicator, nested_indicators)
                 {
                     let const_val = if primary_indicator.name == "RSI" {
@@ -1232,9 +1213,7 @@ impl CandidateBuilder {
                 }
             }
         } else {
-            // Если condition_type не indicator_constant и не indicator_indicator,
-            // но это осциллятор (не во вложенных), создаем indicator_constant
-            if primary_indicator.indicator_type == "oscillator"
+            if has_absolute_threshold(&primary_indicator.name)
                 && !Self::is_oscillator_used_in_nested(primary_indicator, nested_indicators)
             {
                 let const_val = if primary_indicator.name == "RSI" {
@@ -1273,9 +1252,7 @@ impl CandidateBuilder {
         };
 
         let price_field = if condition_type == "indicator_price" {
-            if primary_indicator.indicator_type == "volatility" {
-                // Для volatility индикаторов проверяем правила из конфигурации
-                // Если есть правило для конкретного индикатора (WATR, ATR), используем требуемое price_field
+            if has_percent_of_price_threshold(&primary_indicator.name) {
                 let rules = &self.config.rules.indicator_parameter_rules;
                 let mut required_price_field = None;
 
@@ -1320,11 +1297,9 @@ impl CandidateBuilder {
         let final_condition_type = if condition_type == "indicator_indicator" {
             let parts: Vec<&str> = condition_id.split('_').collect();
             if parts.len() < 4 {
-                // Если не удалось создать indicator_indicator
-                // Для осцилляторов и volatility используем indicator_constant, иначе indicator_price
-                if (primary_indicator.indicator_type == "oscillator"
+                if (has_absolute_threshold(&primary_indicator.name)
                     && !Self::is_oscillator_used_in_nested(primary_indicator, nested_indicators))
-                    || primary_indicator.indicator_type == "volatility"
+                    || has_percent_of_price_threshold(&primary_indicator.name)
                 {
                     "indicator_constant"
                 } else {
@@ -1334,11 +1309,9 @@ impl CandidateBuilder {
                 condition_type
             }
         } else if condition_type == "indicator_price" {
-            // Если condition_type был indicator_price, но это осциллятор или volatility
-            // используем indicator_constant
-            if (primary_indicator.indicator_type == "oscillator"
+            if (has_absolute_threshold(&primary_indicator.name)
                 && !Self::is_oscillator_used_in_nested(primary_indicator, nested_indicators))
-                || primary_indicator.indicator_type == "volatility"
+                || has_percent_of_price_threshold(&primary_indicator.name)
             {
                 "indicator_constant"
             } else {
@@ -1353,8 +1326,7 @@ impl CandidateBuilder {
             // Парсим значение из имени условия
             // Для осцилляторов: "RSI GreaterThan 70.0"
             // Для volatility: "WATR GreaterThan Close * 2.50%"
-            let parsed_value = if primary_indicator.indicator_type == "volatility" {
-                // Для volatility парсим процент из формата "Close * X.XX%"
+            let parsed_value = if has_percent_of_price_threshold(&primary_indicator.name) {
                 let parts: Vec<&str> = condition_name.split_whitespace().collect();
                 if let Some(percent_str) = parts.last() {
                     percent_str
@@ -1393,10 +1365,9 @@ impl CandidateBuilder {
         // Создаем optimization_params для volatility условий, процентных условий и трендовых условий
         let (optimization_params, constant_value_for_percent) = if final_condition_type
             == "indicator_constant"
-            && primary_indicator.indicator_type == "volatility"
+            && has_percent_of_price_threshold(&primary_indicator.name)
             && constant_value.is_some()
         {
-            // Добавляем параметр "percentage" для оптимизации volatility
             (
                 vec![crate::discovery::ConditionParamInfo {
                     name: "percentage".to_string(),
@@ -1407,20 +1378,25 @@ impl CandidateBuilder {
             )
         } else if final_condition_type == "trend_condition" && trend_period.is_some() {
             // Добавляем параметр "period" для трендовых условий
-            // Для trend_condition не устанавливаем constant_value, так как это период, а не процент
+            // Используем constant_value для хранения значения периода
             (
                 vec![crate::discovery::ConditionParamInfo {
                     name: "period".to_string(),
                     optimizable: true,
                     global_param_name: None,
                 }],
-                None, // Не устанавливаем constant_value для trend_condition
+                trend_period, // Передаём значение периода через constant_value
             )
         } else if (final_condition_type == "indicator_price"
             || final_condition_type == "indicator_indicator")
             && self.should_add(probabilities.use_percent_condition)
+            && !matches!(
+                operator,
+                ConditionOperator::CrossesAbove | ConditionOperator::CrossesBelow
+            )
         {
             // Добавляем параметр "percentage" для процентных условий
+            // НЕ добавляем для CrossesAbove/CrossesBelow - пересечение происходит когда значения равны
             let percent_value = self.rng.gen_range(0.1..=5.0);
             (
                 vec![crate::discovery::ConditionParamInfo {
@@ -1597,7 +1573,7 @@ impl CandidateBuilder {
 
         let nestable_indicators: Vec<&IndicatorInfo> = available_indicators
             .iter()
-            .filter(|ind| ind.indicator_type == "trend")
+            .filter(|ind| can_accept_nested_input(&ind.name))
             .filter(|ind| !self.config.rules.excluded_indicators.contains(&ind.name))
             .collect();
 
@@ -1713,23 +1689,20 @@ impl CandidateBuilder {
         nested_indicators: &[crate::discovery::NestedIndicator],
         all_indicators: &[crate::discovery::IndicatorInfo],
     ) -> bool {
-        // Правило 1: Осцилляторы не могут сравниваться с осцилляторами
-        if primary.indicator_type == "oscillator" && secondary.indicator_type == "oscillator" {
+        if is_oscillator_like(&primary.name) && is_oscillator_like(&secondary.name) {
             return false;
         }
 
-        // Вспомогательная функция: проверяет, построен ли индикатор по осциллятору
         let is_built_on_oscillator = |indicator: &crate::discovery::IndicatorInfo| -> bool {
             if let Some(nested) = nested_indicators
                 .iter()
                 .find(|n| n.indicator.alias == indicator.alias)
             {
-                // Находим входной индикатор
                 if let Some(input_indicator) = all_indicators
                     .iter()
                     .find(|ind| ind.alias == nested.input_indicator_alias)
                 {
-                    input_indicator.indicator_type == "oscillator"
+                    is_oscillator_like(&input_indicator.name)
                 } else {
                     false
                 }
@@ -1738,18 +1711,16 @@ impl CandidateBuilder {
             }
         };
 
-        // Вспомогательная функция: проверяет, построен ли индикатор по неосциллятору
         let is_built_on_non_oscillator = |indicator: &crate::discovery::IndicatorInfo| -> bool {
             if let Some(nested) = nested_indicators
                 .iter()
                 .find(|n| n.indicator.alias == indicator.alias)
             {
-                // Находим входной индикатор
                 if let Some(input_indicator) = all_indicators
                     .iter()
                     .find(|ind| ind.alias == nested.input_indicator_alias)
                 {
-                    input_indicator.indicator_type != "oscillator"
+                    !is_oscillator_like(&input_indicator.name)
                 } else {
                     false
                 }
@@ -1763,7 +1734,6 @@ impl CandidateBuilder {
         let primary_built_on_non_oscillator = is_built_on_non_oscillator(primary);
         let secondary_built_on_non_oscillator = is_built_on_non_oscillator(secondary);
 
-        // Вспомогательная функция: находит исходный осциллятор для индикатора, построенного по осциллятору
         let get_source_oscillator_alias =
             |indicator: &crate::discovery::IndicatorInfo| -> Option<String> {
                 if let Some(nested) = nested_indicators
@@ -1774,7 +1744,7 @@ impl CandidateBuilder {
                         .iter()
                         .find(|ind| ind.alias == nested.input_indicator_alias)
                     {
-                        if input_indicator.indicator_type == "oscillator" {
+                        if is_oscillator_like(&input_indicator.name) {
                             return Some(input_indicator.alias.clone());
                         }
                     }
@@ -1782,35 +1752,29 @@ impl CandidateBuilder {
                 None
             };
 
-        // Правило 4: Если по неосциллятору построен осциллятор, его нельзя сравнивать с другими индикаторами
-        if primary.indicator_type == "oscillator" && primary_built_on_non_oscillator {
+        if is_oscillator_like(&primary.name) && primary_built_on_non_oscillator {
             return false;
         }
-        if secondary.indicator_type == "oscillator" && secondary_built_on_non_oscillator {
+        if is_oscillator_like(&secondary.name) && secondary_built_on_non_oscillator {
             return false;
         }
 
-        // Правило 5: Если индикатор построен по осциллятору, он может сравниваться ТОЛЬКО с исходным осциллятором
         if primary_built_on_oscillator {
             if let Some(source_oscillator_alias) = get_source_oscillator_alias(primary) {
-                // Может сравниваться только с исходным осциллятором
                 return secondary.alias == source_oscillator_alias;
             }
         }
         if secondary_built_on_oscillator {
             if let Some(source_oscillator_alias) = get_source_oscillator_alias(secondary) {
-                // Может сравниваться только с исходным осциллятором
                 return primary.alias == source_oscillator_alias;
             }
         }
 
-        // Правило 2: Если primary - осциллятор, secondary должен быть построен по осциллятору
-        if primary.indicator_type == "oscillator" {
+        if is_oscillator_like(&primary.name) {
             return secondary_built_on_oscillator;
         }
 
-        // Правило 3: Если secondary - осциллятор, primary должен быть построен по осциллятору
-        if secondary.indicator_type == "oscillator" {
+        if is_oscillator_like(&secondary.name) {
             return primary_built_on_oscillator;
         }
 

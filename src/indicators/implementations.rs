@@ -3,6 +3,6 @@ pub use crate::indicators::impl_::channel::bollinger::{BBLower, BBMiddle, BBUppe
 pub use crate::indicators::impl_::channel::keltner::{KCLower, KCMiddle, KCUpper};
 pub use crate::indicators::impl_::oscillator::{Stochastic, RSI};
 pub use crate::indicators::impl_::trend::{
-    SuperTrend, AMA, AMMA, EMA, GEOMEAN, SINEWMA, SMA, SQWMA, TPBF, WMA, ZLEMA,
+    SuperTrend, AMA, AMMA, EMA, GEOMEAN, SINEWMA, SMA, SQWMA, TPBF, VTRAND, WMA, ZLEMA,
 };
-pub use crate::indicators::impl_::volatility::{TrueRange, ATR, VTRAND, WATR};
+pub use crate::indicators::impl_::volatility::{TrueRange, ATR, WATR};

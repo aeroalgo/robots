@@ -7,6 +7,7 @@ pub mod sma;
 pub mod sqwma;
 pub mod supertrend;
 pub mod tpbf;
+pub mod vtrand;
 pub mod wma;
 pub mod zlema;
 
@@ -19,5 +20,6 @@ pub use sma::SMA;
 pub use sqwma::SQWMA;
 pub use supertrend::SuperTrend;
 pub use tpbf::TPBF;
+pub use vtrand::VTRAND;
 pub use wma::WMA;
 pub use zlema::ZLEMA;

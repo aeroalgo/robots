@@ -2,6 +2,7 @@ use crate::condition::ConditionParameterPresets;
 use crate::data_model::types::TimeFrame;
 use crate::discovery::types::{ConditionInfo, IndicatorInfo, NestedIndicator};
 use crate::discovery::StrategyCandidate;
+use crate::optimization::condition_id::ConditionId;
 use crate::strategy::types::ConditionOperator;
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -651,21 +652,7 @@ impl<'a> ConditionBuilder<'a> {
     }
 
     pub fn extract_indicator_alias_from_condition_id(condition_id: &str) -> Option<String> {
-        let rest = if condition_id.starts_with("entry_") {
-            condition_id.strip_prefix("entry_")?
-        } else if condition_id.starts_with("exit_") {
-            condition_id.strip_prefix("exit_")?
-        } else if condition_id.starts_with("ind_price_") {
-            condition_id.strip_prefix("ind_price_")?
-        } else if condition_id.starts_with("ind_const_") {
-            condition_id.strip_prefix("ind_const_")?
-        } else if condition_id.starts_with("ind_ind_") {
-            condition_id.strip_prefix("ind_ind_")?
-        } else {
-            return None;
-        };
-
-        rest.split('_').next().map(|s| s.to_string())
+        ConditionId::extract_primary_alias(condition_id)
     }
 
     pub fn is_comparison_operator(operator: &ConditionOperator) -> bool {
@@ -675,6 +662,8 @@ impl<'a> ConditionBuilder<'a> {
                 | ConditionOperator::CrossesBelow
                 | ConditionOperator::Above
                 | ConditionOperator::Below
+                | ConditionOperator::GreaterPercent
+                | ConditionOperator::LowerPercent
         )
     }
 
@@ -686,22 +675,20 @@ impl<'a> ConditionBuilder<'a> {
         let primary_alias = Self::extract_indicator_alias_from_condition_id(&condition.id)?;
 
         if condition.condition_type == "indicator_indicator" {
-            let parts: Vec<&str> = condition.id.split('_').collect();
-            if parts.len() >= 3 {
-                let secondary_alias =
-                    if condition.id.starts_with("entry_") || condition.id.starts_with("exit_") {
-                        parts.get(2).map(|s| s.to_string())
-                    } else if condition.id.starts_with("ind_ind_") {
-                        parts.get(3).map(|s| s.to_string())
-                    } else {
-                        parts.get(2).map(|s| s.to_string())
-                    };
-
-                if let Some(secondary) = secondary_alias {
-                    return Some(ConditionOperands::IndicatorIndicator {
-                        primary_alias,
-                        secondary_alias: secondary,
-                    });
+            // ID формат: "entry_{primary_alias}::{secondary_alias}_{random}"
+            // или "exit_{primary_alias}::{secondary_alias}_{random}"
+            // Парсим по "::" чтобы корректно обработать alias-ы с "_"
+            if let Some(double_colon_pos) = condition.id.find("::") {
+                let after_double_colon = &condition.id[double_colon_pos + 2..];
+                // secondary_alias заканчивается перед последним "_" (random id)
+                if let Some(last_underscore) = after_double_colon.rfind('_') {
+                    let secondary_alias = &after_double_colon[..last_underscore];
+                    if !secondary_alias.is_empty() {
+                        return Some(ConditionOperands::IndicatorIndicator {
+                            primary_alias,
+                            secondary_alias: secondary_alias.to_string(),
+                        });
+                    }
                 }
             }
         } else if condition.condition_type == "indicator_price" {

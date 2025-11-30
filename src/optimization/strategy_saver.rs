@@ -14,10 +14,9 @@ impl StrategySaver {
         result: &OptimizedStrategyResult,
         base_timeframe: crate::data_model::types::TimeFrame,
     ) -> Result<StrategyDefinition, anyhow::Error> {
-        let strategy_def = StrategyConverter::candidate_to_definition_with_params(
+        let strategy_def = StrategyConverter::candidate_to_definition(
             &result.candidate,
             base_timeframe,
-            Some(&result.parameters),
         )?;
         
         Ok(strategy_def)

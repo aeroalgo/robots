@@ -137,7 +137,12 @@ impl Indicator for ATR {
 
     fn build_rules(&self) -> IndicatorBuildRules {
         IndicatorBuildRules {
-            allowed_conditions: &[ConditionOperator::Above, ConditionOperator::Below],
+            allowed_conditions: &[
+                ConditionOperator::Above,
+                ConditionOperator::Below,
+                ConditionOperator::RisingTrend,
+                ConditionOperator::FallingTrend,
+            ],
             price_compare: PriceCompareConfig::DISABLED,
             threshold_type: ThresholdType::PercentOfPrice {
                 base_price_fields: &[PriceField::Close],

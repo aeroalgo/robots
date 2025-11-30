@@ -114,10 +114,9 @@ impl StrategyEvaluationRunner {
             }
         }
 
-        let definition = StrategyConverter::candidate_to_definition_with_params(
+        let definition = StrategyConverter::candidate_to_definition(
             candidate,
             self.base_timeframe.clone(),
-            Some(&parameters),
         )
         .context("Не удалось конвертировать StrategyCandidate в StrategyDefinition")?;
 

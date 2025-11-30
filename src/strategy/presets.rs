@@ -17,6 +17,7 @@ pub fn default_strategy_definitions() -> Vec<StrategyDefinition> {
         supertrend_atr_trailing_definition(),
         vtrand_atr_trailing_definition(),
         zlema_percent_trailing_definition(),
+        vtrand_multi_timeframe_definition(),
     ]
 }
 
@@ -876,6 +877,162 @@ fn zlema_percent_trailing_definition() -> StrategyDefinition {
                 "zlema".to_string(),
                 "trailing".to_string(),
                 "percent".to_string(),
+            ],
+            created_at: None,
+            updated_at: None,
+        },
+        Vec::new(),
+        indicator_bindings,
+        Vec::new(),
+        condition_bindings,
+        entry_rules,
+        exit_rules,
+        stop_handlers,
+        take_handlers,
+        StrategyParameterMap::new(),
+        BTreeMap::new(),
+    )
+}
+
+fn vtrand_multi_timeframe_definition() -> StrategyDefinition {
+    let base_timeframe = TimeFrame::minutes(60);
+    let higher_timeframe = TimeFrame::minutes(120);
+
+    let vtrand_alias = "vtrand".to_string();
+
+    let indicator_bindings = vec![
+        IndicatorBindingSpec {
+            alias: vtrand_alias.clone(),
+            timeframe: base_timeframe.clone(),
+            source: IndicatorSourceSpec::Registry {
+                name: "VTRAND".to_string(),
+                parameters: HashMap::from([("period".to_string(), 50.0)]),
+            },
+            tags: vec!["trend".to_string(), "base".to_string()],
+        },
+        IndicatorBindingSpec {
+            alias: vtrand_alias.clone(),
+            timeframe: higher_timeframe.clone(),
+            source: IndicatorSourceSpec::Registry {
+                name: "VTRAND".to_string(),
+                parameters: HashMap::from([("period".to_string(), 50.0)]),
+            },
+            tags: vec!["trend".to_string(), "higher_tf".to_string()],
+        },
+    ];
+
+    let vtrand_rising_input = ConditionInputSpec::Single {
+        source: DataSeriesSource::indicator(vtrand_alias.clone()),
+    };
+
+    let vtrand_above_close_input = ConditionInputSpec::Dual {
+        primary: DataSeriesSource::indicator_with_timeframe(
+            vtrand_alias.clone(),
+            higher_timeframe.clone(),
+        ),
+        secondary: DataSeriesSource::price(PriceField::Close),
+    };
+
+    let condition_bindings = vec![
+        ConditionBindingSpec {
+            id: "vtrand_rising_trend".to_string(),
+            name: "VTRAND RisingTrend (period: 3)".to_string(),
+            timeframe: base_timeframe.clone(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::RisingTrend,
+                &vtrand_rising_input,
+            ),
+            parameters: HashMap::from([("period".to_string(), 3.0)]),
+            input: vtrand_rising_input,
+            weight: 1.0,
+            tags: vec!["entry".to_string(), "trend".to_string()],
+            user_formula: None,
+        },
+        ConditionBindingSpec {
+            id: "vtrand_above_close_120".to_string(),
+            name: "VTRAND Above Close (TF:120)".to_string(),
+            timeframe: higher_timeframe.clone(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::Above,
+                &vtrand_above_close_input,
+            ),
+            parameters: HashMap::new(),
+            input: vtrand_above_close_input,
+            weight: 1.0,
+            tags: vec!["entry".to_string(), "higher_tf".to_string()],
+            user_formula: None,
+        },
+    ];
+
+    let entry_rules = vec![StrategyRuleSpec {
+        id: "enter_long_vtrand_mtf".to_string(),
+        name: "Enter long on VTRAND Multi-TF".to_string(),
+        logic: super::types::RuleLogic::All,
+        conditions: vec![
+            "vtrand_rising_trend".to_string(),
+            "vtrand_above_close_120".to_string(),
+        ],
+        signal: StrategySignalType::Entry,
+        direction: PositionDirection::Long,
+        quantity: None,
+        tags: vec!["vtrand".to_string(), "entry".to_string(), "mtf".to_string()],
+        position_group: Some("vtrand_mtf_long".to_string()),
+        target_entry_ids: Vec::new(),
+    }];
+
+    let exit_rules = vec![];
+
+    let mut hilo_trail_params = StrategyParameterMap::new();
+    hilo_trail_params.insert("period".to_string(), StrategyParamValue::Number(130.0));
+
+    let stop_handlers = vec![StopHandlerSpec {
+        id: "hilo_trailing_stop".to_string(),
+        name: "HILO Trailing Stop".to_string(),
+        handler_name: "HILOTrailingStop".to_string(),
+        timeframe: base_timeframe.clone(),
+        price_field: PriceField::Close,
+        parameters: hilo_trail_params,
+        direction: PositionDirection::Long,
+        priority: 100,
+        tags: vec![
+            "stop".to_string(),
+            "trailing".to_string(),
+            "hilo".to_string(),
+        ],
+        target_entry_ids: vec!["enter_long_vtrand_mtf".to_string()],
+    }];
+
+    let mut take_profit_params = StrategyParameterMap::new();
+    take_profit_params.insert("percentage".to_string(), StrategyParamValue::Number(18.0));
+
+    let take_handlers = vec![TakeHandlerSpec {
+        id: "take_profit_pct_vtrand".to_string(),
+        name: "Take Profit Pct".to_string(),
+        handler_name: "TakeProfitPct".to_string(),
+        timeframe: base_timeframe.clone(),
+        price_field: PriceField::Close,
+        parameters: take_profit_params,
+        direction: PositionDirection::Long,
+        priority: 100,
+        tags: vec!["take".to_string(), "target".to_string()],
+        target_entry_ids: vec!["enter_long_vtrand_mtf".to_string()],
+    }];
+
+    StrategyDefinition::new(
+        StrategyMetadata {
+            id: "VTRAND_MULTI_TIMEFRAME".to_string(),
+            name: "VTRAND Multi-Timeframe Strategy".to_string(),
+            description: Some(
+                "Стратегия на основе VTRAND с двумя таймфреймами (60/120 мин). Entry: RisingTrend на базовом TF + Above Close на higher TF. Exit: HILO Trailing Stop + Take Profit".to_string(),
+            ),
+            version: Some("1.0.0".to_string()),
+            author: Some("Strategy Discovery Engine".to_string()),
+            categories: vec![super::types::StrategyCategory::TrendFollowing],
+            tags: vec![
+                "vtrand".to_string(),
+                "multi-timeframe".to_string(),
+                "hilo".to_string(),
+                "trailing".to_string(),
             ],
             created_at: None,
             updated_at: None,

@@ -5,11 +5,11 @@ pub struct StopParameterPresets;
 
 impl StopParameterPresets {
     pub fn stop_loss_percentage() -> ParameterRange {
-        ParameterRange::new(2.0, 10.0, 1.0)
+        ParameterRange::new(3.5, 15.0, 1.0)
     }
 
     pub fn take_profit_percentage() -> ParameterRange {
-        ParameterRange::new(2.0, 20.0, 1.0)
+        ParameterRange::new(4.0, 20.0, 1.0)
     }
 
     pub fn trailing_period() -> ParameterRange {

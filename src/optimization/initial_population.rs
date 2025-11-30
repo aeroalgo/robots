@@ -145,8 +145,8 @@ impl InitialPopulationGenerator {
                     println!("      📊 Структура кандидата:");
                     println!("         Таймфреймы: {:?}", candidate.timeframes);
 
-                    // Индикаторы с параметрами и таймфреймами
                     println!("         Индикаторы:");
+                    let base_tf = candidate.timeframes.first();
                     for ind in &candidate.indicators {
                         let params: Vec<String> = ind
                             .parameters
@@ -154,14 +154,19 @@ impl InitialPopulationGenerator {
                             .map(|p| format!("{}:{:?}", p.name, p.param_type))
                             .collect();
 
-                        // Собираем таймфреймы из условий где используется этот индикатор
                         let mut ind_timeframes: Vec<String> = candidate
                             .conditions
                             .iter()
                             .chain(candidate.exit_conditions.iter())
                             .filter(|c| c.name.starts_with(&ind.name))
-                            .filter_map(|c| c.primary_timeframe.as_ref())
-                            .map(|tf| tf.identifier())
+                            .map(|c| {
+                                c.primary_timeframe
+                                    .as_ref()
+                                    .or(base_tf)
+                                    .map(|tf| tf.identifier())
+                                    .unwrap_or_default()
+                            })
+                            .filter(|s| !s.is_empty())
                             .collect();
                         ind_timeframes.sort();
                         ind_timeframes.dedup();
@@ -296,10 +301,9 @@ impl InitialPopulationGenerator {
                     }
 
                     // Выводим StrategyDefinition с применёнными параметрами
-                    match StrategyConverter::candidate_to_definition_with_params(
+                    match StrategyConverter::candidate_to_definition(
                         candidate,
                         self.discovery_config.base_timeframe.clone(),
-                        Some(&random_params),
                     ) {
                         Ok(definition) => {
                             println!("         📋 StrategyDefinition:");
