@@ -68,8 +68,8 @@ impl ParameterPresets {
 
     fn get_threshold_range_by_param_name(param_name: &str) -> Option<ParameterRange> {
         match param_name.to_lowercase().as_str() {
-            "overbought" | "upper" | "high" => Some(ParameterRange::new(60.0, 95.0, 10.0)),
-            "oversold" | "lower" | "low" => Some(ParameterRange::new(5.0, 40.0, 10.0)),
+            "overbought" | "upper" | "high" => Some(ParameterRange::new(10.0, 90.0, 10.0)),
+            "oversold" | "lower" | "low" => Some(ParameterRange::new(10.0, 90.0, 10.0)),
             _ => Some(ParameterRange::new(0.0, 100.0, 5.0)),
         }
     }
