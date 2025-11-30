@@ -39,7 +39,11 @@ impl ConditionCombinationGenerator {
                                     let condition = ConditionInfo {
                                         id: format!(
                                             "ind_price_{}_{:?}_{:?}_tf{:?}_tf{:?}",
-                                            indicator.alias, price_field, operator, primary_tf, secondary_tf
+                                            indicator.alias,
+                                            price_field,
+                                            operator,
+                                            primary_tf,
+                                            secondary_tf
                                         ),
                                         name: format!(
                                             "{} ({:?}) {} {:?} ({:?})",
@@ -123,7 +127,11 @@ impl ConditionCombinationGenerator {
                                     let condition = ConditionInfo {
                                         id: format!(
                                             "ind_ind_{}_{}_{:?}_tf{:?}_tf{:?}",
-                                            primary.alias, secondary.alias, operator, primary_tf, secondary_tf
+                                            primary.alias,
+                                            secondary.alias,
+                                            operator,
+                                            primary_tf,
+                                            secondary_tf
                                         ),
                                         name: format!(
                                             "{} ({:?}) {} {} ({:?})",
@@ -192,7 +200,7 @@ impl ConditionCombinationGenerator {
         timeframes: Option<&[TimeFrame]>,
     ) -> Vec<ConditionInfo> {
         use crate::indicators::parameters::ParameterPresets;
-        
+
         let mut conditions = Vec::new();
 
         // Фильтруем только осцилляторы
@@ -206,7 +214,10 @@ impl ConditionCombinationGenerator {
                 // Для условий индикатор-константа обычно используются только > и <
                 if Self::is_valid_operator_for_indicator_constant(operator) {
                     // Получаем диапазон оптимизации для этого осциллятора
-                    if let Some(range) = ParameterPresets::get_oscillator_threshold_range(&oscillator.name, "threshold") {
+                    if let Some(range) = ParameterPresets::get_oscillator_threshold_range(
+                        &oscillator.name,
+                        "threshold",
+                    ) {
                         // Генерируем значения из диапазона с шагом
                         let mut constant = range.start;
                         while constant <= range.end {
@@ -266,7 +277,7 @@ impl ConditionCombinationGenerator {
                                 };
                                 conditions.push(condition);
                             }
-                            
+
                             constant += range.step;
                         }
                     }
@@ -316,8 +327,12 @@ impl ConditionCombinationGenerator {
         let mut all_conditions = Vec::new();
 
         // Условия индикатор-цена
-        let indicator_price =
-            Self::generate_indicator_price_conditions(indicators, price_fields, operators, timeframes);
+        let indicator_price = Self::generate_indicator_price_conditions(
+            indicators,
+            price_fields,
+            operators,
+            timeframes,
+        );
         all_conditions.extend(indicator_price);
 
         // Условия индикатор-индикатор (если разрешено)
@@ -329,11 +344,8 @@ impl ConditionCombinationGenerator {
 
         // Условия индикатор-константа для осцилляторов
         // Используем значения из get_oscillator_threshold_range
-        let indicator_constant = Self::generate_indicator_constant_conditions(
-            indicators,
-            operators,
-            timeframes,
-        );
+        let indicator_constant =
+            Self::generate_indicator_constant_conditions(indicators, operators, timeframes);
         all_conditions.extend(indicator_constant);
 
         all_conditions
@@ -419,4 +431,3 @@ impl ConditionCombinationGenerator {
         }
     }
 }
-

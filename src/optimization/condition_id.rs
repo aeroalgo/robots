@@ -1,3 +1,5 @@
+use crate::data_model::types::TimeFrame;
+
 pub struct ConditionId;
 
 impl ConditionId {
@@ -5,8 +7,32 @@ impl ConditionId {
         format!("{}_{}_{}", prefix, alias, random)
     }
 
+    pub fn indicator_price_with_timeframes(
+        prefix: &str,
+        alias: &str,
+        price_field: &str,
+        operator: &str,
+        primary_tf: &TimeFrame,
+        secondary_tf: &TimeFrame,
+    ) -> String {
+        format!(
+            "{}_{}_{}_{}_{:?}_{:?}",
+            prefix, alias, price_field, operator, primary_tf, secondary_tf
+        )
+    }
+
     pub fn indicator_constant(prefix: &str, alias: &str, random: u32) -> String {
         format!("{}_{}_{}", prefix, alias, random)
+    }
+
+    pub fn indicator_constant_with_timeframe(
+        prefix: &str,
+        alias: &str,
+        operator: &str,
+        constant: f32,
+        tf: &TimeFrame,
+    ) -> String {
+        format!("{}_{}_{}_{}_tf{:?}", prefix, alias, operator, constant, tf)
     }
 
     pub fn indicator_indicator(
@@ -21,6 +47,20 @@ impl ConditionId {
         )
     }
 
+    pub fn indicator_indicator_with_timeframes(
+        prefix: &str,
+        primary_alias: &str,
+        secondary_alias: &str,
+        operator: &str,
+        primary_tf: &TimeFrame,
+        secondary_tf: &TimeFrame,
+    ) -> String {
+        format!(
+            "{}_{}::{}_{}_tf{:?}_tf{:?}",
+            prefix, primary_alias, secondary_alias, operator, primary_tf, secondary_tf
+        )
+    }
+
     pub fn trend_condition(
         prefix: &str,
         alias: &str,
@@ -28,6 +68,26 @@ impl ConditionId {
         random: u32,
     ) -> String {
         format!("{}_{}_{}_{}", prefix, alias, trend_type.as_str(), random)
+    }
+
+    pub fn exit_wrapper(condition_id: &str) -> String {
+        format!("exit_{}", condition_id)
+    }
+
+    pub fn entry_prefix() -> &'static str {
+        "entry"
+    }
+
+    pub fn exit_prefix() -> &'static str {
+        "exit"
+    }
+
+    pub fn prefix_for(is_entry: bool) -> &'static str {
+        if is_entry {
+            "entry"
+        } else {
+            "exit"
+        }
     }
 
     pub fn parse(condition_id: &str) -> Option<ParsedConditionId> {
@@ -58,6 +118,14 @@ impl ConditionId {
             aliases.push(secondary);
         }
         Some(aliases)
+    }
+
+    pub fn is_indicator_indicator(condition_id: &str) -> bool {
+        condition_id.contains("::")
+    }
+
+    pub fn is_trend_condition(condition_id: &str) -> bool {
+        condition_id.contains("_risingtrend_") || condition_id.contains("_fallingtrend_")
     }
 
     fn extract_prefix(condition_id: &str) -> Option<(ConditionPrefix, &str)> {
@@ -173,6 +241,14 @@ impl TrendType {
             TrendType::Falling => "FallingTrend",
         }
     }
+
+    pub fn from_operator_name(name: &str) -> Option<Self> {
+        match name {
+            "RisingTrend" | "risingtrend" => Some(TrendType::Rising),
+            "FallingTrend" | "fallingtrend" => Some(TrendType::Falling),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,5 +345,24 @@ mod tests {
             aliases,
             vec!["rsi".to_string(), "geomean_on_rsi".to_string()]
         );
+    }
+
+    #[test]
+    fn test_prefix_for() {
+        assert_eq!(ConditionId::prefix_for(true), "entry");
+        assert_eq!(ConditionId::prefix_for(false), "exit");
+    }
+
+    #[test]
+    fn test_is_indicator_indicator() {
+        assert!(ConditionId::is_indicator_indicator("entry_sma::ema_123"));
+        assert!(!ConditionId::is_indicator_indicator("entry_sma_123"));
+    }
+
+    #[test]
+    fn test_is_trend_condition() {
+        assert!(ConditionId::is_trend_condition("entry_sma_risingtrend_123"));
+        assert!(ConditionId::is_trend_condition("exit_rsi_fallingtrend_456"));
+        assert!(!ConditionId::is_trend_condition("entry_sma_123"));
     }
 }
