@@ -741,64 +741,6 @@ impl InitialPopulationGenerator {
         None
     }
 
-    fn extract_all_indicator_aliases_from_condition(condition_id: &str) -> Vec<String> {
-        if condition_id.starts_with("ind_ind_") {
-            let rest = condition_id.strip_prefix("ind_ind_").unwrap_or("");
-            let parts: Vec<&str> = if let Some(tf_pos) = rest.find("_tf") {
-                rest[..tf_pos].split('_').collect()
-            } else {
-                rest.split('_').collect()
-            };
-            if parts.len() >= 2 {
-                return vec![parts[0].to_string(), parts[1].to_string()];
-            }
-        } else if condition_id.starts_with("entry_") {
-            let rest = condition_id.strip_prefix("entry_").unwrap_or("");
-            let parts: Vec<&str> = rest.split('_').collect();
-            if parts.len() >= 3 {
-                let last_part = parts[parts.len() - 1];
-                if last_part.parse::<u32>().is_ok() {
-                    return vec![parts[0].to_string(), parts[1].to_string()];
-                }
-            }
-            if parts.len() >= 1 {
-                return vec![parts[0].to_string()];
-            }
-        } else if condition_id.starts_with("exit_") {
-            let rest = condition_id.strip_prefix("exit_").unwrap_or("");
-            let parts: Vec<&str> = rest.split('_').collect();
-            if parts.len() >= 3 {
-                let last_part = parts[parts.len() - 1];
-                if last_part.parse::<u32>().is_ok() {
-                    return vec![parts[0].to_string(), parts[1].to_string()];
-                }
-            }
-            if parts.len() >= 1 {
-                return vec![parts[0].to_string()];
-            }
-        } else if condition_id.starts_with("ind_price_") {
-            let rest = condition_id.strip_prefix("ind_price_").unwrap_or("");
-            let parts: Vec<&str> = if let Some(tf_pos) = rest.find("_tf") {
-                rest[..tf_pos].split('_').collect()
-            } else {
-                rest.split('_').collect()
-            };
-            if !parts.is_empty() {
-                return vec![parts[0].to_string()];
-            }
-        } else if condition_id.starts_with("ind_const_") {
-            let rest = condition_id.strip_prefix("ind_const_").unwrap_or("");
-            let parts: Vec<&str> = if let Some(tf_pos) = rest.find("_tf") {
-                rest[..tf_pos].split('_').collect()
-            } else {
-                rest.split('_').collect()
-            };
-            if !parts.is_empty() {
-                return vec![parts[0].to_string()];
-            }
-        }
-        Vec::new()
-    }
 
 
     fn should_apply_volatility_constraint(

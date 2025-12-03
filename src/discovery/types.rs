@@ -87,6 +87,16 @@ impl crate::optimization::condition_id::ConditionInfoTrait for ConditionInfo {
     }
 }
 
+impl ConditionInfo {
+    pub fn all_indicator_aliases(&self) -> Vec<String> {
+        let mut aliases = vec![self.primary_indicator_alias.clone()];
+        if let Some(secondary) = &self.secondary_indicator_alias {
+            aliases.push(secondary.clone());
+        }
+        aliases
+    }
+}
+
 /// Информация о параметре условия
 #[derive(Debug, Clone)]
 pub struct ConditionParamInfo {
