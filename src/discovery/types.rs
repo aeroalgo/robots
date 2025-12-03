@@ -154,4 +154,3 @@ pub struct StopHandlerConfig {
     /// Приоритет стопа
     pub priority: i32,
 }
-
