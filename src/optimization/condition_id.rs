@@ -1,4 +1,5 @@
 use crate::data_model::types::TimeFrame;
+use std::collections::{HashMap, HashSet};
 
 pub struct ConditionId;
 
@@ -107,25 +108,41 @@ impl ConditionId {
         Self::parse_simple(prefix, rest)
     }
 
-    pub fn extract_primary_alias(condition_id: &str) -> Option<String> {
-        Self::parse(condition_id).map(|p| p.primary_alias)
-    }
-
-    pub fn extract_aliases(condition_id: &str) -> Option<Vec<String>> {
-        let parsed = Self::parse(condition_id)?;
-        let mut aliases = vec![parsed.primary_alias];
-        if let Some(secondary) = parsed.secondary_alias {
-            aliases.push(secondary);
-        }
-        Some(aliases)
-    }
-
     pub fn is_indicator_indicator(condition_id: &str) -> bool {
         condition_id.contains("::")
     }
 
     pub fn is_trend_condition(condition_id: &str) -> bool {
         condition_id.contains("_risingtrend_") || condition_id.contains("_fallingtrend_")
+    }
+
+    /// Собирает требуемые таймфреймы для всех индикаторов из списка условий
+    /// Возвращает HashMap: alias -> HashSet<TimeFrame>
+    pub fn collect_required_timeframes(
+        conditions: &[&dyn ConditionInfoTrait],
+        base_timeframe: &TimeFrame,
+    ) -> HashMap<String, HashSet<TimeFrame>> {
+        let mut required_timeframes: HashMap<String, HashSet<TimeFrame>> = HashMap::new();
+
+        for condition in conditions {
+            if let Some(alias) = condition.primary_indicator_alias() {
+                let tf = condition.primary_timeframe()
+                    .cloned()
+                    .unwrap_or_else(|| base_timeframe.clone());
+                required_timeframes.entry(alias).or_default().insert(tf);
+            }
+
+            if condition.condition_type() == "indicator_indicator" {
+                if let Some(secondary_alias) = condition.secondary_indicator_alias() {
+                    let secondary_tf = condition.secondary_timeframe()
+                        .cloned()
+                        .unwrap_or_else(|| base_timeframe.clone());
+                    required_timeframes.entry(secondary_alias).or_default().insert(secondary_tf);
+                }
+            }
+        }
+
+        required_timeframes
     }
 
     fn extract_prefix(condition_id: &str) -> Option<(ConditionPrefix, &str)> {
@@ -198,6 +215,16 @@ impl ConditionId {
             trend_type: None,
         })
     }
+}
+
+/// Трейт для работы с информацией об условиях
+pub trait ConditionInfoTrait {
+    fn condition_id(&self) -> &str;
+    fn condition_type(&self) -> &str;
+    fn primary_timeframe(&self) -> Option<&TimeFrame>;
+    fn secondary_timeframe(&self) -> Option<&TimeFrame>;
+    fn primary_indicator_alias(&self) -> Option<String>;
+    fn secondary_indicator_alias(&self) -> Option<String>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -338,14 +365,6 @@ mod tests {
         assert!(parsed.is_trend_condition());
     }
 
-    #[test]
-    fn test_extract_aliases_indicator_indicator() {
-        let aliases = ConditionId::extract_aliases("entry_rsi::geomean_on_rsi_222").unwrap();
-        assert_eq!(
-            aliases,
-            vec!["rsi".to_string(), "geomean_on_rsi".to_string()]
-        );
-    }
 
     #[test]
     fn test_prefix_for() {

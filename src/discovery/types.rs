@@ -46,6 +46,10 @@ pub struct ConditionInfo {
     /// Значение константы для условий типа "indicator_constant" (например, 70 для RSI > 70)
     /// Если None, то константа берется из optimization_params
     pub constant_value: Option<f64>,
+    /// Alias основного индикатора (явное поле вместо парсинга)
+    pub primary_indicator_alias: String,
+    /// Alias вторичного индикатора (для indicator_indicator)
+    pub secondary_indicator_alias: Option<String>,
     /// Таймфрейм для primary источника (индикатор или цена)
     /// Если None, используется базовый таймфрейм стратегии
     pub primary_timeframe: Option<TimeFrame>,
@@ -55,6 +59,32 @@ pub struct ConditionInfo {
     /// Поле цены для условий типа "indicator_price" (если используется цена)
     /// Если None, используется Close по умолчанию
     pub price_field: Option<String>,
+}
+
+impl crate::optimization::condition_id::ConditionInfoTrait for ConditionInfo {
+    fn condition_id(&self) -> &str {
+        &self.id
+    }
+
+    fn condition_type(&self) -> &str {
+        &self.condition_type
+    }
+
+    fn primary_timeframe(&self) -> Option<&TimeFrame> {
+        self.primary_timeframe.as_ref()
+    }
+
+    fn secondary_timeframe(&self) -> Option<&TimeFrame> {
+        self.secondary_timeframe.as_ref()
+    }
+
+    fn primary_indicator_alias(&self) -> Option<String> {
+        Some(self.primary_indicator_alias.clone())
+    }
+
+    fn secondary_indicator_alias(&self) -> Option<String> {
+        self.secondary_indicator_alias.clone()
+    }
 }
 
 /// Информация о параметре условия

@@ -6,6 +6,7 @@ use crate::data_model::types::TimeFrame;
 use crate::discovery::config::StrategyDiscoveryConfig;
 use crate::discovery::engine::StrategyCandidate;
 use crate::discovery::types::{ConditionInfo, IndicatorInfo, NestedIndicator, StopHandlerInfo};
+use crate::optimization::condition_id::ConditionId;
 use crate::strategy::types::{
     ConditionBindingSpec, ConditionDeclarativeSpec, ConditionInputSpec, ConditionOperandSpec,
     ConditionOperator, DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec,
@@ -27,11 +28,13 @@ impl StrategyConverter {
         let base_tf = base_timeframe.clone();
 
         let indicator_bindings = Self::create_indicator_bindings(candidate, base_tf.clone())?;
-        let condition_bindings = Self::create_condition_bindings(candidate, base_tf.clone())?;
+        let condition_bindings =
+            Self::create_condition_bindings(candidate, &indicator_bindings, base_tf.clone())?;
         let (mut stop_handlers, mut take_handlers) =
             Self::create_stop_and_take_handlers(candidate, base_tf.clone())?;
 
-        let exit_condition_bindings = Self::create_condition_bindings_for_exit(candidate, base_tf)?;
+        let exit_condition_bindings =
+            Self::create_condition_bindings_for_exit(candidate, &indicator_bindings, base_tf)?;
 
         let entry_rules = Self::create_entry_rules(candidate, &condition_bindings)?;
         let exit_rules = Self::create_exit_rules(candidate, &exit_condition_bindings)?;
@@ -457,46 +460,17 @@ impl StrategyConverter {
         let mut binding_keys = std::collections::HashSet::new();
 
         // Собираем какие индикаторы на каких TF реально используются в условиях
-        let mut required_indicator_timeframes: std::collections::HashMap<
-            String,
-            std::collections::HashSet<TimeFrame>,
-        > = std::collections::HashMap::new();
-
-        for condition in candidate
-            .conditions
-            .iter()
-            .chain(candidate.exit_conditions.iter())
-        {
-            // Извлекаем alias индикатора из condition.id
-            if let Some(alias) = Self::extract_indicator_alias_from_condition_id(&condition.id) {
-                let tf = condition
-                    .primary_timeframe
-                    .clone()
-                    .unwrap_or_else(|| base_timeframe.clone());
-                required_indicator_timeframes
-                    .entry(alias)
-                    .or_default()
-                    .insert(tf);
-            }
-
-            // Для indicator_indicator также нужен secondary индикатор
-            if condition.condition_type == "indicator_indicator" {
-                if let Some(aliases) =
-                    Self::extract_indicator_aliases_from_condition_id(&condition.id)
-                {
-                    if aliases.len() > 1 {
-                        let secondary_tf = condition
-                            .secondary_timeframe
-                            .clone()
-                            .unwrap_or_else(|| base_timeframe.clone());
-                        required_indicator_timeframes
-                            .entry(aliases[1].clone())
-                            .or_default()
-                            .insert(secondary_tf);
-                    }
-                }
-            }
+        let mut all_conditions: Vec<&dyn crate::optimization::condition_id::ConditionInfoTrait> =
+            Vec::new();
+        for condition in &candidate.conditions {
+            all_conditions.push(condition);
         }
+        for condition in &candidate.exit_conditions {
+            all_conditions.push(condition);
+        }
+
+        let mut required_indicator_timeframes =
+            ConditionId::collect_required_timeframes(&all_conditions, &base_timeframe);
 
         // Индикаторы БЕЗ условий (не используются) - добавляем на базовый TF
         // чтобы они хотя бы где-то были (защита от пустых bindings)
@@ -543,21 +517,49 @@ impl StrategyConverter {
         for nested in &candidate.nested_indicators {
             let params = Self::extract_indicator_params(&nested.indicator)?;
 
-            if let Some(timeframes) = required_indicator_timeframes.get(&nested.indicator.alias) {
-                for timeframe in timeframes {
-                    let key = format!("{}:{:?}", nested.indicator.alias, timeframe);
-                    if !binding_keys.contains(&key) {
-                        binding_keys.insert(key.clone());
-                        bindings.push(IndicatorBindingSpec {
-                            alias: nested.indicator.alias.clone(),
-                            timeframe: timeframe.clone(),
-                            source: IndicatorSourceSpec::Registry {
-                                name: nested.indicator.name.clone(),
-                                parameters: params.clone(),
-                            },
-                            tags: vec!["nested".to_string(), format!("depth_{}", nested.depth)],
-                        });
-                    }
+            // Для nested индикаторов определяем timeframe:
+            // 1. Если явно указан в условиях - используем его
+            // 2. Иначе - используем timeframe input индикатора
+            let mut timeframes_to_use = std::collections::HashSet::new();
+
+            if let Some(explicit_timeframes) =
+                required_indicator_timeframes.get(&nested.indicator.alias)
+            {
+                // Если в условиях явно указан timeframe для nested индикатора - используем его
+                timeframes_to_use = explicit_timeframes.clone();
+            } else {
+                // Ищем input индикатор в уже созданных bindings
+                // Важно: nested индикатор должен использовать те же timeframes, что и его input индикатор
+                // Например, если sma_on_ema построен по ema, то sma_on_ema должен быть на тех же timeframes, что и ema
+                let input_timeframes: std::collections::HashSet<TimeFrame> = bindings
+                    .iter()
+                    .filter(|binding| binding.alias == nested.input_indicator_alias)
+                    .map(|binding| binding.timeframe.clone())
+                    .collect();
+
+                if !input_timeframes.is_empty() {
+                    // Используем все timeframes input индикатора
+                    // Это правильно, потому что если ema есть на 60, 120, 240, то sma_on_ema тоже должен быть на 60, 120, 240
+                    timeframes_to_use = input_timeframes;
+                } else {
+                    // Если input индикатор не найден в bindings, используем base_timeframe
+                    timeframes_to_use.insert(base_timeframe.clone());
+                }
+            }
+
+            for timeframe in timeframes_to_use {
+                let key = format!("{}:{:?}", nested.indicator.alias, timeframe);
+                if !binding_keys.contains(&key) {
+                    binding_keys.insert(key.clone());
+                    bindings.push(IndicatorBindingSpec {
+                        alias: nested.indicator.alias.clone(),
+                        timeframe: timeframe.clone(),
+                        source: IndicatorSourceSpec::Registry {
+                            name: nested.indicator.name.clone(),
+                            parameters: params.clone(),
+                        },
+                        tags: vec!["nested".to_string(), format!("depth_{}", nested.depth)],
+                    });
                 }
             }
         }
@@ -594,12 +596,13 @@ impl StrategyConverter {
 
     fn create_condition_bindings(
         candidate: &StrategyCandidate,
+        indicator_bindings: &[IndicatorBindingSpec],
         base_timeframe: TimeFrame,
     ) -> Result<Vec<ConditionBindingSpec>, StrategyConversionError> {
         let mut bindings = Vec::new();
 
         for condition in &candidate.conditions {
-            let input = Self::create_condition_input(condition, candidate)?;
+            let input = Self::create_condition_input(condition, candidate, indicator_bindings)?;
             let declarative = ConditionDeclarativeSpec {
                 operator: condition.operator.clone(),
                 operands: vec![],
@@ -633,16 +636,22 @@ impl StrategyConverter {
     fn create_condition_input(
         condition: &ConditionInfo,
         candidate: &StrategyCandidate,
+        indicator_bindings: &[IndicatorBindingSpec],
     ) -> Result<ConditionInputSpec, StrategyConversionError> {
+        // Создаем HashMap для быстрого поиска таймфрейма по alias
+        let mut alias_to_timeframes: std::collections::HashMap<
+            String,
+            std::collections::HashSet<TimeFrame>,
+        > = std::collections::HashMap::new();
+        for binding in indicator_bindings {
+            alias_to_timeframes
+                .entry(binding.alias.clone())
+                .or_default()
+                .insert(binding.timeframe.clone());
+        }
         match condition.condition_type.as_str() {
             "indicator_price" => {
-                let indicator_alias =
-                    Self::extract_indicator_alias_from_condition_id(&condition.id).ok_or_else(
-                        || StrategyConversionError::InvalidConditionFormat {
-                            condition_id: condition.id.clone(),
-                            reason: "Cannot extract indicator alias".to_string(),
-                        },
-                    )?;
+                let indicator_alias = &condition.primary_indicator_alias;
                 let price_field = if let Some(ref pf_str) = condition.price_field {
                     Self::parse_price_field_from_string(pf_str)
                         .unwrap_or_else(|| crate::strategy::types::PriceField::Close)
@@ -651,9 +660,21 @@ impl StrategyConverter {
                         .unwrap_or_else(|| crate::strategy::types::PriceField::Close)
                 };
 
-                // Используем таймфреймы из ConditionInfo, если они указаны
+                // Определяем таймфрейм: сначала из condition.primary_timeframe,
+                // затем из indicator_bindings по alias
                 let primary_source = if let Some(ref tf) = condition.primary_timeframe {
-                    DataSeriesSource::indicator_with_timeframe(indicator_alias, tf.clone())
+                    DataSeriesSource::indicator_with_timeframe(indicator_alias.clone(), tf.clone())
+                } else if let Some(timeframes) = alias_to_timeframes.get(indicator_alias.as_str()) {
+                    // Если для alias есть несколько таймфреймов, берем первый
+                    // (обычно должен быть один)
+                    if let Some(tf) = timeframes.iter().next() {
+                        DataSeriesSource::indicator_with_timeframe(
+                            indicator_alias.clone(),
+                            tf.clone(),
+                        )
+                    } else {
+                        DataSeriesSource::indicator(indicator_alias)
+                    }
                 } else {
                     DataSeriesSource::indicator(indicator_alias)
                 };
@@ -687,30 +708,49 @@ impl StrategyConverter {
                 }
             }
             "indicator_indicator" => {
-                let aliases = Self::extract_indicator_aliases_from_condition_id(&condition.id)
-                    .ok_or_else(|| StrategyConversionError::InvalidConditionFormat {
+                let primary_alias = &condition.primary_indicator_alias;
+                let secondary_alias =
+                    condition
+                        .secondary_indicator_alias
+                        .as_ref()
+                        .ok_or_else(|| {
+                            StrategyConversionError::InvalidConditionFormat {
                         condition_id: condition.id.clone(),
-                        reason: "Cannot extract indicator aliases".to_string(),
-                    })?;
-                if aliases.len() < 2 {
-                    return Err(StrategyConversionError::InvalidConditionFormat {
-                        condition_id: condition.id.clone(),
-                        reason: "Need at least 2 indicators for indicator_indicator condition"
-                            .to_string(),
-                    });
-                }
+                        reason:
+                            "Missing secondary_indicator_alias for indicator_indicator condition"
+                                .to_string(),
+                    }
+                        })?;
 
-                // Используем таймфреймы из ConditionInfo, если они указаны
+                // Определяем таймфреймы: сначала из ConditionInfo, затем из indicator_bindings
                 let primary_source = if let Some(ref tf) = condition.primary_timeframe {
-                    DataSeriesSource::indicator_with_timeframe(aliases[0].clone(), tf.clone())
+                    DataSeriesSource::indicator_with_timeframe(primary_alias.clone(), tf.clone())
+                } else if let Some(timeframes) = alias_to_timeframes.get(primary_alias) {
+                    if let Some(tf) = timeframes.iter().next() {
+                        DataSeriesSource::indicator_with_timeframe(
+                            primary_alias.clone(),
+                            tf.clone(),
+                        )
+                    } else {
+                        DataSeriesSource::indicator(primary_alias.clone())
+                    }
                 } else {
-                    DataSeriesSource::indicator(aliases[0].clone())
+                    DataSeriesSource::indicator(primary_alias.clone())
                 };
 
                 let secondary_source = if let Some(ref tf) = condition.secondary_timeframe {
-                    DataSeriesSource::indicator_with_timeframe(aliases[1].clone(), tf.clone())
+                    DataSeriesSource::indicator_with_timeframe(secondary_alias.clone(), tf.clone())
+                } else if let Some(timeframes) = alias_to_timeframes.get(secondary_alias) {
+                    if let Some(tf) = timeframes.iter().next() {
+                        DataSeriesSource::indicator_with_timeframe(
+                            secondary_alias.clone(),
+                            tf.clone(),
+                        )
+                    } else {
+                        DataSeriesSource::indicator(secondary_alias.clone())
+                    }
                 } else {
-                    DataSeriesSource::indicator(aliases[1].clone())
+                    DataSeriesSource::indicator(secondary_alias.clone())
                 };
 
                 // Проверяем, есть ли процент в optimization_params для создания DualWithPercent
@@ -736,17 +776,20 @@ impl StrategyConverter {
                 }
             }
             "trend_condition" => {
-                let indicator_alias =
-                    Self::extract_indicator_alias_from_condition_id(&condition.id).ok_or_else(
-                        || StrategyConversionError::InvalidConditionFormat {
-                            condition_id: condition.id.clone(),
-                            reason: "Cannot extract indicator alias".to_string(),
-                        },
-                    )?;
+                let indicator_alias = &condition.primary_indicator_alias;
 
-                // Используем таймфрейм из ConditionInfo для индикатора, если он указан
+                // Определяем таймфрейм: сначала из ConditionInfo, затем из indicator_bindings
                 let primary_source = if let Some(ref tf) = condition.primary_timeframe {
-                    DataSeriesSource::indicator_with_timeframe(indicator_alias, tf.clone())
+                    DataSeriesSource::indicator_with_timeframe(indicator_alias.clone(), tf.clone())
+                } else if let Some(timeframes) = alias_to_timeframes.get(indicator_alias.as_str()) {
+                    if let Some(tf) = timeframes.iter().next() {
+                        DataSeriesSource::indicator_with_timeframe(
+                            indicator_alias.clone(),
+                            tf.clone(),
+                        )
+                    } else {
+                        DataSeriesSource::indicator(indicator_alias)
+                    }
                 } else {
                     DataSeriesSource::indicator(indicator_alias)
                 };
@@ -757,18 +800,21 @@ impl StrategyConverter {
                 })
             }
             "indicator_constant" => {
-                let indicator_alias =
-                    Self::extract_indicator_alias_from_condition_id(&condition.id).ok_or_else(
-                        || StrategyConversionError::InvalidConditionFormat {
-                            condition_id: condition.id.clone(),
-                            reason: "Cannot extract indicator alias".to_string(),
-                        },
-                    )?;
+                let indicator_alias = &condition.primary_indicator_alias;
                 let constant_value = condition.constant_value.unwrap_or(0.0) as f32;
 
-                // Используем таймфрейм из ConditionInfo для индикатора, если он указан
+                // Определяем таймфрейм: сначала из ConditionInfo, затем из indicator_bindings
                 let primary_source = if let Some(ref tf) = condition.primary_timeframe {
-                    DataSeriesSource::indicator_with_timeframe(indicator_alias, tf.clone())
+                    DataSeriesSource::indicator_with_timeframe(indicator_alias.clone(), tf.clone())
+                } else if let Some(timeframes) = alias_to_timeframes.get(indicator_alias.as_str()) {
+                    if let Some(tf) = timeframes.iter().next() {
+                        DataSeriesSource::indicator_with_timeframe(
+                            indicator_alias.clone(),
+                            tf.clone(),
+                        )
+                    } else {
+                        DataSeriesSource::indicator(indicator_alias)
+                    }
                 } else {
                     DataSeriesSource::indicator(indicator_alias)
                 };
@@ -882,12 +928,13 @@ impl StrategyConverter {
 
     fn create_condition_bindings_for_exit(
         candidate: &StrategyCandidate,
+        indicator_bindings: &[IndicatorBindingSpec],
         base_timeframe: TimeFrame,
     ) -> Result<Vec<ConditionBindingSpec>, StrategyConversionError> {
         let mut bindings = Vec::new();
 
         for condition in &candidate.exit_conditions {
-            let input = Self::create_condition_input(condition, candidate)?;
+            let input = Self::create_condition_input(condition, candidate, indicator_bindings)?;
             let declarative = ConditionDeclarativeSpec {
                 operator: condition.operator.clone(),
                 operands: vec![],
@@ -974,60 +1021,6 @@ impl StrategyConverter {
             }
             crate::indicators::types::ParameterType::Custom => StrategyParamValue::Number(default),
         }
-    }
-
-    fn extract_indicator_alias_from_condition_id(condition_id: &str) -> Option<String> {
-        let rest = if condition_id.starts_with("entry_") {
-            condition_id.strip_prefix("entry_")?
-        } else if condition_id.starts_with("exit_") {
-            condition_id.strip_prefix("exit_")?
-        } else if condition_id.starts_with("ind_price_") {
-            condition_id.strip_prefix("ind_price_")?
-        } else if condition_id.starts_with("ind_const_") {
-            condition_id.strip_prefix("ind_const_")?
-        } else {
-            return None;
-        };
-
-        if let Some(separator_pos) = rest.find("::") {
-            return Some(rest[..separator_pos].to_string());
-        }
-
-        if let Some(last_underscore) = rest.rfind('_') {
-            return Some(rest[..last_underscore].to_string());
-        }
-
-        None
-    }
-
-    fn extract_indicator_aliases_from_condition_id(condition_id: &str) -> Option<Vec<String>> {
-        if condition_id.starts_with("entry_") || condition_id.starts_with("exit_") {
-            let rest = if condition_id.starts_with("entry_") {
-                condition_id.strip_prefix("entry_")?
-            } else {
-                condition_id.strip_prefix("exit_")?
-            };
-
-            if let Some(separator_pos) = rest.find("::") {
-                let alias1 = &rest[..separator_pos];
-                let after_separator = &rest[separator_pos + 2..];
-                if let Some(last_underscore) = after_separator.rfind('_') {
-                    let alias2 = &after_separator[..last_underscore];
-                    return Some(vec![alias1.to_string(), alias2.to_string()]);
-                }
-            }
-        } else if condition_id.starts_with("ind_ind_") {
-            let rest = condition_id.strip_prefix("ind_ind_")?;
-            if let Some(separator_pos) = rest.find("::") {
-                let alias1 = &rest[..separator_pos];
-                let after_separator = &rest[separator_pos + 2..];
-                if let Some(last_underscore) = after_separator.rfind('_') {
-                    let alias2 = &after_separator[..last_underscore];
-                    return Some(vec![alias1.to_string(), alias2.to_string()]);
-                }
-            }
-        }
-        None
     }
 
     fn parse_price_field_from_string(

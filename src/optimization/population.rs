@@ -256,16 +256,16 @@ impl PopulationManager {
         candidate: &StrategyCandidate,
         condition: &crate::discovery::ConditionInfo,
     ) -> Option<String> {
-        let alias = Self::extract_indicator_alias_from_condition_id(&condition.id)?;
+        let alias = &condition.primary_indicator_alias;
 
-        if let Some(ind) = candidate.indicators.iter().find(|i| i.alias == alias) {
+        if let Some(ind) = candidate.indicators.iter().find(|i| i.alias == *alias) {
             return Some(ind.name.clone());
         }
 
         if let Some(nested) = candidate
             .nested_indicators
             .iter()
-            .find(|n| n.indicator.alias == alias)
+            .find(|n| n.indicator.alias == *alias)
         {
             return Some(nested.indicator.name.clone());
         }
@@ -273,38 +273,6 @@ impl PopulationManager {
         None
     }
 
-    fn extract_indicator_alias_from_condition_id(condition_id: &str) -> Option<String> {
-        if condition_id.starts_with("ind_price_") {
-            let rest = condition_id.strip_prefix("ind_price_")?;
-            if let Some(tf_pos) = rest.find("_tf") {
-                let before_tf = &rest[..tf_pos];
-                let parts: Vec<&str> = before_tf.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
-            } else {
-                let parts: Vec<&str> = rest.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
-            }
-        } else if condition_id.starts_with("ind_const_") {
-            let rest = condition_id.strip_prefix("ind_const_")?;
-            if let Some(tf_pos) = rest.find("_tf") {
-                let before_tf = &rest[..tf_pos];
-                let parts: Vec<&str> = before_tf.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
-            } else {
-                let parts: Vec<&str> = rest.split('_').collect();
-                if !parts.is_empty() {
-                    return Some(parts[0].to_string());
-                }
-            }
-        }
-        None
-    }
 
     fn mutate_parameter_with_range(
         value: &mut crate::strategy::types::StrategyParamValue,

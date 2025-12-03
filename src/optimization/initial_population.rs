@@ -724,16 +724,16 @@ impl InitialPopulationGenerator {
         candidate: &StrategyCandidate,
         condition: &crate::discovery::ConditionInfo,
     ) -> Option<String> {
-        let alias = Self::extract_indicator_alias_from_condition_id(&condition.id)?;
+        let alias = &condition.primary_indicator_alias;
 
-        if let Some(ind) = candidate.indicators.iter().find(|i| i.alias == alias) {
+        if let Some(ind) = candidate.indicators.iter().find(|i| i.alias == *alias) {
             return Some(ind.name.clone());
         }
 
         if let Some(nested) = candidate
             .nested_indicators
             .iter()
-            .find(|n| n.indicator.alias == alias)
+            .find(|n| n.indicator.alias == *alias)
         {
             return Some(nested.indicator.name.clone());
         }
@@ -800,10 +800,6 @@ impl InitialPopulationGenerator {
         Vec::new()
     }
 
-    fn extract_indicator_alias_from_condition_id(condition_id: &str) -> Option<String> {
-        let aliases = Self::extract_all_indicator_aliases_from_condition(condition_id);
-        aliases.first().cloned()
-    }
 
     fn should_apply_volatility_constraint(
         indicator: &crate::discovery::IndicatorInfo,
@@ -829,14 +825,8 @@ impl InitialPopulationGenerator {
                         for condition in conditions.iter().chain(exit_conditions.iter()) {
                             if let Some(price_field) = &condition.price_field {
                                 if price_field == "Close" {
-                                    if let Some(alias) =
-                                        Self::extract_indicator_alias_from_condition_id(
-                                            &condition.id,
-                                        )
-                                    {
-                                        if alias == indicator.alias {
-                                            return true;
-                                        }
+                                    if condition.primary_indicator_alias == indicator.alias {
+                                        return true;
                                     }
                                 }
                             }

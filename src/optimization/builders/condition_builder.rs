@@ -64,6 +64,30 @@ impl<'a> ConditionBuilder<'a> {
                 is_entry,
             )?;
 
+        let (primary_alias, secondary_alias) = if condition_type == "indicator_indicator" {
+            if let Some(separator_pos) = condition_id.find("::") {
+                let prefix_len = if condition_id.starts_with("entry_") {
+                    6
+                } else if condition_id.starts_with("exit_") {
+                    5
+                } else {
+                    0
+                };
+                let primary = &condition_id[prefix_len..separator_pos];
+                let after_separator = &condition_id[separator_pos + 2..];
+                if let Some(last_underscore) = after_separator.rfind('_') {
+                    let secondary = &after_separator[..last_underscore];
+                    (primary.to_string(), Some(secondary.to_string()))
+                } else {
+                    (primary_indicator.alias.clone(), None)
+                }
+            } else {
+                (primary_indicator.alias.clone(), None)
+            }
+        } else {
+            (primary_indicator.alias.clone(), None)
+        };
+
         Some(ConditionInfo {
             id: condition_id,
             name: condition_name,
@@ -71,6 +95,8 @@ impl<'a> ConditionBuilder<'a> {
             condition_type: condition_type.to_string(),
             optimization_params,
             constant_value,
+            primary_indicator_alias: primary_alias,
+            secondary_indicator_alias: secondary_alias,
             primary_timeframe: None,
             secondary_timeframe: None,
             price_field,
@@ -486,6 +512,30 @@ impl<'a> ConditionBuilder<'a> {
                 )
             };
 
+        let (primary_alias, secondary_alias) = if condition_type == "indicator_indicator" {
+            if let Some(separator_pos) = condition_id.find("::") {
+                let prefix_len = if condition_id.starts_with("entry_") {
+                    6
+                } else if condition_id.starts_with("exit_") {
+                    5
+                } else {
+                    0
+                };
+                let primary = &condition_id[prefix_len..separator_pos];
+                let after_separator = &condition_id[separator_pos + 2..];
+                if let Some(last_underscore) = after_separator.rfind('_') {
+                    let secondary = &after_separator[..last_underscore];
+                    (primary.to_string(), Some(secondary.to_string()))
+                } else {
+                    (indicator.alias.clone(), None)
+                }
+            } else {
+                (indicator.alias.clone(), None)
+            }
+        } else {
+            (indicator.alias.clone(), None)
+        };
+
         Some(ConditionInfo {
             id: condition_id,
             name: condition_name,
@@ -493,6 +543,8 @@ impl<'a> ConditionBuilder<'a> {
             condition_type,
             optimization_params,
             constant_value,
+            primary_indicator_alias: primary_alias,
+            secondary_indicator_alias: secondary_alias,
             primary_timeframe: timeframe,
             secondary_timeframe: None,
             price_field,
@@ -641,9 +693,7 @@ impl<'a> ConditionBuilder<'a> {
             if new_condition.operator == existing.operator
                 && new_condition.condition_type == existing.condition_type
             {
-                let new_alias = Self::extract_indicator_alias_from_condition_id(&new_condition.id);
-                let existing_alias = Self::extract_indicator_alias_from_condition_id(&existing.id);
-                if new_alias == existing_alias {
+                if new_condition.primary_indicator_alias == existing.primary_indicator_alias {
                     return true;
                 }
             }
@@ -651,9 +701,6 @@ impl<'a> ConditionBuilder<'a> {
         false
     }
 
-    pub fn extract_indicator_alias_from_condition_id(condition_id: &str) -> Option<String> {
-        ConditionId::extract_primary_alias(condition_id)
-    }
 
     pub fn is_comparison_operator(operator: &ConditionOperator) -> bool {
         matches!(
@@ -672,24 +719,14 @@ impl<'a> ConditionBuilder<'a> {
             return None;
         }
 
-        let primary_alias = Self::extract_indicator_alias_from_condition_id(&condition.id)?;
+        let primary_alias = &condition.primary_indicator_alias;
 
         if condition.condition_type == "indicator_indicator" {
-            // ID формат: "entry_{primary_alias}::{secondary_alias}_{random}"
-            // или "exit_{primary_alias}::{secondary_alias}_{random}"
-            // Парсим по "::" чтобы корректно обработать alias-ы с "_"
-            if let Some(double_colon_pos) = condition.id.find("::") {
-                let after_double_colon = &condition.id[double_colon_pos + 2..];
-                // secondary_alias заканчивается перед последним "_" (random id)
-                if let Some(last_underscore) = after_double_colon.rfind('_') {
-                    let secondary_alias = &after_double_colon[..last_underscore];
-                    if !secondary_alias.is_empty() {
-                        return Some(ConditionOperands::IndicatorIndicator {
-                            primary_alias,
-                            secondary_alias: secondary_alias.to_string(),
-                        });
-                    }
-                }
+            if let Some(secondary_alias) = &condition.secondary_indicator_alias {
+                return Some(ConditionOperands::IndicatorIndicator {
+                    primary_alias: primary_alias.to_string(),
+                    secondary_alias: secondary_alias.clone(),
+                });
             }
         } else if condition.condition_type == "indicator_price" {
             let price_field = condition
@@ -697,12 +734,12 @@ impl<'a> ConditionBuilder<'a> {
                 .clone()
                 .unwrap_or_else(|| "Close".to_string());
             return Some(ConditionOperands::IndicatorPrice {
-                indicator_alias: primary_alias,
+                indicator_alias: primary_alias.clone(),
                 price_field,
             });
         } else if condition.condition_type == "indicator_constant" {
             return Some(ConditionOperands::IndicatorConstant {
-                indicator_alias: primary_alias,
+                indicator_alias: primary_alias.clone(),
             });
         }
 
@@ -799,6 +836,30 @@ impl<'a> ConditionBuilder<'a> {
                 &mut rng,
             )?;
 
+        let (primary_alias, secondary_alias) = if condition_type == "indicator_indicator" {
+            if let Some(separator_pos) = condition_id.find("::") {
+                let prefix_len = if condition_id.starts_with("entry_") {
+                    6
+                } else if condition_id.starts_with("exit_") {
+                    5
+                } else {
+                    0
+                };
+                let primary = &condition_id[prefix_len..separator_pos];
+                let after_separator = &condition_id[separator_pos + 2..];
+                if let Some(last_underscore) = after_separator.rfind('_') {
+                    let secondary = &after_separator[..last_underscore];
+                    (primary.to_string(), Some(secondary.to_string()))
+                } else {
+                    (indicator.alias.clone(), None)
+                }
+            } else {
+                (indicator.alias.clone(), None)
+            }
+        } else {
+            (indicator.alias.clone(), None)
+        };
+
         Some(ConditionInfo {
             id: condition_id,
             name: condition_name,
@@ -806,6 +867,8 @@ impl<'a> ConditionBuilder<'a> {
             condition_type: condition_type.to_string(),
             optimization_params,
             constant_value,
+            primary_indicator_alias: primary_alias,
+            secondary_indicator_alias: secondary_alias,
             primary_timeframe: None,
             secondary_timeframe: None,
             price_field,

@@ -673,6 +673,8 @@ impl CandidateBuilder {
             condition_type: "indicator_price".to_string(),
             optimization_params: Vec::new(),
             constant_value: None,
+            primary_indicator_alias: indicator.alias.clone(),
+            secondary_indicator_alias: None,
             primary_timeframe: timeframe,
             secondary_timeframe: None,
             price_field: Some(price_field),
@@ -695,10 +697,11 @@ impl CandidateBuilder {
         let mut used_indicators = std::collections::HashSet::new();
 
         for condition in entry_conditions.iter().chain(exit_conditions.iter()) {
-            if let Some(alias) = Self::extract_indicator_alias_from_condition_id(&condition.id) {
-                if let Some(indicator) = all_indicators.iter().find(|i| i.alias == alias) {
-                    used_indicators.insert(indicator.alias.clone());
-                }
+            if let Some(indicator) = all_indicators
+                .iter()
+                .find(|i| i.alias == condition.primary_indicator_alias)
+            {
+                used_indicators.insert(indicator.alias.clone());
             }
         }
 
@@ -793,6 +796,8 @@ impl CandidateBuilder {
                     global_param_name: None,
                 }],
                 constant_value: Some(period as f64),
+                primary_indicator_alias: indicator.alias.clone(),
+                secondary_indicator_alias: None,
                 primary_timeframe: timeframe,
                 secondary_timeframe: None,
                 price_field: None,
@@ -924,34 +929,12 @@ impl CandidateBuilder {
             condition_type,
             optimization_params,
             constant_value,
+            primary_indicator_alias: indicator.alias.clone(),
+            secondary_indicator_alias: None,
             primary_timeframe: timeframe,
             secondary_timeframe: None,
             price_field,
         })
-    }
-
-    fn extract_indicator_alias_from_condition_id(condition_id: &str) -> Option<String> {
-        let rest = if condition_id.starts_with("entry_") {
-            condition_id.strip_prefix("entry_")?
-        } else if condition_id.starts_with("exit_") {
-            condition_id.strip_prefix("exit_")?
-        } else if condition_id.starts_with("ind_price_") {
-            condition_id.strip_prefix("ind_price_")?
-        } else if condition_id.starts_with("ind_const_") {
-            condition_id.strip_prefix("ind_const_")?
-        } else {
-            return None;
-        };
-
-        if let Some(separator_pos) = rest.find("::") {
-            return Some(rest[..separator_pos].to_string());
-        }
-
-        if let Some(last_underscore) = rest.rfind('_') {
-            return Some(rest[..last_underscore].to_string());
-        }
-
-        None
     }
 
     fn build_condition(
@@ -998,6 +981,28 @@ impl CandidateBuilder {
             })
             .unwrap_or(false);
 
+        // Проверяем, есть ли подходящий второй индикатор для indicator_indicator
+        // Преобразуем только базовые indicators в плоский список для can_compare_indicators
+        // (nested индикаторы не нужны, т.к. input индикатор ищется среди базовых)
+        let flat_base_indicators: Vec<IndicatorInfo> =
+            indicators.iter().map(|ind| ind.clone()).collect();
+
+        let available_secondary_for_indicator_indicator: Vec<&IndicatorInfo> = all_indicators
+            .iter()
+            .filter(|ind| ind.alias != primary_indicator.alias)
+            .filter(|ind| {
+                Self::can_compare_indicators(
+                    primary_indicator,
+                    *ind,
+                    nested_indicators,
+                    &flat_base_indicators,
+                )
+            })
+            .copied()
+            .collect();
+
+        let has_available_secondary = !available_secondary_for_indicator_indicator.is_empty();
+
         let condition_type = if has_absolute_threshold(&primary_indicator.name)
             && !Self::is_oscillator_used_in_nested(primary_indicator, nested_indicators)
         {
@@ -1007,7 +1012,23 @@ impl CandidateBuilder {
         } else if is_built_on_oscillator {
             self.weighted_choice_for_oscillator_based(probabilities)
         } else {
-            self.weighted_condition_type_choice(probabilities)
+            // Выбираем тип условия, но если выбран indicator_indicator, проверяем наличие второго индикатора
+            let chosen_type = self.weighted_condition_type_choice(probabilities);
+            if chosen_type == "indicator_indicator" && !has_available_secondary {
+                // Если выбран indicator_indicator, но нет подходящего второго индикатора,
+                // выбираем между indicator_price и trend_condition
+                if self.rng.gen_bool(
+                    probabilities.use_trend_condition
+                        / (probabilities.use_indicator_price_condition
+                            + probabilities.use_trend_condition),
+                ) {
+                    "trend_condition"
+                } else {
+                    "indicator_price"
+                }
+            } else {
+                chosen_type
+            }
         };
 
         // Получаем разрешённые операторы из build_rules индикатора
@@ -1146,6 +1167,11 @@ impl CandidateBuilder {
             // Для indicator_indicator нужен второй индикатор
             // Правила: осцилляторы не могут сравниваться с осцилляторами
             // Осцилляторы могут сравниваться только с индикаторами, построенными по осцилляторам
+            // Преобразуем только базовые indicators в плоский список для can_compare_indicators
+            // (nested индикаторы не нужны, т.к. input индикатор ищется среди базовых)
+            let flat_base_indicators: Vec<IndicatorInfo> =
+                indicators.iter().map(|ind| ind.clone()).collect();
+
             let available_secondary: Vec<&IndicatorInfo> = all_indicators
                 .iter()
                 .filter(|ind| ind.alias != primary_indicator.alias)
@@ -1154,7 +1180,7 @@ impl CandidateBuilder {
                         primary_indicator,
                         *ind,
                         nested_indicators,
-                        indicators,
+                        &flat_base_indicators,
                     )
                 })
                 .copied()
@@ -1174,43 +1200,18 @@ impl CandidateBuilder {
                 );
                 (id, name)
             } else {
-                if has_absolute_threshold(&primary_indicator.name)
-                    && !Self::is_oscillator_used_in_nested(primary_indicator, nested_indicators)
-                {
-                    let const_val = if primary_indicator.name == "RSI" {
-                        if operator == ConditionOperator::Above {
-                            self.rng.gen_range(70.0..=90.0)
-                        } else {
-                            self.rng.gen_range(10.0..=30.0)
-                        }
-                    } else if primary_indicator.name == "Stochastic" {
-                        if operator == ConditionOperator::Above {
-                            self.rng.gen_range(80.0..=95.0)
-                        } else {
-                            self.rng.gen_range(5.0..=20.0)
-                        }
-                    } else {
-                        self.rng.gen_range(0.0..=100.0)
-                    };
-                    let id = format!(
-                        "{}_{}_{}",
-                        if is_entry { "entry" } else { "exit" },
-                        primary_indicator.alias,
-                        self.rng.gen::<u32>()
-                    );
-                    let name =
-                        format!("{} {:?} {:.1}", primary_indicator.name, operator, const_val);
-                    (id, name)
-                } else {
-                    let id = format!(
-                        "{}_{}_{}",
-                        if is_entry { "entry" } else { "exit" },
-                        primary_indicator.alias,
-                        self.rng.gen::<u32>()
-                    );
-                    let name = format!("{} {:?} {}", primary_indicator.name, operator, "target");
-                    (id, name)
-                }
+                // Если не найден второй индикатор для indicator_indicator,
+                // создаем условие как indicator_price (индикатор сравнивается с ценой)
+                // Это происходит, когда выбран тип indicator_indicator, но нет подходящего второго индикатора
+                let id = format!(
+                    "{}_{}_{}",
+                    if is_entry { "entry" } else { "exit" },
+                    primary_indicator.alias,
+                    self.rng.gen::<u32>()
+                );
+                let name = format!("{} {:?} {}", primary_indicator.name, operator, "target");
+                // Возвращаем ID без ::, чтобы в final_condition_type определить, что это indicator_price
+                (id, name)
             }
         } else {
             if has_absolute_threshold(&primary_indicator.name)
@@ -1295,18 +1296,13 @@ impl CandidateBuilder {
 
         // Если не удалось создать indicator_indicator, проверяем тип индикатора
         let final_condition_type = if condition_type == "indicator_indicator" {
-            let parts: Vec<&str> = condition_id.split('_').collect();
-            if parts.len() < 4 {
-                if (has_absolute_threshold(&primary_indicator.name)
-                    && !Self::is_oscillator_used_in_nested(primary_indicator, nested_indicators))
-                    || has_percent_of_price_threshold(&primary_indicator.name)
-                {
-                    "indicator_constant"
-                } else {
-                    "indicator_price"
-                }
-            } else {
+            // Проверяем, содержит ли ID разделитель :: (признак indicator_indicator)
+            if condition_id.contains("::") {
                 condition_type
+            } else {
+                // ID не содержит :: - это ошибка в логике, так как мы уже проверили наличие второго индикатора
+                // Но на всякий случай меняем тип на indicator_price
+                "indicator_price"
             }
         } else if condition_type == "indicator_price" {
             if (has_absolute_threshold(&primary_indicator.name)
@@ -1431,6 +1427,30 @@ impl CandidateBuilder {
             condition_name
         };
 
+        let (primary_alias, secondary_alias) = if final_condition_type == "indicator_indicator" {
+            if let Some(separator_pos) = condition_id.find("::") {
+                let prefix_len = if condition_id.starts_with("entry_") {
+                    6
+                } else if condition_id.starts_with("exit_") {
+                    5
+                } else {
+                    0
+                };
+                let primary = &condition_id[prefix_len..separator_pos];
+                let after_separator = &condition_id[separator_pos + 2..];
+                if let Some(last_underscore) = after_separator.rfind('_') {
+                    let secondary = &after_separator[..last_underscore];
+                    (primary.to_string(), Some(secondary.to_string()))
+                } else {
+                    (primary_indicator.alias.clone(), None)
+                }
+            } else {
+                (primary_indicator.alias.clone(), None)
+            }
+        } else {
+            (primary_indicator.alias.clone(), None)
+        };
+
         Some(ConditionInfo {
             id: condition_id,
             name: final_condition_name,
@@ -1438,6 +1458,8 @@ impl CandidateBuilder {
             condition_type: final_condition_type.to_string(),
             optimization_params,
             constant_value: constant_value_for_percent,
+            primary_indicator_alias: primary_alias,
+            secondary_indicator_alias: secondary_alias,
             primary_timeframe: None,
             secondary_timeframe: None,
             price_field: if final_condition_type == "indicator_price" && price_field.is_none() {
@@ -1623,27 +1645,13 @@ impl CandidateBuilder {
                 continue;
             }
 
-            // Извлекаем alias индикаторов из ID условий
-            let existing_primary_alias =
-                Self::extract_indicator_alias_from_condition_id(&existing.id);
-            let new_primary_alias =
-                Self::extract_indicator_alias_from_condition_id(&new_condition.id);
-
-            if existing_primary_alias != new_primary_alias {
+            if existing.primary_indicator_alias != new_condition.primary_indicator_alias {
                 continue;
             }
 
-            // Для indicator_indicator проверяем также secondary индикатор
             if existing.condition_type == "indicator_indicator" {
-                let existing_parts: Vec<&str> = existing.id.split('_').collect();
-                let new_parts: Vec<&str> = new_condition.id.split('_').collect();
-
-                if existing_parts.len() >= 3 && new_parts.len() >= 3 {
-                    let existing_secondary = existing_parts.get(2);
-                    let new_secondary = new_parts.get(2);
-                    if existing_secondary != new_secondary {
-                        continue;
-                    }
+                if existing.secondary_indicator_alias != new_condition.secondary_indicator_alias {
+                    continue;
                 }
             }
 
