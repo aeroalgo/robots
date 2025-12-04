@@ -1,0 +1,567 @@
+# REFACTOR PLAN TEMPLATE
+
+## PURPOSE
+This template guides the creation of detailed refactor plans that translate analysis findings into actionable implementation steps with multiple solution options, justifications, and verification criteria.
+
+## DOCUMENT STRUCTURE
+
+### Header
+```markdown
+# Refactor Plan: [Feature/Module Name]
+
+**Date**: [YYYY-MM-DD]
+**Based On**: `refactor-analysis-[id].md`
+**Planned By**: AI Assistant (REFACTOR Mode)
+**Scope**: [Brief description of refactoring scope]
+**Estimated Effort**: [Total time estimate]
+```
+
+### Executive Summary
+```markdown
+## Executive Summary
+
+**Issues to Address**: [Total count]
+  - 🔴 Critical: [N]
+  - 🟠 High: [N]
+  - 🟡 Medium: [N]
+  - 🟢 Low: [N]
+
+**Estimated Impact**:
+- Performance improvement: [X]%
+- Code quality improvement: [From X/10 to Y/10]
+- Maintainability: [Significant/Moderate/Minor improvement]
+
+**Timeline**:
+- Phase 1 (Critical): [X hours/days]
+- Phase 2 (High): [Y hours/days]
+- Phase 3 (Medium): [Z hours/days]
+- Phase 4 (Low): [Optional]
+
+**Risk Assessment**: [Low/Medium/High]
+**Dependencies**: [List any blockers or dependencies]
+```
+
+## PHASE STRUCTURE
+
+### Phase 1: Critical Issues (Must Fix)
+
+```markdown
+## Phase 1: Critical Issues
+
+**Objective**: Resolve all critical issues that pose security, correctness, or severe performance problems.
+
+**Timeline**: [Estimated hours/days]
+**Priority**: HIGHEST - Must complete before proceeding
+
+---
+
+### Issue 1.1: [Title from Analysis]
+
+**Reference**: Issue ID from `refactor-analysis-[id].md`
+**Severity**: 🔴 Critical
+**Category**: [Architecture/Quality/Performance/Rust]
+**Location**: `[file:line]`
+
+#### Problem Statement
+[Clear description of the problem copied from analysis]
+
+#### Current State
+```rust
+[Code snippet showing current implementation]
+```
+
+#### Impact
+- [Impact point 1]
+- [Impact point 2]
+- [Impact point 3]
+
+#### Solution Options
+
+---
+
+##### 🎨 OPTION 1: [Solution Name]
+
+**Approach**:
+[Detailed description of this solution approach]
+
+**Implementation**:
+```rust
+[Pseudocode or actual code showing the solution]
+```
+
+**Pros**:
+- ✅ [Advantage 1]
+- ✅ [Advantage 2]
+- ✅ [Advantage 3]
+
+**Cons**:
+- ❌ [Disadvantage 1]
+- ❌ [Disadvantage 2]
+
+**Effort**: [Low/Medium/High - X hours]
+**Impact**: [Low/Medium/High]
+**Risk**: [Low/Medium/High]
+
+**Trade-offs**:
+- [Trade-off consideration 1]
+- [Trade-off consideration 2]
+
+---
+
+##### 🎨 OPTION 2: [Solution Name]
+
+**Approach**:
+[Detailed description of this solution approach]
+
+**Implementation**:
+```rust
+[Pseudocode or actual code showing the solution]
+```
+
+**Pros**:
+- ✅ [Advantage 1]
+- ✅ [Advantage 2]
+
+**Cons**:
+- ❌ [Disadvantage 1]
+- ❌ [Disadvantage 2]
+
+**Effort**: [Low/Medium/High - X hours]
+**Impact**: [Low/Medium/High]
+**Risk**: [Low/Medium/High]
+
+---
+
+##### 🎨 OPTION 3: [Solution Name] (if applicable)
+
+[Same structure as Options 1 and 2]
+
+---
+
+#### Recommended Solution
+
+**Selected**: Option [X] - [Solution Name]
+
+**Justification**:
+[Detailed explanation of why this option was selected, considering:
+- Effort vs. Impact balance
+- Risk mitigation
+- Project constraints
+- Long-term maintainability
+- Team expertise
+- Existing architecture]
+
+**Decision Factors**:
+| Factor | Option 1 | Option 2 | Option 3 | Selected |
+|--------|----------|----------|----------|----------|
+| Effort | [score] | [score] | [score] | [best] |
+| Impact | [score] | [score] | [score] | [best] |
+| Risk | [score] | [score] | [score] | [best] |
+| Maintainability | [score] | [score] | [score] | [best] |
+
+#### Implementation Steps
+
+1. **[Step 1 Title]**
+   - Action: [Specific action to take]
+   - Files: `[files to modify]`
+   - Expected result: [What should happen]
+
+2. **[Step 2 Title]**
+   - Action: [Specific action to take]
+   - Files: `[files to modify]`
+   - Expected result: [What should happen]
+
+3. **[Step 3 Title]**
+   - Action: [Specific action to take]
+   - Files: `[files to modify]`
+   - Expected result: [What should happen]
+
+[More steps as needed]
+
+#### Testing Plan
+
+**Unit Tests**:
+- [ ] Test [specific functionality]
+- [ ] Test [edge case 1]
+- [ ] Test [edge case 2]
+
+**Integration Tests**:
+- [ ] Test [integration point 1]
+- [ ] Test [integration point 2]
+
+**Performance Tests** (if applicable):
+- [ ] Benchmark [operation]
+- [ ] Verify improvement of [X]%
+
+#### Verification Criteria
+
+- [ ] All tests pass
+- [ ] Performance meets requirements
+- [ ] No regression in other areas
+- [ ] Code review approved
+- [ ] Documentation updated
+
+**Success Metrics**:
+- [Specific measurable outcome 1]
+- [Specific measurable outcome 2]
+
+#### Dependencies
+
+**Requires**:
+- [Dependency 1]
+- [Dependency 2]
+
+**Blocks**:
+- [What this blocks]
+
+**Estimated Effort**: [X hours]
+
+---
+
+### Issue 1.2: [Next Critical Issue]
+[Same complete structure as Issue 1.1]
+
+---
+```
+
+### Phase 2: High Priority Issues
+
+```markdown
+## Phase 2: High Priority Issues
+
+**Objective**: Address significant issues that notably impact code quality, maintainability, or performance.
+
+**Timeline**: [Estimated hours/days]
+**Priority**: HIGH - Should complete in current cycle
+**Depends On**: Phase 1 completion
+
+---
+
+### Issue 2.1: [Title]
+[Same structure as Critical issues, with all solution options and detailed planning]
+
+### Issue 2.2: [Title]
+[Same structure]
+
+---
+```
+
+### Phase 3: Medium Priority Issues
+
+```markdown
+## Phase 3: Medium Priority Issues
+
+**Objective**: Improve code quality and address technical debt where practical.
+
+**Timeline**: [Estimated hours/days]
+**Priority**: MEDIUM - Address if time permits
+**Depends On**: Phase 2 completion
+
+---
+
+### Issue 3.1: [Title]
+[Same structure as previous phases]
+
+---
+```
+
+### Phase 4: Low Priority Issues
+
+```markdown
+## Phase 4: Low Priority Issues
+
+**Objective**: Nice-to-have improvements and minor optimizations.
+
+**Timeline**: [Estimated hours/days]
+**Priority**: LOW - Optional improvements
+**Depends On**: Phase 3 completion
+
+---
+
+### Issue 4.1: [Title]
+[Can be somewhat abbreviated compared to critical issues, but still include solution options]
+
+---
+```
+
+## IMPLEMENTATION STRATEGY
+
+```markdown
+## Implementation Strategy
+
+### Approach
+
+**Methodology**: [Incremental/Big Bang/Parallel]
+
+**Reasoning**:
+[Why this approach was chosen for this refactoring]
+
+### Rollout Plan
+
+1. **Phase 1: Critical**
+   - Duration: [X hours/days]
+   - Team: [Who]
+   - Risk: [Assessment]
+   - Rollback: [Strategy]
+
+2. **Phase 2: High**
+   - Duration: [Y hours/days]
+   - Team: [Who]
+   - Risk: [Assessment]
+   - Rollback: [Strategy]
+
+3. **Phase 3: Medium**
+   - Duration: [Z hours/days]
+   - Team: [Who]
+   - Risk: [Assessment]
+   - Rollback: [Strategy]
+
+4. **Phase 4: Low**
+   - Duration: [W hours/days]
+   - Team: [Who]
+   - Risk: [Assessment]
+   - Rollback: [Strategy]
+
+### Risk Mitigation
+
+**High-Risk Changes**:
+- [Change 1]: [Mitigation strategy]
+- [Change 2]: [Mitigation strategy]
+
+**Rollback Strategy**:
+- [How to rollback if things go wrong]
+- [Branch strategy]
+- [Backup plan]
+
+### Testing Strategy
+
+**Test Coverage Goals**:
+- Unit tests: [Target %]
+- Integration tests: [Target %]
+- Performance tests: [Specific benchmarks]
+
+**Test Environments**:
+- [ ] Local development
+- [ ] CI/CD pipeline
+- [ ] Staging environment
+- [ ] Production (if applicable)
+```
+
+## SUCCESS CRITERIA
+
+```markdown
+## Success Criteria
+
+### Quantitative Metrics
+
+**Code Quality**:
+- Overall score: [Current X/10] → [Target Y/10]
+- Cyclomatic complexity: [Current avg] → [Target avg]
+- Code duplication: [Current %] → [Target %]
+
+**Performance**:
+- [Metric 1]: [Current] → [Target]
+- [Metric 2]: [Current] → [Target]
+- [Metric 3]: [Current] → [Target]
+
+**Test Coverage**:
+- Line coverage: [Current %] → [Target %]
+- Branch coverage: [Current %] → [Target %]
+
+### Qualitative Goals
+
+- [ ] Code is more readable and maintainable
+- [ ] Architecture follows SOLID principles
+- [ ] Performance meets requirements
+- [ ] Technical debt reduced
+- [ ] Documentation is comprehensive
+- [ ] Team understands new patterns
+
+### Acceptance Criteria
+
+**Must Have**:
+- [ ] All critical issues resolved
+- [ ] All tests passing
+- [ ] Performance requirements met
+- [ ] No new bugs introduced
+
+**Should Have**:
+- [ ] All high priority issues resolved
+- [ ] Code review approved
+- [ ] Documentation updated
+- [ ] Team trained on changes
+
+**Nice to Have**:
+- [ ] Medium priority issues addressed
+- [ ] Low priority issues considered
+- [ ] Additional optimizations applied
+```
+
+## PROGRESS TRACKING
+
+```markdown
+## Progress Tracking
+
+### Phase 1: Critical Issues
+
+| Issue ID | Status | Assigned | Started | Completed | Notes |
+|----------|--------|----------|---------|-----------|-------|
+| 1.1 | ⬜ Pending / 🟡 In Progress / ✅ Done | - | - | - | - |
+| 1.2 | ⬜ | - | - | - | - |
+
+### Phase 2: High Priority Issues
+
+| Issue ID | Status | Assigned | Started | Completed | Notes |
+|----------|--------|----------|---------|-----------|-------|
+| 2.1 | ⬜ | - | - | - | - |
+| 2.2 | ⬜ | - | - | - | - |
+
+### Phase 3: Medium Priority Issues
+
+| Issue ID | Status | Assigned | Started | Completed | Notes |
+|----------|--------|----------|---------|-----------|-------|
+| 3.1 | ⬜ | - | - | - | - |
+
+### Phase 4: Low Priority Issues
+
+| Issue ID | Status | Assigned | Started | Completed | Notes |
+|----------|--------|----------|---------|-----------|-------|
+| 4.1 | ⬜ | - | - | - | - |
+
+### Overall Progress
+
+- Critical: [X/N] completed ([%])
+- High: [Y/M] completed ([%])
+- Medium: [Z/K] completed ([%])
+- Low: [W/L] completed ([%])
+
+**Total Progress**: [X%] complete
+```
+
+## LESSONS LEARNED
+
+```markdown
+## Lessons Learned
+
+### What Went Well
+[To be filled during/after implementation]
+
+### What Could Be Improved
+[To be filled during/after implementation]
+
+### Future Recommendations
+[To be filled during/after implementation]
+```
+
+## APPENDICES
+
+```markdown
+## Appendices
+
+### Appendix A: Related Documentation
+- Analysis Document: `refactor-analysis-[id].md`
+- Original Implementation: `[files]`
+- Design Documents: `[if any]`
+- Task Tracking: `tasks.md`
+
+### Appendix B: Technical References
+- [Relevant design patterns]
+- [Performance benchmarks]
+- [Architecture documents]
+- [Best practices guides]
+
+### Appendix C: Code Examples
+
+#### Before Refactoring
+```rust
+[Representative code before refactoring]
+```
+
+#### After Refactoring
+```rust
+[Expected code after refactoring]
+```
+
+### Appendix D: Benchmarks
+
+**Current Performance**:
+```
+[Benchmark results before refactoring]
+```
+
+**Target Performance**:
+```
+[Expected benchmark results after refactoring]
+```
+```
+
+## METADATA
+
+```markdown
+---
+## Document Metadata
+
+**Created**: [Timestamp]
+**Last Updated**: [Timestamp]
+**Status**: [Draft/In Progress/Complete]
+**Version**: [X.Y]
+
+**Total Issues**: [N]
+**Estimated Total Effort**: [X hours/days]
+**Actual Effort**: [To be tracked]
+
+**Related Documents**:
+- Analysis: `refactor-analysis-[id].md`
+- Tasks: `tasks.md`
+- Progress: `progress.md`
+
+**Tags**: #refactor #plan #implementation
+---
+```
+
+## USAGE GUIDELINES
+
+**When creating a refactor plan**:
+
+1. **Base on Analysis**: Every plan must reference a complete analysis document
+
+2. **Multiple Options**: Always provide 2-4 solution options for each issue
+   - Don't just pick the first solution
+   - Consider effort/impact tradeoffs
+   - Think about long-term implications
+
+3. **Clear Justification**: Always explain why a solution was selected
+   - Reference the decision factors table
+   - Consider project context
+   - Be honest about tradeoffs
+
+4. **Detailed Steps**: Implementation steps should be concrete and actionable
+   - Specific file names
+   - Clear actions
+   - Expected outcomes
+
+5. **Verification**: Every issue needs clear success criteria
+   - Testable conditions
+   - Measurable improvements
+   - Acceptance criteria
+
+6. **Realistic Estimates**: Effort estimates should be realistic
+   - Include time for testing
+   - Account for unknowns
+   - Add buffer for complex changes
+
+7. **Priority Order**: Always work in priority order
+   - Critical first, always
+   - High second
+   - Medium and Low as time permits
+
+**Quality Checklist**:
+- ✅ All issues from analysis are addressed
+- ✅ Multiple solutions explored for each issue
+- ✅ Selections are justified with clear reasoning
+- ✅ Implementation steps are concrete and actionable
+- ✅ Testing and verification plans are comprehensive
+- ✅ Dependencies and risks are identified
+- ✅ Success criteria are measurable
+- ✅ Timeline estimates are realistic
+- ✅ Progress tracking mechanism in place

@@ -1,0 +1,347 @@
+# REFACTOR MODE VISUAL MAP
+
+## PURPOSE
+This map guides the refactoring process: analyzing code quality, identifying issues, designing solutions, and implementing improvements systematically.
+
+## REFACTOR WORKFLOW
+
+```mermaid
+graph TD
+    Start["🚀 START REFACTOR"] --> Context["📚 Load Context"]
+    Context --> LoadTasks["Read tasks.md"]
+    Context --> LoadProgress["Read progress.md"]
+    Context --> LoadCode["Read implemented code"]
+    
+    LoadTasks & LoadProgress & LoadCode --> Phase1["🔍 PHASE 1: ANALYSIS"]
+    
+    %% Analysis Phase
+    Phase1 --> ArchAnalysis["🏗️ Architecture Analysis"]
+    ArchAnalysis --> CheckSOLID["Check SOLID Principles"]
+    ArchAnalysis --> CheckPatterns["Check Design Patterns"]
+    ArchAnalysis --> CheckModularity["Check Modularity"]
+    
+    Phase1 --> QualityAnalysis["📝 Code Quality Analysis"]
+    QualityAnalysis --> CheckReadability["Check Readability"]
+    QualityAnalysis --> CheckMaintainability["Check Maintainability"]
+    QualityAnalysis --> CheckExtensibility["Check Extensibility"]
+    
+    Phase1 --> PerfAnalysis["⚡ Performance Analysis"]
+    PerfAnalysis --> CheckComplexity["Check Time/Space Complexity"]
+    PerfAnalysis --> CheckAllocations["Check Memory Usage"]
+    PerfAnalysis --> CheckOptimizations["Check Optimization Opportunities"]
+    
+    Phase1 --> RustAnalysis["🦀 Rust-Specific Analysis"]
+    RustAnalysis --> CheckOwnership["Check Ownership Patterns"]
+    RustAnalysis --> CheckBorrowing["Check Borrowing Efficiency"]
+    RustAnalysis --> CheckTraits["Check Trait Design"]
+    
+    %% Issue Identification
+    CheckSOLID & CheckPatterns & CheckModularity --> IssueArch["Architecture Issues"]
+    CheckReadability & CheckMaintainability & CheckExtensibility --> IssueQuality["Quality Issues"]
+    CheckComplexity & CheckAllocations & CheckOptimizations --> IssuePerf["Performance Issues"]
+    CheckOwnership & CheckBorrowing & CheckTraits --> IssueRust["Rust Issues"]
+    
+    IssueArch & IssueQuality & IssuePerf & IssueRust --> Categorize["📊 Categorize by Severity"]
+    Categorize --> Critical["🔴 Critical"]
+    Categorize --> High["🟠 High"]
+    Categorize --> Medium["🟡 Medium"]
+    Categorize --> Low["🟢 Low"]
+    
+    %% Phase 2: Solution Design
+    Critical & High & Medium & Low --> Phase2["💡 PHASE 2: SOLUTION DESIGN"]
+    Phase2 --> IterateIssues{"📋 For Each<br>Issue"}
+    
+    IterateIssues --> GenerateOptions["🎨 Generate 2-4<br>Solution Options"]
+    GenerateOptions --> Option1["Option 1:<br>Pros/Cons/Effort/Impact"]
+    GenerateOptions --> Option2["Option 2:<br>Pros/Cons/Effort/Impact"]
+    GenerateOptions --> Option3["Option 3 (optional):<br>Pros/Cons/Effort/Impact"]
+    
+    Option1 & Option2 & Option3 --> AnalyzeOptions["⚖️ Analyze & Compare"]
+    AnalyzeOptions --> SelectBest["✅ Select Best Solution"]
+    SelectBest --> Justify["📝 Justify Selection"]
+    
+    Justify --> MoreIssues{"More<br>Issues?"}
+    MoreIssues -->|"Yes"| IterateIssues
+    MoreIssues -->|"No"| CreateDocs["📄 Create Documents"]
+    
+    %% Documentation
+    CreateDocs --> AnalysisDoc["Create refactor-analysis-[id].md"]
+    AnalysisDoc --> IncludeFindings["Include:<br>- All findings<br>- Severity ratings<br>- Scores<br>- Detailed analysis"]
+    
+    CreateDocs --> PlanDoc["Create refactor-plan-[id].md"]
+    PlanDoc --> IncludePlan["Include:<br>- Prioritized issues<br>- Selected solutions<br>- Implementation steps<br>- Success criteria"]
+    
+    %% Self-Review
+    IncludeFindings & IncludePlan --> SelfReview["📖 Self-Review Documents"]
+    SelfReview --> ReadAnalysis["Read refactor-analysis-[id].md"]
+    SelfReview --> ReadPlan["Read refactor-plan-[id].md"]
+    
+    %% Phase 3: Execution
+    ReadAnalysis & ReadPlan --> Phase3["⚒️ PHASE 3: EXECUTION"]
+    Phase3 --> Prioritize["🎯 Prioritize:<br>Critical → High → Medium → Low"]
+    
+    Prioritize --> RefactorLoop{"🔄 More<br>Issues<br>to Fix?"}
+    
+    RefactorLoop -->|"Yes"| NextIssue["Select Next Issue"]
+    NextIssue --> Implement["⚒️ Implement Solution"]
+    Implement --> TestChanges["✅ Test Changes"]
+    TestChanges --> BenchmarkIf{"Performance<br>Critical?"}
+    BenchmarkIf -->|"Yes"| Benchmark["📊 Run Benchmarks"]
+    BenchmarkIf -->|"No"| DocChanges["📝 Document Changes"]
+    Benchmark --> DocChanges
+    DocChanges --> RefactorLoop
+    
+    RefactorLoop -->|"No"| Verification["✓ VERIFICATION"]
+    
+    %% Verification
+    Verification --> VerifyTests["All tests passing?"]
+    Verification --> VerifyPerf["Performance maintained/improved?"]
+    Verification --> VerifyQuality["Code quality improved?"]
+    Verification --> VerifyDocs["Documentation updated?"]
+    
+    VerifyTests & VerifyPerf & VerifyQuality & VerifyDocs --> AllGood{"All<br>Verified?"}
+    AllGood -->|"Yes"| UpdateTasks["📝 Update tasks.md"]
+    AllGood -->|"No"| FixIssues["Fix Remaining Issues"]
+    FixIssues --> RefactorLoop
+    
+    UpdateTasks --> Complete["🏁 REFACTOR COMPLETE"]
+    Complete --> Recommend["⏭️ Recommend Next Mode"]
+    
+    Recommend --> RecQA["If major changes → QA"]
+    Recommend --> RecReflect["If insights gained → REFLECT"]
+    Recommend --> RecVAN["If done → VAN for next task"]
+    
+    %% Styling
+    style Start fill:#d971ff,stroke:#a33bc2,color:white
+    style Phase1 fill:#4da6ff,stroke:#0066cc,color:white
+    style Phase2 fill:#4dbb5f,stroke:#36873f,color:white
+    style Phase3 fill:#ffa64d,stroke:#cc7a30,color:white
+    style Verification fill:#4dbbbb,stroke:#368787,color:white
+    style Complete fill:#5fd94d,stroke:#3da336,color:white
+    
+    style Critical fill:#ff5555,stroke:#cc0000,color:white
+    style High fill:#ffa64d,stroke:#cc7a30,color:white
+    style Medium fill:#ffff66,stroke:#cccc00,color:black
+    style Low fill:#90ee90,stroke:#4dbb5f,color:black
+```
+
+## ANALYSIS FRAMEWORK
+
+### Architecture Analysis Checklist
+- [ ] Single Responsibility Principle followed?
+- [ ] Open/Closed Principle applied?
+- [ ] Liskov Substitution honored?
+- [ ] Interface Segregation practiced?
+- [ ] Dependency Inversion implemented?
+- [ ] Appropriate design patterns used?
+- [ ] Clear module boundaries?
+- [ ] Low coupling between modules?
+- [ ] High cohesion within modules?
+
+### Code Quality Checklist
+- [ ] Clear, descriptive naming?
+- [ ] Functions small and focused (< 50 lines)?
+- [ ] Cyclomatic complexity < 10?
+- [ ] No code duplication (DRY)?
+- [ ] Self-documenting code?
+- [ ] Comprehensive error handling?
+- [ ] Strong typing used?
+- [ ] No magic numbers?
+- [ ] No dead code?
+
+### Performance Checklist
+- [ ] Optimal algorithms (O(n) vs O(n²))?
+- [ ] Minimal allocations in hot paths?
+- [ ] Cache-friendly data structures?
+- [ ] No unnecessary clones/copies?
+- [ ] Lazy evaluation where applicable?
+- [ ] Parallelization opportunities explored?
+- [ ] No N+1 query patterns?
+- [ ] I/O operations optimized?
+
+### Rust-Specific Checklist
+- [ ] Clear ownership semantics?
+- [ ] Borrowing preferred over cloning?
+- [ ] Lifetimes correctly specified?
+- [ ] Traits well-designed?
+- [ ] Zero-cost abstractions leveraged?
+- [ ] Result/Option properly used?
+- [ ] Unsafe code justified and documented?
+- [ ] Appropriate cargo features used?
+
+## SEVERITY RATING GUIDE
+
+### 🔴 Critical
+Issues that MUST be fixed immediately:
+- Security vulnerabilities
+- Data corruption risks
+- Memory leaks
+- Major performance bottlenecks (> 100x slower)
+- Fundamental design principle violations
+
+### 🟠 High
+Issues that should be fixed soon:
+- Significant SOLID violations
+- Poor error handling
+- Performance issues (10-100x slower)
+- Difficult to maintain/extend
+- High coupling between modules
+
+### 🟡 Medium
+Issues that should be addressed:
+- Code duplication
+- Suboptimal algorithms (2-10x slower)
+- Moderate complexity issues
+- Missing tests
+- Inconsistent naming
+
+### 🟢 Low
+Nice-to-have improvements:
+- Minor style issues
+- Unnecessary comments
+- Small optimizations
+- Documentation improvements
+- Minor refactoring opportunities
+
+## SOLUTION DESIGN TEMPLATE
+
+For each issue, design solutions following this template:
+
+```
+ISSUE ID: [Unique identifier]
+SEVERITY: [Critical/High/Medium/Low]
+CATEGORY: [Architecture/Quality/Performance/Rust]
+
+PROBLEM:
+[Clear description of the issue]
+
+CURRENT CODE:
+[Snippet showing the problem]
+
+IMPACT:
+[What's the negative impact?]
+
+--- SOLUTION OPTIONS ---
+
+OPTION 1: [Name]
+Approach: [Brief description]
+Pros:
+  - [Advantage 1]
+  - [Advantage 2]
+Cons:
+  - [Disadvantage 1]
+  - [Disadvantage 2]
+Effort: [Low/Medium/High]
+Impact: [Low/Medium/High]
+
+OPTION 2: [Name]
+[Same structure]
+
+OPTION 3: [Name] (if applicable)
+[Same structure]
+
+--- RECOMMENDATION ---
+
+Selected: [Option X]
+Justification: [Why this option is best considering effort/impact tradeoff]
+
+Implementation Steps:
+1. [Concrete step 1]
+2. [Concrete step 2]
+3. [Concrete step 3]
+
+Verification:
+- [How to verify the fix works]
+- [Tests to add/modify]
+- [Benchmarks to run if performance-related]
+```
+
+## EXECUTION PRIORITY
+
+Execute refactorings in this order:
+
+1. **Critical Issues** - Fix immediately
+   - All critical issues MUST be resolved
+   - No exceptions
+
+2. **High Priority Issues** - Fix in current session
+   - Address all or most high priority issues
+   - Document if any are deferred and why
+
+3. **Medium Priority Issues** - Fix if time permits
+   - Address as many as practical
+   - Document remaining issues for future work
+
+4. **Low Priority Issues** - Optional
+   - Address if trivial to fix
+   - Otherwise document for future consideration
+
+## VERIFICATION REQUIREMENTS
+
+Before completing REFACTOR mode, verify:
+
+### Documentation
+- [ ] refactor-analysis-[id].md created with all findings
+- [ ] refactor-plan-[id].md created with prioritized solutions
+- [ ] Both documents reviewed by self before execution
+- [ ] tasks.md updated with refactor status
+
+### Implementation
+- [ ] All critical issues resolved
+- [ ] All or most high priority issues resolved
+- [ ] Medium priority issues addressed where practical
+- [ ] All changes tested
+
+### Quality
+- [ ] All tests passing
+- [ ] No new issues introduced
+- [ ] Performance maintained or improved
+- [ ] Code quality metrics improved
+
+### Transition
+- [ ] Recommended next mode clearly stated
+- [ ] Context preserved for next mode
+- [ ] Documentation complete for handoff
+
+## ERROR PREVENTION
+
+Common mistakes to avoid:
+
+1. **Skipping Analysis** - Don't jump to solutions
+   → Always complete full analysis first
+
+2. **Single Solution** - Don't settle for first idea
+   → Generate 2-4 options for each issue
+
+3. **No Justification** - Don't choose without reasoning
+   → Always justify solution selection
+
+4. **Skipping Self-Review** - Don't implement before reviewing docs
+   → Read your own analysis and plan before execution
+
+5. **Wrong Priority** - Don't fix low priority before critical
+   → Always follow severity-based prioritization
+
+6. **No Verification** - Don't assume changes work
+   → Test thoroughly, benchmark if needed
+
+7. **Poor Documentation** - Don't leave changes undocumented
+   → Update all relevant documentation
+
+## MODE TRANSITION RULES
+
+**When to use REFACTOR**:
+- After IMPLEMENT phase for quality assurance
+- Periodically for existing codebase maintenance
+- When performance issues are identified
+- Before major feature additions to improve foundation
+
+**Exit to**:
+- **QA**: For comprehensive validation after major refactoring
+- **REFLECT**: If refactoring revealed architectural insights
+- **VAN**: To start next task after refactor cycle complete
+
+**Do NOT exit to**:
+- IMPLEMENT (would skip verification)
+- PLAN (refactoring doesn't need planning phase)
+- CREATIVE (solutions designed within REFACTOR itself)

@@ -1,0 +1,600 @@
+# RUST REFACTORING PATTERNS
+
+## PURPOSE
+This document provides specific refactoring patterns and best practices for Rust code analysis and improvement within REFACTOR mode.
+
+## COMMON RUST REFACTORING PATTERNS
+
+### 1. Eliminating Unnecessary Clones
+
+#### Pattern: Clone in Hot Path
+**Before**:
+```rust
+fn process_items(items: &[Item]) -> Vec<Result> {
+    items.iter()
+        .map(|item| process_single(item.clone())) // ❌ Unnecessary clone
+        .collect()
+}
+```
+
+**After**:
+```rust
+fn process_items(items: &[Item]) -> Vec<Result> {
+    items.iter()
+        .map(|item| process_single(item)) // ✅ Pass by reference
+        .collect()
+}
+
+fn process_single(item: &Item) -> Result { // Changed signature
+    // ...
+}
+```
+
+**Impact**: Eliminates heap allocations, improves performance
+
+### 2. Improving Borrowing Patterns
+
+#### Pattern: Unnecessary Mutable Borrow
+**Before**:
+```rust
+fn analyze_data(data: &mut Vec<f64>) -> f64 {  // ❌ Doesn't need &mut
+    data.iter().sum::<f64>() / data.len() as f64
+}
+```
+
+**After**:
+```rust
+fn analyze_data(data: &[f64]) -> f64 {  // ✅ Immutable slice
+    data.iter().sum::<f64>() / data.len() as f64
+}
+```
+
+**Impact**: More flexible API, clearer intent, enables more optimizations
+
+### 3. Simplifying Lifetime Annotations
+
+#### Pattern: Over-specified Lifetimes
+**Before**:
+```rust
+fn get_first<'a, 'b>(items: &'a [&'b str]) -> Option<&'b str> {  // ❌ Complex
+    items.first().copied()
+}
+```
+
+**After**:
+```rust
+fn get_first(items: &[&str]) -> Option<&str> {  // ✅ Lifetime elision
+    items.first().copied()
+}
+```
+
+**Impact**: Simpler code, easier to understand
+
+### 4. Improving Error Handling
+
+#### Pattern: Using unwrap() in Production
+**Before**:
+```rust
+fn load_config(path: &Path) -> Config {
+    let contents = fs::read_to_string(path).unwrap();  // ❌ Panics on error
+    serde_json::from_str(&contents).unwrap()  // ❌ Panics on error
+}
+```
+
+**After**:
+```rust
+fn load_config(path: &Path) -> Result<Config, Box<dyn Error>> {
+    let contents = fs::read_to_string(path)?;  // ✅ Propagates error
+    let config = serde_json::from_str(&contents)?;  // ✅ Propagates error
+    Ok(config)
+}
+```
+
+**Impact**: Better error handling, no panics, composable errors
+
+### 5. Optimizing Collection Usage
+
+#### Pattern: Repeated Allocations
+**Before**:
+```rust
+fn process_batch(items: &[Item]) -> Vec<String> {
+    let mut result = Vec::new();  // ❌ Unknown capacity
+    for item in items {
+        result.push(item.to_string());
+    }
+    result
+}
+```
+
+**After**:
+```rust
+fn process_batch(items: &[Item]) -> Vec<String> {
+    let mut result = Vec::with_capacity(items.len());  // ✅ Pre-allocated
+    for item in items {
+        result.push(item.to_string());
+    }
+    result
+}
+```
+
+**Impact**: Reduces allocations, improves performance
+
+### 6. Improving Trait Design
+
+#### Pattern: Monolithic Trait
+**Before**:
+```rust
+trait Indicator {  // ❌ Too many responsibilities
+    fn calculate(&self, data: &[f64]) -> Vec<f64>;
+    fn plot(&self) -> Plot;
+    fn serialize(&self) -> String;
+    fn validate_params(&self) -> bool;
+}
+```
+
+**After**:
+```rust
+trait Indicator {  // ✅ Single responsibility
+    fn calculate(&self, data: &[f64]) -> Vec<f64>;
+}
+
+trait Plottable {  // ✅ Separate concerns
+    fn plot(&self) -> Plot;
+}
+
+trait Serializable {  // ✅ Optional functionality
+    fn serialize(&self) -> String;
+}
+
+trait Validatable {  // ✅ Validation separated
+    fn validate_params(&self) -> bool;
+}
+```
+
+**Impact**: More flexible, adheres to ISP, easier testing
+
+### 7. Using Iterators Effectively
+
+#### Pattern: Imperative Loop
+**Before**:
+```rust
+fn filter_and_transform(items: Vec<Item>) -> Vec<String> {
+    let mut result = Vec::new();
+    for item in items {  // ❌ Imperative style
+        if item.is_valid() {
+            result.push(item.name().to_uppercase());
+        }
+    }
+    result
+}
+```
+
+**After**:
+```rust
+fn filter_and_transform(items: Vec<Item>) -> Vec<String> {
+    items.into_iter()  // ✅ Functional style
+        .filter(|item| item.is_valid())
+        .map(|item| item.name().to_uppercase())
+        .collect()
+}
+```
+
+**Impact**: More idiomatic, potentially better optimized, clearer intent
+
+### 8. Avoiding String Allocations
+
+#### Pattern: Unnecessary String Creation
+**Before**:
+```rust
+fn format_message(user: &str, count: usize) -> String {
+    format!("{} has {} items", user, count)  // ❌ Always allocates
+}
+
+fn log_info(msg: &str) {
+    println!("INFO: {}", msg);
+}
+
+// Usage
+log_info(&format_message("Alice", 5));  // ❌ Unnecessary allocation
+```
+
+**After**:
+```rust
+fn log_info_formatted(user: &str, count: usize) {
+    println!("INFO: {} has {} items", user, count);  // ✅ No intermediate String
+}
+
+// Or with Write trait
+fn format_message_into(f: &mut impl Write, user: &str, count: usize) -> fmt::Result {
+    write!(f, "{} has {} items", user, count)
+}
+```
+
+**Impact**: Eliminates temporary allocations
+
+### 9. Optimizing Match Expressions
+
+#### Pattern: Repetitive Match Arms
+**Before**:
+```rust
+fn process_event(event: Event) -> Result<(), Error> {
+    match event {
+        Event::Created(data) => {
+            validate(&data)?;
+            store(&data)?;
+            Ok(())
+        }
+        Event::Updated(data) => {
+            validate(&data)?;
+            store(&data)?;
+            Ok(())
+        }
+        Event::Deleted(id) => delete(&id),
+    }
+}
+```
+
+**After**:
+```rust
+fn process_event(event: Event) -> Result<(), Error> {
+    match event {
+        Event::Created(data) | Event::Updated(data) => {  // ✅ Combined arms
+            validate(&data)?;
+            store(&data)?;
+            Ok(())
+        }
+        Event::Deleted(id) => delete(&id),
+    }
+}
+```
+
+**Impact**: Less code duplication, easier maintenance
+
+### 10. Using const fn
+
+#### Pattern: Runtime Computation of Constants
+**Before**:
+```rust
+fn get_buffer_size() -> usize {  // ❌ Runtime computation
+    1024 * 1024
+}
+
+const BUFFER_SIZE: usize = 1048576;  // ❌ Magic number
+```
+
+**After**:
+```rust
+const fn megabytes(n: usize) -> usize {  // ✅ Compile-time function
+    n * 1024 * 1024
+}
+
+const BUFFER_SIZE: usize = megabytes(1);  // ✅ Clear and compile-time
+```
+
+**Impact**: Compile-time computation, clearer intent
+
+## RUST-SPECIFIC ANTI-PATTERNS
+
+### 1. Using .clone() Without Thought
+**Problem**: Blindly cloning to satisfy the borrow checker
+**Solution**: Understand ownership, use references, restructure code
+
+### 2. Overusing Arc<Mutex<T>>
+**Problem**: Default to Arc<Mutex<T>> for shared state
+**Solution**: Consider message passing, channels, or more specific patterns
+
+### 3. Ignoring Zero-Cost Abstractions
+**Problem**: Avoiding abstractions thinking they're expensive
+**Solution**: Trust Rust's optimizer, use high-level constructs
+
+### 4. Manual Memory Management
+**Problem**: Using raw pointers and unsafe where not needed
+**Solution**: Use safe abstractions, only unsafe when truly necessary
+
+### 5. Not Leveraging Type System
+**Problem**: Using stringly-typed APIs or excessive Option<T>
+**Solution**: Use newtypes, enums, and the type system for correctness
+
+## PERFORMANCE OPTIMIZATION PATTERNS
+
+### 1. Prefer Iteration Over Indexing
+
+**Before**:
+```rust
+fn sum_squares(data: &[f64]) -> f64 {
+    let mut sum = 0.0;
+    for i in 0..data.len() {  // ❌ Bounds checking on every access
+        sum += data[i] * data[i];
+    }
+    sum
+}
+```
+
+**After**:
+```rust
+fn sum_squares(data: &[f64]) -> f64 {
+    data.iter()  // ✅ No bounds checking
+        .map(|&x| x * x)
+        .sum()
+}
+```
+
+### 2. Use SmallVec for Small Collections
+
+**Before**:
+```rust
+fn process_pair(a: Item, b: Item) -> Vec<Item> {  // ❌ Heap allocation
+    vec![a, b]
+}
+```
+
+**After**:
+```rust
+use smallvec::{SmallVec, smallvec};
+
+fn process_pair(a: Item, b: Item) -> SmallVec<[Item; 2]> {  // ✅ Stack if ≤2
+    smallvec![a, b]
+}
+```
+
+### 3. Avoid Allocations in Loops
+
+**Before**:
+```rust
+for item in items {
+    let result = expensive_operation(&item);  // ❌ Allocates each iteration
+    process(result);
+}
+```
+
+**After**:
+```rust
+let mut buffer = Vec::with_capacity(MAX_SIZE);  // ✅ Reused buffer
+for item in items {
+    buffer.clear();
+    expensive_operation_into(&item, &mut buffer);
+    process(&buffer);
+}
+```
+
+### 4. Use Cow for Conditional Cloning
+
+**Before**:
+```rust
+fn normalize(s: &str) -> String {  // ❌ Always allocates
+    s.to_lowercase()
+}
+```
+
+**After**:
+```rust
+use std::borrow::Cow;
+
+fn normalize(s: &str) -> Cow<str> {  // ✅ Clone only if needed
+    if s.chars().any(|c| c.is_uppercase()) {
+        Cow::Owned(s.to_lowercase())
+    } else {
+        Cow::Borrowed(s)
+    }
+}
+```
+
+## ARCHITECTURE PATTERNS FOR RUST
+
+### 1. Builder Pattern
+
+For structs with many optional fields:
+
+```rust
+pub struct Config {
+    host: String,
+    port: u16,
+    timeout: Duration,
+    retries: usize,
+}
+
+pub struct ConfigBuilder {
+    host: Option<String>,
+    port: Option<u16>,
+    timeout: Option<Duration>,
+    retries: Option<usize>,
+}
+
+impl ConfigBuilder {
+    pub fn new() -> Self {
+        Self {
+            host: None,
+            port: None,
+            timeout: None,
+            retries: None,
+        }
+    }
+
+    pub fn host(mut self, host: impl Into<String>) -> Self {
+        self.host = Some(host.into());
+        self
+    }
+
+    pub fn build(self) -> Result<Config, BuildError> {
+        Ok(Config {
+            host: self.host.ok_or(BuildError::MissingHost)?,
+            port: self.port.unwrap_or(8080),
+            timeout: self.timeout.unwrap_or(Duration::from_secs(30)),
+            retries: self.retries.unwrap_or(3),
+        })
+    }
+}
+```
+
+### 2. Newtype Pattern
+
+For type safety:
+
+```rust
+// Before: Easy to mix up
+fn transfer(from: u64, to: u64, amount: u64) { /* ... */ }
+
+// After: Type-safe
+#[derive(Debug, Clone, Copy)]
+struct AccountId(u64);
+
+#[derive(Debug, Clone, Copy)]
+struct Amount(u64);
+
+fn transfer(from: AccountId, to: AccountId, amount: Amount) { /* ... */ }
+```
+
+### 3. Type State Pattern
+
+For compile-time state verification:
+
+```rust
+struct Locked;
+struct Unlocked;
+
+struct Database<State> {
+    connection: Connection,
+    _state: PhantomData<State>,
+}
+
+impl Database<Locked> {
+    fn unlock(self, password: &str) -> Result<Database<Unlocked>, Error> {
+        // Unlock logic
+        Ok(Database {
+            connection: self.connection,
+            _state: PhantomData,
+        })
+    }
+}
+
+impl Database<Unlocked> {
+    fn query(&self, sql: &str) -> Result<Rows, Error> {
+        // Can only query when unlocked
+        self.connection.query(sql)
+    }
+}
+```
+
+## REFACTORING CHECKLIST FOR RUST
+
+### Ownership & Borrowing
+- [ ] Minimize unnecessary clones
+- [ ] Use appropriate reference types (&, &mut)
+- [ ] Avoid redundant mutable borrows
+- [ ] Simplify lifetime annotations where possible
+
+### Error Handling
+- [ ] Replace unwrap()/expect() with proper error handling
+- [ ] Use Result<T, E> for fallible operations
+- [ ] Consider custom error types
+- [ ] Use ? operator for error propagation
+
+### Performance
+- [ ] Pre-allocate collections when size is known
+- [ ] Use iterators over manual indexing
+- [ ] Avoid allocations in hot paths
+- [ ] Consider Cow<T> for conditional cloning
+- [ ] Use const fn for compile-time computation
+
+### Type Safety
+- [ ] Use newtypes for domain concepts
+- [ ] Prefer enums over bool parameters
+- [ ] Use type state pattern where applicable
+- [ ] Leverage the type system for correctness
+
+### Traits & Abstractions
+- [ ] Keep traits focused (ISP)
+- [ ] Use trait bounds appropriately
+- [ ] Implement standard traits (Debug, Clone, etc.)
+- [ ] Consider trait objects vs generics trade-offs
+
+### Code Organization
+- [ ] Modules follow single responsibility
+- [ ] Public APIs are minimal
+- [ ] Use pub(crate) for internal APIs
+- [ ] Documentation on public items
+
+## PRIORITY GUIDELINES FOR RUST
+
+### 🔴 Critical
+- Unsafe code without justification
+- Memory leaks
+- Use of deprecated/vulnerable dependencies
+- Panics in library code
+
+### 🟠 High
+- Excessive cloning in hot paths
+- Poor error handling (lots of unwrap)
+- Missing bounds checking
+- Suboptimal algorithm complexity
+
+### 🟡 Medium
+- Code duplication
+- Missing trait implementations
+- Inconsistent naming
+- Missing documentation
+
+### 🟢 Low
+- Style issues (formatting)
+- Minor optimizations
+- Enhanced error messages
+- Additional convenience methods
+
+## MEASUREMENT & VERIFICATION
+
+### Performance Testing
+
+```rust
+#[cfg(test)]
+mod benches {
+    use criterion::{black_box, criterion_group, criterion_main, Criterion};
+
+    fn benchmark_operation(c: &mut Criterion) {
+        c.bench_function("operation", |b| {
+            b.iter(|| {
+                // Code to benchmark
+                black_box(expensive_operation())
+            });
+        });
+    }
+
+    criterion_group!(benches, benchmark_operation);
+    criterion_main!(benches);
+}
+```
+
+### Memory Profiling
+
+```bash
+# Using heaptrack
+heaptrack ./target/release/your_binary
+
+# Using valgrind
+valgrind --tool=massif ./target/release/your_binary
+
+# Using cargo-flamegraph
+cargo flamegraph --bin your_binary
+```
+
+### Clippy Lints
+
+```bash
+# Run Clippy with stricter lints
+cargo clippy -- -W clippy::all -W clippy::pedantic -W clippy::nursery
+
+# Specific performance lints
+cargo clippy -- -W clippy::perf
+```
+
+## CONCLUSION
+
+When refactoring Rust code:
+1. **Understand ownership first** - Don't fight the borrow checker
+2. **Leverage the type system** - Make invalid states unrepresentable
+3. **Trust zero-cost abstractions** - Use high-level constructs
+4. **Measure before optimizing** - Profile, don't guess
+5. **Use Clippy** - It knows Rust idioms well
+6. **Read the docs** - Std library has great examples
+7. **Think in types** - Design with the type system in mind
+
+The goal is idiomatic, safe, and performant Rust code that leverages the language's strengths.

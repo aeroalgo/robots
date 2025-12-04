@@ -1,0 +1,484 @@
+# REFACTOR ANALYSIS TEMPLATE
+
+## PURPOSE
+This template guides the creation of comprehensive refactor analysis documents that identify code quality issues across architecture, code quality, performance, and language-specific dimensions.
+
+## DOCUMENT STRUCTURE
+
+### Header
+```markdown
+# Refactor Analysis: [Feature/Module Name]
+
+**Date**: [YYYY-MM-DD]
+**Analyzed By**: AI Assistant (REFACTOR Mode)
+**Scope**: [Brief description of what was analyzed]
+**Task Reference**: [Link to tasks.md section]
+```
+
+### Executive Summary
+```markdown
+## Executive Summary
+
+[2-3 paragraph overview of findings]
+
+**Key Findings**:
+- [Finding 1]
+- [Finding 2]
+- [Finding 3]
+
+**Recommended Actions**:
+1. [Priority 1 action]
+2. [Priority 2 action]
+3. [Priority 3 action]
+```
+
+### Analyzed Components
+```markdown
+## Analyzed Components
+
+| Component | Type | Lines of Code | Complexity |
+|-----------|------|---------------|------------|
+| [Component 1] | [Module/Struct/Function] | [LOC] | [Low/Med/High] |
+| [Component 2] | [Module/Struct/Function] | [LOC] | [Low/Med/High] |
+| [Component 3] | [Module/Struct/Function] | [LOC] | [Low/Med/High] |
+```
+
+## FINDINGS STRUCTURE
+
+### 1. Architecture Issues
+
+```markdown
+## Architecture Issues
+
+### Overview
+[Summary of architectural findings]
+
+### Detailed Findings
+
+#### Issue A1: [Title]
+**Severity**: 🔴 Critical / 🟠 High / 🟡 Medium / 🟢 Low
+**Category**: [SOLID Violation / Design Pattern / Coupling / Cohesion / etc.]
+**Location**: `[file_path:line_number]`
+
+**Problem**:
+[Clear description of the architectural issue]
+
+**Current State**:
+```rust
+[Code snippet showing the problem]
+```
+
+**Impact**:
+- [Impact point 1]
+- [Impact point 2]
+
+**Related To**: [Links to other issues if applicable]
+
+---
+
+#### Issue A2: [Title]
+[Same structure]
+```
+
+### 2. Code Quality Issues
+
+```markdown
+## Code Quality Issues
+
+### Overview
+[Summary of quality findings]
+
+### Detailed Findings
+
+#### Issue Q1: [Title]
+**Severity**: 🔴 Critical / 🟠 High / 🟡 Medium / 🟢 Low
+**Category**: [Readability / Maintainability / Complexity / DRY / etc.]
+**Location**: `[file_path:line_number]`
+
+**Problem**:
+[Clear description of the quality issue]
+
+**Current State**:
+```rust
+[Code snippet showing the problem]
+```
+
+**Metrics**:
+- Cyclomatic Complexity: [number]
+- Lines of Code: [number]
+- Number of Parameters: [number]
+
+**Impact**:
+- [Impact point 1]
+- [Impact point 2]
+
+---
+```
+
+### 3. Performance Issues
+
+```markdown
+## Performance Issues
+
+### Overview
+[Summary of performance findings]
+
+### Detailed Findings
+
+#### Issue P1: [Title]
+**Severity**: 🔴 Critical / 🟠 High / 🟡 Medium / 🟢 Low
+**Category**: [Algorithm / Memory / Allocation / Cache / etc.]
+**Location**: `[file_path:line_number]`
+
+**Problem**:
+[Clear description of the performance issue]
+
+**Current State**:
+```rust
+[Code snippet showing the problem]
+```
+
+**Performance Characteristics**:
+- Time Complexity: O([complexity])
+- Space Complexity: O([complexity])
+- Allocations per operation: [number]
+- Estimated impact: [X% slower / X MB extra memory]
+
+**Impact**:
+- [Impact point 1]
+- [Impact point 2]
+
+---
+```
+
+### 4. Rust-Specific Issues
+
+```markdown
+## Rust-Specific Issues
+
+### Overview
+[Summary of Rust-specific findings]
+
+### Detailed Findings
+
+#### Issue R1: [Title]
+**Severity**: 🔴 Critical / 🟠 High / 🟡 Medium / 🟢 Low
+**Category**: [Ownership / Borrowing / Lifetimes / Traits / Error Handling / etc.]
+**Location**: `[file_path:line_number]`
+
+**Problem**:
+[Clear description of the Rust-specific issue]
+
+**Current State**:
+```rust
+[Code snippet showing the problem]
+```
+
+**Rust Considerations**:
+- Unnecessary clones: [yes/no]
+- Lifetime complexity: [simple/moderate/complex]
+- Trait design: [good/needs improvement]
+
+**Impact**:
+- [Impact point 1]
+- [Impact point 2]
+
+---
+```
+
+## SCORING SECTION
+
+```markdown
+## Overall Scores
+
+### Score Breakdown
+
+| Category | Score | Grade | Status |
+|----------|-------|-------|--------|
+| Architecture | [X]/10 | [A-F] | 🔴 🟠 🟡 🟢 |
+| Code Quality | [X]/10 | [A-F] | 🔴 🟠 🟡 🟢 |
+| Performance | [X]/10 | [A-F] | 🔴 🟠 🟡 🟢 |
+| Rust Practices | [X]/10 | [A-F] | 🔴 🟠 🟡 🟢 |
+| **Overall** | **[X]/10** | **[A-F]** | 🔴 🟠 🟡 🟢 |
+
+### Scoring Criteria
+
+**Architecture** (X/10):
+- SOLID principles adherence: [score]
+- Design patterns usage: [score]
+- Modularity: [score]
+- Coupling/Cohesion: [score]
+
+**Code Quality** (X/10):
+- Readability: [score]
+- Maintainability: [score]
+- Testability: [score]
+- Documentation: [score]
+
+**Performance** (X/10):
+- Algorithm efficiency: [score]
+- Memory usage: [score]
+- Optimization level: [score]
+- Scalability: [score]
+
+**Rust Practices** (X/10):
+- Ownership/Borrowing: [score]
+- Error handling: [score]
+- Trait design: [score]
+- Zero-cost abstractions: [score]
+```
+
+## PRIORITY ISSUES
+
+```markdown
+## Priority Issues
+
+### 🔴 Critical (Must Fix Immediately)
+
+1. **[Issue ID]**: [Brief description]
+   - Location: `[file:line]`
+   - Impact: [Description]
+   - Urgency: Immediate
+
+2. [More critical issues]
+
+### 🟠 High (Should Fix Soon)
+
+1. **[Issue ID]**: [Brief description]
+   - Location: `[file:line]`
+   - Impact: [Description]
+   - Urgency: Current sprint
+
+2. [More high issues]
+
+### 🟡 Medium (Should Address)
+
+1. **[Issue ID]**: [Brief description]
+   - Location: `[file:line]`
+   - Impact: [Description]
+   - Urgency: Next sprint
+
+### 🟢 Low (Nice to Have)
+
+1. **[Issue ID]**: [Brief description]
+   - Location: `[file:line]`
+   - Impact: [Description]
+   - Urgency: When convenient
+```
+
+## DETAILED ANALYSIS
+
+```markdown
+## Detailed Analysis
+
+### Architecture Deep Dive
+
+#### SOLID Principles Assessment
+
+**Single Responsibility Principle**:
+- [Assessment of SRP adherence]
+- [Examples of violations if any]
+- [Recommendations]
+
+**Open/Closed Principle**:
+- [Assessment of OCP adherence]
+- [Examples of violations if any]
+- [Recommendations]
+
+**Liskov Substitution Principle**:
+- [Assessment of LSP adherence]
+- [Examples of violations if any]
+- [Recommendations]
+
+**Interface Segregation Principle**:
+- [Assessment of ISP adherence]
+- [Examples of violations if any]
+- [Recommendations]
+
+**Dependency Inversion Principle**:
+- [Assessment of DIP adherence]
+- [Examples of violations if any]
+- [Recommendations]
+
+#### Design Patterns Analysis
+
+**Patterns Identified**:
+- [Pattern 1]: [Usage assessment]
+- [Pattern 2]: [Usage assessment]
+
+**Missing Patterns**:
+- [Pattern that could improve design]
+- [Justification for recommendation]
+
+**Anti-Patterns Detected**:
+- [Anti-pattern 1]: [Description and location]
+- [Anti-pattern 2]: [Description and location]
+
+### Code Quality Deep Dive
+
+#### Complexity Metrics
+
+| Module/Function | Cyclomatic Complexity | Lines | Parameters | Status |
+|-----------------|---------------------|-------|------------|--------|
+| [Name 1] | [Number] | [Number] | [Number] | 🔴 🟠 🟡 🟢 |
+| [Name 2] | [Number] | [Number] | [Number] | 🔴 🟠 🟡 🟢 |
+
+**Thresholds**:
+- Cyclomatic Complexity: < 10 (🟢), 10-15 (🟡), 15-20 (🟠), > 20 (🔴)
+- Lines per function: < 50 (🟢), 50-100 (🟡), 100-200 (🟠), > 200 (🔴)
+- Parameters: < 4 (🟢), 4-6 (🟡), 6-8 (🟠), > 8 (🔴)
+
+#### Code Duplication
+
+**Duplicated Code Blocks**:
+- Block 1: `[file1:lines]` and `[file2:lines]` - [X lines duplicated]
+- Block 2: `[file3:lines]` and `[file4:lines]` - [Y lines duplicated]
+
+**Duplication Score**: [X]% of codebase
+
+### Performance Deep Dive
+
+#### Algorithm Analysis
+
+| Operation | Current | Optimal | Improvement Potential |
+|-----------|---------|---------|----------------------|
+| [Op 1] | O([complexity]) | O([complexity]) | [X]% |
+| [Op 2] | O([complexity]) | O([complexity]) | [Y]% |
+
+#### Memory Profiling
+
+**Allocation Hotspots**:
+- [Function/Module 1]: [N] allocations per call
+- [Function/Module 2]: [M] allocations per call
+
+**Memory Usage**:
+- Peak memory: [X] MB
+- Average memory: [Y] MB
+- Potential savings: [Z] MB
+
+### Rust-Specific Deep Dive
+
+#### Ownership Analysis
+
+**Ownership Patterns**:
+- Clear ownership: [%]
+- Shared ownership (Rc/Arc): [%]
+- Interior mutability (RefCell/Mutex): [%]
+
+**Issues**:
+- [Specific ownership issues]
+
+#### Borrowing Efficiency
+
+**Clone Analysis**:
+- Total clones: [N]
+- Necessary clones: [M]
+- Unnecessary clones: [N-M] ([%])
+
+**Borrow Checker Conflicts**:
+- [Description of any complex lifetime issues]
+
+#### Error Handling
+
+**Error Handling Patterns**:
+- Result usage: [Good/Needs improvement]
+- Error types: [Well-defined/Needs improvement]
+- Error propagation: [Clean/Needs improvement]
+
+**Issues**:
+- [Specific error handling issues]
+```
+
+## RECOMMENDATIONS
+
+```markdown
+## Recommendations
+
+### Immediate Actions
+
+1. **[Action 1]**
+   - Rationale: [Why this is critical]
+   - Affected: [What this impacts]
+   - Effort: [Estimated effort]
+
+2. [More immediate actions]
+
+### Short-Term Improvements
+
+1. **[Improvement 1]**
+   - Benefit: [Expected improvement]
+   - Effort: [Estimated effort]
+   - Priority: [High/Medium]
+
+### Long-Term Strategic Changes
+
+1. **[Strategic change 1]**
+   - Vision: [Long-term goal]
+   - Benefits: [Expected benefits]
+   - Effort: [Estimated effort]
+```
+
+## CONCLUSION
+
+```markdown
+## Conclusion
+
+[Summary paragraph tying everything together]
+
+**Next Steps**:
+1. Review this analysis
+2. Create refactor plan based on priorities
+3. Begin implementation starting with critical issues
+4. Verify improvements with tests and benchmarks
+
+**Success Metrics**:
+- Overall score improvement: [Current X/10] → [Target Y/10]
+- Critical issues: [N] → 0
+- High priority issues: [M] → < [target]
+- Performance improvement: [Current] → [Target % improvement]
+```
+
+## METADATA
+
+```markdown
+---
+## Document Metadata
+
+**Created**: [Timestamp]
+**Last Updated**: [Timestamp]
+**Total Issues**: [N]
+  - Critical: [N1]
+  - High: [N2]
+  - Medium: [N3]
+  - Low: [N4]
+
+**Related Documents**:
+- Refactor Plan: `refactor-plan-[id].md`
+- Task Tracking: `tasks.md`
+- Implementation: `[relevant source files]`
+
+**Tags**: #refactor #analysis #code-quality #performance #architecture
+---
+```
+
+## USAGE NOTES
+
+**When creating an analysis document**:
+
+1. Be thorough but focused
+2. Provide specific code locations
+3. Include actual code snippets
+4. Quantify issues where possible
+5. Prioritize correctly (not everything is critical)
+6. Link related issues
+7. Consider the project context
+8. Balance perfectionism with pragmatism
+
+**Quality criteria**:
+- ✅ All issues have clear descriptions
+- ✅ Severity ratings are justified
+- ✅ Code locations are specific
+- ✅ Impact is clearly stated
+- ✅ Scores reflect actual state
+- ✅ Priorities are realistic
+- ✅ Analysis is actionable
