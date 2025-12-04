@@ -199,9 +199,21 @@ impl StrategyConverter {
                 if param.optimizable {
                     let param_name = Self::make_parameter_name(&condition.id, &param.name);
                     let (default_val, min_val, max_val, step_val) = if param.name == "period" {
-                        (3.0, Some(2.0), Some(10.0), Some(1.0))
+                        let range = crate::condition::parameters::ConditionParameterPresets::trend_period();
+                        (
+                            ((range.min + range.max) / 2.0) as f64,
+                            Some(range.min as f64),
+                            Some(range.max as f64),
+                            Some(range.step as f64)
+                        )
                     } else if param.name == "percentage" {
-                        (2.0, Some(0.5), Some(10.0), Some(0.5))
+                        let range = crate::condition::parameters::ConditionParameterPresets::percentage();
+                        (
+                            ((range.min + range.max) / 2.0) as f64,
+                            Some(range.min as f64),
+                            Some(range.max as f64),
+                            Some(range.step as f64)
+                        )
                     } else {
                         (1.0, None, None, None)
                     };
@@ -228,9 +240,21 @@ impl StrategyConverter {
                     let param_name =
                         Self::make_parameter_name(&format!("exit_{}", condition.id), &param.name);
                     let (default_val, min_val, max_val, step_val) = if param.name == "period" {
-                        (3.0, Some(2.0), Some(10.0), Some(1.0))
+                        let range = crate::condition::parameters::ConditionParameterPresets::trend_period();
+                        (
+                            ((range.min + range.max) / 2.0) as f64,
+                            Some(range.min as f64),
+                            Some(range.max as f64),
+                            Some(range.step as f64)
+                        )
                     } else if param.name == "percentage" {
-                        (2.0, Some(0.5), Some(10.0), Some(0.5))
+                        let range = crate::condition::parameters::ConditionParameterPresets::percentage();
+                        (
+                            ((range.min + range.max) / 2.0) as f64,
+                            Some(range.min as f64),
+                            Some(range.max as f64),
+                            Some(range.step as f64)
+                        )
                     } else {
                         (1.0, None, None, None)
                     };
@@ -385,9 +409,11 @@ impl StrategyConverter {
                 if param.optimizable {
                     let param_name = Self::make_parameter_name(&condition.id, &param.name);
                     let default_val = if param.name == "period" {
-                        3.0
+                        let range = crate::condition::parameters::ConditionParameterPresets::trend_period();
+                        ((range.min + range.max) / 2.0) as f64
                     } else if param.name == "percentage" {
-                        2.0
+                        let range = crate::condition::parameters::ConditionParameterPresets::percentage();
+                        ((range.min + range.max) / 2.0) as f64
                     } else {
                         1.0
                     };
@@ -402,9 +428,11 @@ impl StrategyConverter {
                     let param_name =
                         Self::make_parameter_name(&format!("exit_{}", condition.id), &param.name);
                     let default_val = if param.name == "period" {
-                        3.0
+                        let range = crate::condition::parameters::ConditionParameterPresets::trend_period();
+                        ((range.min + range.max) / 2.0) as f64
                     } else if param.name == "percentage" {
-                        2.0
+                        let range = crate::condition::parameters::ConditionParameterPresets::percentage();
+                        ((range.min + range.max) / 2.0) as f64
                     } else {
                         1.0
                     };
@@ -612,7 +640,15 @@ impl StrategyConverter {
             let mut parameters = HashMap::new();
             for param in &condition.optimization_params {
                 if param.optimizable {
-                    let value = condition.constant_value.unwrap_or(0.0) as f32;
+                    let value = if param.name == "period" {
+                        let range = crate::condition::parameters::ConditionParameterPresets::trend_period();
+                        ((range.min + range.max) / 2.0).round()
+                    } else if param.name == "percentage" {
+                        let range = crate::condition::parameters::ConditionParameterPresets::percentage();
+                        (range.min + range.max) / 2.0
+                    } else {
+                        condition.constant_value.unwrap_or(0.0) as f32
+                    };
                     parameters.insert(param.name.clone(), value);
                 }
             }
@@ -944,7 +980,15 @@ impl StrategyConverter {
             let mut parameters = HashMap::new();
             for param in &condition.optimization_params {
                 if param.optimizable {
-                    let value = condition.constant_value.unwrap_or(0.0) as f32;
+                    let value = if param.name == "period" {
+                        let range = crate::condition::parameters::ConditionParameterPresets::trend_period();
+                        ((range.min + range.max) / 2.0).round()
+                    } else if param.name == "percentage" {
+                        let range = crate::condition::parameters::ConditionParameterPresets::percentage();
+                        (range.min + range.max) / 2.0
+                    } else {
+                        condition.constant_value.unwrap_or(0.0) as f32
+                    };
                     parameters.insert(param.name.clone(), value);
                 }
             }
@@ -1074,4 +1118,118 @@ pub enum StrategyConversionError {
         parameter_name: String,
         parameter_type: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::condition::parameters::ConditionParameterPresets;
+    use crate::discovery::types::{ConditionInfo, ConditionParamInfo};
+    use crate::strategy::types::ConditionOperator;
+
+    #[test]
+    fn test_condition_parameter_ranges_match_presets() {
+        let trend_range = ConditionParameterPresets::trend_period();
+        assert_eq!(trend_range.min, 2.0, "trend_period min должен быть 2.0");
+        assert_eq!(trend_range.max, 4.0, "trend_period max должен быть 4.0");
+        assert_eq!(trend_range.step, 1.0, "trend_period step должен быть 1.0");
+
+        let percentage_range = ConditionParameterPresets::percentage();
+        assert_eq!(percentage_range.min, 0.5, "percentage min должен быть 0.5");
+        assert_eq!(percentage_range.max, 10.0, "percentage max должен быть 10.0");
+        assert_eq!(percentage_range.step, 0.5, "percentage step должен быть 0.5");
+    }
+
+    #[test]
+    fn test_extract_parameters_uses_correct_ranges() {
+        let candidate = StrategyCandidate {
+            indicators: vec![],
+            nested_indicators: vec![],
+            conditions: vec![
+                ConditionInfo {
+                    id: "test_condition_1".to_string(),
+                    name: "Test RisingTrend".to_string(),
+                    operator: ConditionOperator::RisingTrend,
+                    primary_indicator_alias: "test_sma".to_string(),
+                    secondary_indicator_alias: None,
+                    condition_type: "trend_condition".to_string(),
+                    primary_timeframe: Some(TimeFrame::Minutes(60)),
+                    secondary_timeframe: None,
+                    price_field: None,
+                    constant_value: Some(3.0),
+                    optimization_params: vec![
+                        ConditionParamInfo {
+                            name: "period".to_string(),
+                            optimizable: true,
+                            global_param_name: None,
+                        }
+                    ],
+                }
+            ],
+            exit_conditions: vec![],
+            stop_handlers: vec![],
+            take_handlers: vec![],
+            timeframes: vec![TimeFrame::Minutes(60)],
+            config: StrategyDiscoveryConfig::default(),
+        };
+
+        let params = StrategyConverter::extract_parameters(&candidate);
+        
+        let period_param = params.iter()
+            .find(|p| p.name.contains("period"))
+            .expect("Должен быть параметр period");
+
+        assert_eq!(period_param.min, Some(2.0), "min для period должен быть 2.0");
+        assert_eq!(period_param.max, Some(4.0), "max для period должен быть 4.0 (не 10.0!)");
+        assert_eq!(period_param.step, Some(1.0), "step для period должен быть 1.0");
+    }
+
+    #[test]
+    fn test_extract_defaults_uses_correct_ranges() {
+        let candidate = StrategyCandidate {
+            indicators: vec![],
+            nested_indicators: vec![],
+            conditions: vec![
+                ConditionInfo {
+                    id: "test_condition_1".to_string(),
+                    name: "Test RisingTrend".to_string(),
+                    operator: ConditionOperator::RisingTrend,
+                    primary_indicator_alias: "test_sma".to_string(),
+                    secondary_indicator_alias: None,
+                    condition_type: "trend_condition".to_string(),
+                    primary_timeframe: Some(TimeFrame::Minutes(60)),
+                    secondary_timeframe: None,
+                    price_field: None,
+                    constant_value: Some(3.0),
+                    optimization_params: vec![
+                        ConditionParamInfo {
+                            name: "period".to_string(),
+                            optimizable: true,
+                            global_param_name: None,
+                        }
+                    ],
+                }
+            ],
+            exit_conditions: vec![],
+            stop_handlers: vec![],
+            take_handlers: vec![],
+            timeframes: vec![TimeFrame::Minutes(60)],
+            config: StrategyDiscoveryConfig::default(),
+        };
+
+        let defaults = StrategyConverter::extract_defaults(&candidate);
+        
+        let period_default = defaults.iter()
+            .find(|(k, _)| k.contains("period"))
+            .map(|(_, v)| v)
+            .expect("Должен быть default для period");
+
+        if let StrategyParamValue::Number(val) = period_default {
+            let trend_range = ConditionParameterPresets::trend_period();
+            let expected_default = ((trend_range.min + trend_range.max) / 2.0) as f64;
+            assert_eq!(*val, expected_default, "default для period должен быть средним значением диапазона");
+        } else {
+            panic!("period должен быть Number типа");
+        }
+    }
 }

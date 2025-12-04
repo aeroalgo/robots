@@ -625,13 +625,18 @@ impl StrategyBuilder {
             let condition_prefix = format!("condition_{}_", binding.id);
             for (key, value) in &self.parameter_overrides {
                 if let Some(param_name) = key.strip_prefix(&condition_prefix) {
-                    let param_value = if let StrategyParamValue::Number(num_value) = value {
+                    let mut param_value = if let StrategyParamValue::Number(num_value) = value {
                         *num_value as f32
                     } else if let StrategyParamValue::Integer(int_value) = value {
                         *int_value as f32
                     } else {
                         continue;
                     };
+                    
+                    if param_name == "period" {
+                        param_value = param_value.round();
+                    }
+                    
                     condition_params.insert(param_name.to_string(), param_value);
                 }
             }
