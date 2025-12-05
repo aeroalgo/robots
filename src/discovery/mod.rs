@@ -3,7 +3,6 @@ pub mod condition;
 pub mod config;
 pub mod engine;
 pub mod indicator;
-pub mod stop_handler;
 pub mod strategy_converter;
 pub mod timeframe;
 pub mod types;
@@ -14,7 +13,6 @@ pub use condition::ConditionCombinationGenerator;
 pub use config::StrategyDiscoveryConfig;
 pub use engine::{StrategyCandidate, StrategyDiscoveryEngine};
 pub use indicator::IndicatorCombinationGenerator;
-pub use stop_handler::StopHandlerCombinationGenerator;
 pub use strategy_converter::{StrategyConversionError, StrategyConverter};
 pub use timeframe::TimeFrameGenerator;
 pub use types::{

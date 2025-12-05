@@ -92,7 +92,7 @@ async fn run() -> Result<()> {
     let mut frames = HashMap::new();
     frames.insert(timeframe.clone(), frame);
 
-    let strategy_name = "VTRAND_MULTI_TIMEFRAME";
+    let strategy_name = "auto_strategy_1764972624";
 
     let definition = default_strategy_definitions()
         .into_iter()

@@ -1,19 +1,31 @@
 use std::collections::HashMap;
 
+use crate::indicators::types::ParameterSet;
 use crate::position::view::ActivePosition;
 use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 
 use crate::risk::context::StopEvaluationContext;
+use crate::risk::parameters::create_stop_percentage_parameter;
 use crate::risk::traits::{StopHandler, StopOutcome};
 use crate::risk::utils::{calculate_stop_exit_price, get_price_at_index};
 
 pub struct StopLossPctHandler {
     pub percentage: f64,
+    parameters: ParameterSet,
 }
 
 impl StopLossPctHandler {
     pub fn new(percentage: f64) -> Self {
-        Self { percentage }
+        let mut params = ParameterSet::new();
+        params.add_parameter_unchecked(create_stop_percentage_parameter(
+            "percentage",
+            percentage as f32,
+            "Процент стоп-лосса",
+        ));
+        Self {
+            percentage,
+            parameters: params,
+        }
     }
 
     fn level(&self, position: &ActivePosition) -> Option<f64> {
@@ -29,6 +41,10 @@ impl StopLossPctHandler {
 impl StopHandler for StopLossPctHandler {
     fn name(&self) -> &str {
         "StopLossPct"
+    }
+
+    fn parameters(&self) -> &ParameterSet {
+        &self.parameters
     }
 
     fn compute_stop_level(&self, ctx: &StopEvaluationContext<'_>) -> Option<f64> {
@@ -65,14 +81,14 @@ impl StopHandler for StopLossPctHandler {
                 ctx.index,
                 ctx.current_price,
             );
-            
+
             let exit_price = calculate_stop_exit_price(
                 &ctx.position.direction,
                 level,
                 open_price,
                 ctx.current_price,
             );
-            
+
             let mut metadata = HashMap::new();
             metadata.insert("level".to_string(), level.to_string());
             metadata.insert("triggered_price".to_string(), exit_price.to_string());
@@ -85,4 +101,3 @@ impl StopHandler for StopLossPctHandler {
         None
     }
 }
-

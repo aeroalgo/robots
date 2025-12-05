@@ -58,6 +58,18 @@ impl StopHandlerRegistry {
             );
         }
 
+        if let Some(range) = get_stop_optimization_range("ATRTrailStop", "period") {
+            println!("      [StopHandlerRegistry] Зарегистрирован ATRTrailStop (диапазон period: {:.1}-{:.1}, шаг: {:.2})", 
+                     range.start, range.end, range.step);
+            self.handlers.push(HandlerInfo {
+                handler_name: "ATRTrailStop".to_string(),
+                stop_type: "stop_loss".to_string(),
+                parameter_name: "period".to_string(),
+                optimization_range: range,
+                priority: 100,
+            });
+        }
+
         if let Some(range) = get_stop_optimization_range("ATRTrailStop", "coeff_atr") {
             println!("      [StopHandlerRegistry] Зарегистрирован ATRTrailStop (диапазон coeff_atr: {:.1}-{:.1}, шаг: {:.2})", 
                      range.start, range.end, range.step);
@@ -68,10 +80,6 @@ impl StopHandlerRegistry {
                 optimization_range: range,
                 priority: 100,
             });
-        } else {
-            eprintln!(
-                "      [StopHandlerRegistry] ОШИБКА: Не удалось зарегистрировать ATRTrailStop"
-            );
         }
 
         if let Some(range) = get_stop_optimization_range("HILOTrailingStop", "period") {

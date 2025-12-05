@@ -4,6 +4,7 @@ use crate::discovery::strategy_converter::StrategyConverter;
 use crate::discovery::StrategyCandidate;
 use crate::optimization::candidate_builder::{CandidateBuilder, CandidateElements};
 use crate::optimization::candidate_builder_config::CandidateBuilderConfig;
+use crate::optimization::condition_id::ConditionId;
 use crate::optimization::evaluator::StrategyEvaluationRunner;
 use crate::optimization::fitness::FitnessFunction;
 use crate::optimization::types::{
@@ -299,20 +300,6 @@ impl InitialPopulationGenerator {
                         };
                         println!("            {} = {}", key, val_str);
                     }
-
-                    // Выводим StrategyDefinition с применёнными параметрами
-                    match StrategyConverter::candidate_to_definition(
-                        candidate,
-                        self.discovery_config.base_timeframe.clone(),
-                    ) {
-                        Ok(definition) => {
-                            println!("         📋 StrategyDefinition:");
-                            println!("{:#?}", definition);
-                        }
-                        Err(e) => {
-                            eprintln!("         ⚠️ Ошибка создания StrategyDefinition: {:?}", e);
-                        }
-                    }
                 }
 
                 let report = match self
@@ -506,6 +493,7 @@ impl InitialPopulationGenerator {
     }
 
     fn generate_random_parameters(&self, candidate: &StrategyCandidate) -> StrategyParameterMap {
+        use crate::condition::parameters::ConditionParameterPresets;
         use crate::indicators::parameters::ParameterPresets;
         use crate::risk::get_stop_optimization_range;
         use crate::strategy::types::StrategyParamValue;
@@ -601,10 +589,9 @@ impl InitialPopulationGenerator {
                         let steps = ((range.end - range.start) / range.step) as usize;
                         let step_index = rng.gen_range(0..=steps);
                         let value = range.start + (step_index as f32 * range.step);
-                        params.insert(
-                            format!("stop_{}_{}", stop_handler.name, param.name),
-                            StrategyParamValue::Number(value as f64),
-                        );
+                        let param_key =
+                            ConditionId::stop_handler_parameter_name(&stop_handler.id, &param.name);
+                        params.insert(param_key, StrategyParamValue::Number(value as f64));
                     }
                 }
             }
@@ -620,7 +607,7 @@ impl InitialPopulationGenerator {
                         let step_index = rng.gen_range(0..=steps);
                         let value = range.start + (step_index as f32 * range.step);
                         params.insert(
-                            format!("take_{}_{}", take_handler.name, param.name),
+                            ConditionId::take_handler_parameter_name(&take_handler.id, &param.name),
                             StrategyParamValue::Number(value as f64),
                         );
                     }
@@ -641,6 +628,62 @@ impl InitialPopulationGenerator {
                         && condition.constant_value.is_some()
                     {
                         StrategyParamValue::Number(condition.constant_value.unwrap())
+                    } else if param.name.to_lowercase() == "percentage"
+                        || param.name.to_lowercase() == "percent"
+                    {
+                        // Для параметра percentage у условий используем ConditionParameterPresets
+                        let condition_name = condition.operator.factory_name();
+                        if let Some(range) =
+                            ConditionParameterPresets::get_range_for_condition(condition_name)
+                        {
+                            let steps = ((range.max - range.min) / range.step) as usize;
+                            let step_index = rng.gen_range(0..=steps);
+                            let value = range.min + (step_index as f32 * range.step);
+                            StrategyParamValue::Number(value as f64)
+                        } else if condition.condition_type == "indicator_constant"
+                            && indicator_name.is_some()
+                        {
+                            // Fallback для volatility индикаторов
+                            if let Some(ind_name) = &indicator_name {
+                                if let Some(indicator) = candidate.indicators.iter().find(|i| {
+                                    i.name == *ind_name && i.indicator_type == "volatility"
+                                }) {
+                                    if let Some(range) = Self::get_volatility_percentage_range(
+                                        &self.candidate_builder_config,
+                                        indicator,
+                                    ) {
+                                        let steps =
+                                            ((range.end - range.start) / range.step) as usize;
+                                        let step_index = rng.gen_range(0..=steps);
+                                        let value = range.start + (step_index as f32 * range.step);
+                                        StrategyParamValue::Number(value as f64)
+                                    } else {
+                                        StrategyParamValue::Number(
+                                            condition.constant_value.unwrap_or(2.0),
+                                        )
+                                    }
+                                } else {
+                                    use crate::indicators::types::ParameterType;
+                                    if let Some(range) = ParameterPresets::get_optimization_range(
+                                        ind_name,
+                                        &param.name,
+                                        &ParameterType::Multiplier,
+                                    ) {
+                                        let steps =
+                                            ((range.end - range.start) / range.step) as usize;
+                                        let step_index = rng.gen_range(0..=steps);
+                                        let value = range.start + (step_index as f32 * range.step);
+                                        StrategyParamValue::Number(value as f64)
+                                    } else {
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                continue;
+                            }
+                        } else {
+                            continue;
+                        }
                     } else if param.name.to_lowercase() == "percentage"
                         && condition.condition_type == "indicator_constant"
                         && indicator_name.is_some()
@@ -686,6 +729,19 @@ impl InitialPopulationGenerator {
                         } else {
                             continue;
                         }
+                    } else if param.name.to_lowercase() == "period" {
+                        // Для параметра period у условий используем ConditionParameterPresets
+                        let condition_name = condition.operator.factory_name();
+                        if let Some(range) =
+                            ConditionParameterPresets::get_range_for_condition(condition_name)
+                        {
+                            let steps = ((range.max - range.min) / range.step) as usize;
+                            let step_index = rng.gen_range(0..=steps);
+                            let value = range.min + (step_index as f32 * range.step);
+                            StrategyParamValue::Number(value as f64)
+                        } else {
+                            continue;
+                        }
                     } else if let Some(ind_name) = &indicator_name {
                         use crate::indicators::types::ParameterType;
                         let param_type = match param.name.to_lowercase().as_str() {
@@ -710,7 +766,7 @@ impl InitialPopulationGenerator {
                         continue;
                     };
                     params.insert(
-                        format!("condition_{}_{}", condition.id, param.name),
+                        ConditionId::parameter_name(&condition.id, &param.name),
                         param_value,
                     );
                 }
@@ -740,8 +796,6 @@ impl InitialPopulationGenerator {
 
         None
     }
-
-
 
     fn should_apply_volatility_constraint(
         indicator: &crate::discovery::IndicatorInfo,
@@ -910,9 +964,7 @@ impl InitialPopulationGenerator {
                     .optimization_params
                     .iter()
                     .any(|p| p.name == "percentage");
-                let operator_display = condition
-                    .operator
-                    .display_name();
+                let operator_display = condition.operator.display_name();
                 println!("      {}. {} [TF: {}]", idx + 1, condition.name, tf_str);
                 println!("         Тип: {}", condition.condition_type);
                 println!("         Условие: {}", operator_display);
@@ -932,7 +984,7 @@ impl InitialPopulationGenerator {
                     println!("         Параметры:");
                     for param in &condition.optimization_params {
                         if let Some(params) = parameters {
-                            let param_key = format!("condition_{}_{}", condition.id, param.name);
+                            let param_key = ConditionId::parameter_name(&condition.id, &param.name);
                             if let Some(value) = params.get(&param_key) {
                                 println!("            - {}: {:?}", param.name, value);
                             } else {
@@ -963,9 +1015,7 @@ impl InitialPopulationGenerator {
                     .optimization_params
                     .iter()
                     .any(|p| p.name == "percentage");
-                let operator_display = condition
-                    .operator
-                    .display_name();
+                let operator_display = condition.operator.display_name();
                 println!("      {}. {} [TF: {}]", idx + 1, condition.name, tf_str);
                 println!("         Тип: {}", condition.condition_type);
                 println!("         Условие: {}", operator_display);
@@ -985,7 +1035,7 @@ impl InitialPopulationGenerator {
                     println!("         Параметры:");
                     for param in &condition.optimization_params {
                         if let Some(params) = parameters {
-                            let param_key = format!("condition_{}_{}", condition.id, param.name);
+                            let param_key = ConditionId::parameter_name(&condition.id, &param.name);
                             if let Some(value) = params.get(&param_key) {
                                 println!("            - {}: {:?}", param.name, value);
                             } else {

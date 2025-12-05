@@ -1,7 +1,7 @@
 use crate::indicators::{
     base::{
-        Indicator, IndicatorBuildRules, IndicatorCompareConfig, NestingConfig,
-        OscillatorIndicator, OverboughtOversoldZones, PriceCompareConfig, ThresholdType,
+        Indicator, IndicatorBuildRules, IndicatorCompareConfig, NestingConfig, OscillatorIndicator,
+        OverboughtOversoldZones, PriceCompareConfig, ThresholdType,
     },
     impl_::common::adjust_period,
     parameters::create_period_parameter,
@@ -96,8 +96,6 @@ impl Indicator for Stochastic {
             allowed_conditions: &[
                 ConditionOperator::Above,
                 ConditionOperator::Below,
-                ConditionOperator::CrossesAbove,
-                ConditionOperator::CrossesBelow,
                 ConditionOperator::RisingTrend,
                 ConditionOperator::FallingTrend,
             ],
@@ -133,8 +131,3 @@ impl OscillatorIndicator for Stochastic {
         }
     }
 }
-
-
-
-
-

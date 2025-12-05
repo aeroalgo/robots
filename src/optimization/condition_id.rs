@@ -91,6 +91,22 @@ impl ConditionId {
         }
     }
 
+    pub fn parameter_name(condition_id: &str, param_name: &str) -> String {
+        format!("{}_{}", condition_id, param_name)
+    }
+
+    pub fn indicator_parameter_name(indicator_alias: &str, param_name: &str) -> String {
+        format!("{}_{}", indicator_alias, param_name)
+    }
+
+    pub fn stop_handler_parameter_name(handler_id: &str, param_name: &str) -> String {
+        format!("{}_{}", handler_id, param_name)
+    }
+
+    pub fn take_handler_parameter_name(handler_id: &str, param_name: &str) -> String {
+        format!("{}_{}", handler_id, param_name)
+    }
+
     pub fn parse(condition_id: &str) -> Option<ParsedConditionId> {
         let (prefix, rest) = Self::extract_prefix(condition_id)?;
 
@@ -126,7 +142,8 @@ impl ConditionId {
 
         for condition in conditions {
             if let Some(alias) = condition.primary_indicator_alias() {
-                let tf = condition.primary_timeframe()
+                let tf = condition
+                    .primary_timeframe()
                     .cloned()
                     .unwrap_or_else(|| base_timeframe.clone());
                 required_timeframes.entry(alias).or_default().insert(tf);
@@ -134,10 +151,14 @@ impl ConditionId {
 
             if condition.condition_type() == "indicator_indicator" {
                 if let Some(secondary_alias) = condition.secondary_indicator_alias() {
-                    let secondary_tf = condition.secondary_timeframe()
+                    let secondary_tf = condition
+                        .secondary_timeframe()
                         .cloned()
                         .unwrap_or_else(|| base_timeframe.clone());
-                    required_timeframes.entry(secondary_alias).or_default().insert(secondary_tf);
+                    required_timeframes
+                        .entry(secondary_alias)
+                        .or_default()
+                        .insert(secondary_tf);
                 }
             }
         }
@@ -365,7 +386,6 @@ mod tests {
         assert!(parsed.is_trend_condition());
     }
 
-
     #[test]
     fn test_prefix_for() {
         assert_eq!(ConditionId::prefix_for(true), "entry");
@@ -383,5 +403,26 @@ mod tests {
         assert!(ConditionId::is_trend_condition("entry_sma_risingtrend_123"));
         assert!(ConditionId::is_trend_condition("exit_rsi_fallingtrend_456"));
         assert!(!ConditionId::is_trend_condition("entry_sma_123"));
+    }
+
+    #[test]
+    fn test_parameter_name() {
+        let condition_id = "entry_sinewma::risingtrend_2442449988";
+        let param_name = ConditionId::parameter_name(condition_id, "period");
+        assert_eq!(param_name, "entry_sinewma::risingtrend_2442449988_period");
+    }
+
+    #[test]
+    fn test_indicator_parameter_name() {
+        let alias = "sinewma";
+        let param_name = ConditionId::indicator_parameter_name(alias, "period");
+        assert_eq!(param_name, "sinewma_period");
+    }
+
+    #[test]
+    fn test_stop_handler_parameter_name() {
+        let handler_id = "stop_2525818392";
+        let param_name = ConditionId::stop_handler_parameter_name(handler_id, "period");
+        assert_eq!(param_name, "stop_2525818392_period");
     }
 }

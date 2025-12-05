@@ -1,20 +1,38 @@
 use std::collections::HashMap;
 
+use crate::indicators::types::ParameterSet;
 use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 
 use crate::risk::auxiliary::AuxiliaryIndicatorSpec;
 use crate::risk::context::StopEvaluationContext;
+use crate::risk::parameters::{create_atr_coefficient_parameter, create_stop_period_parameter};
 use crate::risk::traits::{StopHandler, StopOutcome};
 use crate::risk::utils::{calculate_stop_exit_price, get_price_at_index, is_stop_triggered};
 
 pub struct ATRTrailStopHandler {
     pub period: f64,
     pub coeff_atr: f64,
+    parameters: ParameterSet,
 }
 
 impl ATRTrailStopHandler {
     pub fn new(period: f64, coeff_atr: f64) -> Self {
-        Self { period, coeff_atr }
+        let mut params = ParameterSet::new();
+        params.add_parameter_unchecked(create_stop_period_parameter(
+            "period",
+            period as f32,
+            "Период для расчета ATR",
+        ));
+        params.add_parameter_unchecked(create_atr_coefficient_parameter(
+            "coeff_atr",
+            coeff_atr as f32,
+            "Коэффициент умножения ATR",
+        ));
+        Self {
+            period,
+            coeff_atr,
+            parameters: params,
+        }
     }
 
     fn auxiliary_alias(&self) -> String {
@@ -37,6 +55,10 @@ impl ATRTrailStopHandler {
 impl StopHandler for ATRTrailStopHandler {
     fn name(&self) -> &str {
         "ATRTrailStop"
+    }
+
+    fn parameters(&self) -> &ParameterSet {
+        &self.parameters
     }
 
     fn evaluate(&self, ctx: &StopEvaluationContext<'_>) -> Option<StopOutcome> {

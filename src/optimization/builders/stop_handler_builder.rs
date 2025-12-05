@@ -44,7 +44,7 @@ impl<'a> StopHandlerBuilder<'a> {
                 name: config.handler_name.clone(),
                 handler_name: config.handler_name.clone(),
                 stop_type: config.stop_type.clone(),
-                optimization_params: Self::make_handler_params(config),
+                optimization_params: Self::make_handler_params(config, available),
                 priority: config.priority,
             })
     }
@@ -65,20 +65,30 @@ impl<'a> StopHandlerBuilder<'a> {
                 name: config.handler_name.clone(),
                 handler_name: config.handler_name.clone(),
                 stop_type: config.stop_type.clone(),
-                optimization_params: Self::make_handler_params(config),
+                optimization_params: Self::make_handler_params(config, available),
                 priority: config.priority,
             })
     }
 
-    pub fn make_handler_params(config: &StopHandlerConfig) -> Vec<crate::discovery::ConditionParamInfo> {
-        if config.parameter_name.is_empty() {
-            Vec::new()
-        } else {
-            vec![crate::discovery::ConditionParamInfo {
-                name: config.parameter_name.clone(),
-                optimizable: true,
-                global_param_name: config.global_param_name.clone(),
-            }]
+    pub fn make_handler_params(
+        config: &StopHandlerConfig,
+        all_configs: &[StopHandlerConfig],
+    ) -> Vec<crate::discovery::ConditionParamInfo> {
+        let handler_name = &config.handler_name;
+        let mut params = Vec::new();
+
+        for cfg in all_configs {
+            if cfg.handler_name == *handler_name && cfg.stop_type == config.stop_type {
+                if !cfg.parameter_name.is_empty() {
+                    params.push(crate::discovery::ConditionParamInfo {
+                        name: cfg.parameter_name.clone(),
+                        optimizable: true,
+                        global_param_name: cfg.global_param_name.clone(),
+                    });
+                }
+            }
         }
+
+        params
     }
 }

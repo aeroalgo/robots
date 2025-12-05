@@ -37,21 +37,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_crosses_above_condition() {
-        let condition = ConditionFactory::create_condition_default("CrossesAbove").unwrap();
-        let line1 = vec![95.0, 98.0, 102.0, 105.0];
-        let line2 = vec![100.0, 100.0, 100.0, 100.0];
-
-        let result = condition
-            .check(ConditionInputData::dual(&line1, &line2))
-            .unwrap();
-
-        assert_eq!(result.signals[0], false);
-        assert_eq!(result.signals.len(), line1.len());
-        assert!(result.signals.iter().any(|&s| s));
-    }
-
-    #[tokio::test]
     async fn test_rising_trend_condition() {
         let mut params = HashMap::new();
         params.insert("period".to_string(), 3.0);
@@ -59,29 +44,12 @@ mod tests {
         let condition = ConditionFactory::create_condition("RisingTrend", params).unwrap();
         let data = create_test_data();
 
-        let result = condition
-            .check(ConditionInputData::single(&data))
-            .unwrap();
+        let result = condition.check(ConditionInputData::single(&data)).unwrap();
 
         assert_eq!(result.signals[0], false);
         assert_eq!(result.signals[1], false);
         assert_eq!(result.signals.len(), data.len());
         assert!(result.signals.iter().any(|&s| s));
-    }
-
-    #[tokio::test]
-    async fn test_crosses_above_dual_condition() {
-        let condition = ConditionFactory::create_condition_default("CrossesAbove").unwrap();
-        let line1 = vec![95.0, 98.0, 102.0, 105.0];
-        let line2 = vec![100.0, 100.0, 100.0, 100.0];
-
-        let result = condition
-            .check(ConditionInputData::dual(&line1, &line2))
-            .unwrap();
-
-        assert_eq!(result.signals[0], false);
-        assert_eq!(result.signals[2], true);
-        assert_eq!(result.signals[3], false);
     }
 
     #[tokio::test]
@@ -113,7 +81,6 @@ mod tests {
     async fn test_condition_factory() {
         let available = ConditionFactory::get_available_conditions();
         assert!(available.contains(&"Above"));
-        assert!(available.contains(&"CrossesAbove"));
         assert!(available.contains(&"RisingTrend"));
 
         let above_info = ConditionFactory::get_condition_info("Above");
@@ -155,9 +122,7 @@ mod tests {
         let condition = ConditionFactory::create_condition("RisingTrend", params).unwrap();
         let short_data = vec![1.0, 2.0, 3.0];
 
-        let result = condition
-            .check(ConditionInputData::single(&short_data))
-;
+        let result = condition.check(ConditionInputData::single(&short_data));
         assert!(result.is_err());
 
         let result = ConditionFactory::create_condition("UnknownCondition", HashMap::new());

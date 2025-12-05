@@ -19,10 +19,6 @@ impl ConditionFactory {
             "ABOVE" => Ok(Box::new(AboveCondition::new()?)),
             "BELOW" => Ok(Box::new(BelowCondition::new()?)),
 
-            // Условия пересечения
-            "CROSSESABOVE" => Ok(Box::new(CrossesAboveCondition::new()?)),
-            "CROSSESBELOW" => Ok(Box::new(CrossesBelowCondition::new()?)),
-
             // Трендовые условия
             "RISINGTREND" => {
                 let period = parameters.get("period").copied().unwrap_or(20.0);
@@ -45,9 +41,6 @@ impl ConditionFactory {
             // Условия сравнения
             "Above",
             "Below",
-            // Условия пересечения
-            "CrossesAbove",
-            "CrossesBelow",
             // Трендовые условия
             "RisingTrend",
             "FallingTrend",
@@ -76,24 +69,6 @@ impl ConditionFactory {
                 category: crate::condition::types::ConditionCategory::Filter,
                 min_data_points: 2,
                 is_reversible: true,
-                required_inputs: vec![ConditionInput::Dual],
-            }),
-            "CROSSESABOVE" => Some(ConditionConfig {
-                name: "CrossesAbove".to_string(),
-                description: "Проверяет пересечение линии выше".to_string(),
-                condition_type: crate::condition::types::ConditionType::Crossover,
-                category: crate::condition::types::ConditionCategory::Entry,
-                min_data_points: 2,
-                is_reversible: false,
-                required_inputs: vec![ConditionInput::Dual],
-            }),
-            "CROSSESBELOW" => Some(ConditionConfig {
-                name: "CrossesBelow".to_string(),
-                description: "Проверяет пересечение линии ниже".to_string(),
-                condition_type: crate::condition::types::ConditionType::Crossover,
-                category: crate::condition::types::ConditionCategory::Entry,
-                min_data_points: 2,
-                is_reversible: false,
                 required_inputs: vec![ConditionInput::Dual],
             }),
             "RISINGTREND" => Some(ConditionConfig {
@@ -162,8 +137,6 @@ impl ConditionFactory {
         match config.name.to_uppercase().as_str() {
             "ABOVE" => Ok(Box::new(AboveCondition::new()?)),
             "BELOW" => Ok(Box::new(BelowCondition::new()?)),
-            "CROSSESABOVE" => Ok(Box::new(CrossesAboveCondition::new()?)),
-            "CROSSESBELOW" => Ok(Box::new(CrossesBelowCondition::new()?)),
             "RISINGTREND" => Ok(Box::new(RisingTrendCondition::new(20.0)?)),
             "FALLINGTREND" => Ok(Box::new(FallingTrendCondition::new(20.0)?)),
             "GREATERPERCENT" => Ok(Box::new(GreaterPercentCondition::new()?)),
@@ -211,14 +184,6 @@ impl ConditionRegistry {
 
         if let Ok(below) = BelowCondition::new() {
             self.register_condition("Below", Box::new(below));
-        }
-
-        if let Ok(crosses_above) = CrossesAboveCondition::new() {
-            self.register_condition("CrossesAbove", Box::new(crosses_above));
-        }
-
-        if let Ok(crosses_below) = CrossesBelowCondition::new() {
-            self.register_condition("CrossesBelow", Box::new(crosses_below));
         }
 
         if let Ok(rising_trend) = RisingTrendCondition::new(20.0) {

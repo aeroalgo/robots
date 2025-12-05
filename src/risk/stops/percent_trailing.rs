@@ -1,24 +1,40 @@
 use std::collections::HashMap;
 
+use crate::indicators::types::ParameterSet;
 use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 
 use crate::risk::context::StopEvaluationContext;
+use crate::risk::parameters::create_stop_percentage_parameter;
 use crate::risk::traits::{StopHandler, StopOutcome};
 use crate::risk::utils::{calculate_stop_exit_price, get_price_at_index, is_stop_triggered};
 
 pub struct PercentTrailingStopHandler {
     pub percentage: f64,
+    parameters: ParameterSet,
 }
 
 impl PercentTrailingStopHandler {
     pub fn new(percentage: f64) -> Self {
-        Self { percentage }
+        let mut params = ParameterSet::new();
+        params.add_parameter_unchecked(create_stop_percentage_parameter(
+            "percentage",
+            percentage as f32,
+            "Процент для trailing стопа",
+        ));
+        Self {
+            percentage,
+            parameters: params,
+        }
     }
 }
 
 impl StopHandler for PercentTrailingStopHandler {
     fn name(&self) -> &str {
         "PercentTrailingStop"
+    }
+
+    fn parameters(&self) -> &ParameterSet {
+        &self.parameters
     }
 
     fn compute_stop_level(&self, ctx: &StopEvaluationContext<'_>) -> Option<f64> {

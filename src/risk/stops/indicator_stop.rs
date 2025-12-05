@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 
+use crate::indicators::types::ParameterSet;
 use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 
+use crate::indicators::types::{IndicatorParameter, ParameterRange, ParameterType};
 use crate::risk::auxiliary::AuxiliaryIndicatorSpec;
 use crate::risk::context::{StopEvaluationContext, StopValidationContext};
+use crate::risk::parameters::StopParameterPresets;
 use crate::risk::traits::{StopHandler, StopOutcome, StopValidationResult};
 use crate::risk::utils::{calculate_stop_exit_price, get_price_at_index, is_stop_triggered};
 
@@ -12,6 +15,7 @@ pub struct IndicatorStopHandler {
     pub indicator_params: HashMap<String, f64>,
     pub offset_percent: f64,
     pub trailing: bool,
+    parameters: ParameterSet,
 }
 
 impl IndicatorStopHandler {
@@ -21,11 +25,21 @@ impl IndicatorStopHandler {
         offset_percent: f64,
         trailing: bool,
     ) -> Self {
+        let mut params = ParameterSet::new();
+        let offset_range = StopParameterPresets::offset_percent();
+        params.add_parameter_unchecked(IndicatorParameter::new(
+            "offset_percent",
+            offset_percent as f32,
+            offset_range,
+            "Процент смещения от индикатора",
+            ParameterType::Coefficient,
+        ));
         Self {
             indicator_name,
             indicator_params,
             offset_percent,
             trailing,
+            parameters: params,
         }
     }
 
@@ -74,7 +88,6 @@ impl IndicatorStopHandler {
             _ => indicator_value,
         }
     }
-
 }
 
 impl StopHandler for IndicatorStopHandler {
@@ -82,12 +95,19 @@ impl StopHandler for IndicatorStopHandler {
         "IndicatorStop"
     }
 
+    fn parameters(&self) -> &ParameterSet {
+        &self.parameters
+    }
+
     fn compute_stop_level(&self, ctx: &StopEvaluationContext<'_>) -> Option<f64> {
         let indicator_value = self.get_indicator_value(ctx)? as f64;
         Some(self.calculate_stop_level(indicator_value, &ctx.position.direction))
     }
 
-    fn validate_before_entry(&self, ctx: &StopValidationContext<'_>) -> Option<StopValidationResult> {
+    fn validate_before_entry(
+        &self,
+        ctx: &StopValidationContext<'_>,
+    ) -> Option<StopValidationResult> {
         let indicator_value = self.get_indicator_value_for_validation(ctx)? as f64;
         let stop_level = self.calculate_stop_level(indicator_value, &ctx.direction);
 
@@ -124,8 +144,18 @@ impl StopHandler for IndicatorStopHandler {
     fn evaluate(&self, ctx: &StopEvaluationContext<'_>) -> Option<StopOutcome> {
         let current_stop = ctx.position.current_stop?;
 
-        let low_price = get_price_at_index(ctx.timeframe_data, &PriceField::Low, ctx.index, ctx.current_price);
-        let high_price = get_price_at_index(ctx.timeframe_data, &PriceField::High, ctx.index, ctx.current_price);
+        let low_price = get_price_at_index(
+            ctx.timeframe_data,
+            &PriceField::Low,
+            ctx.index,
+            ctx.current_price,
+        );
+        let high_price = get_price_at_index(
+            ctx.timeframe_data,
+            &PriceField::High,
+            ctx.index,
+            ctx.current_price,
+        );
 
         if is_stop_triggered(&ctx.position.direction, low_price, high_price, current_stop) {
             let open_price = get_price_at_index(
@@ -134,14 +164,14 @@ impl StopHandler for IndicatorStopHandler {
                 ctx.index,
                 ctx.current_price,
             );
-            
+
             let exit_price = calculate_stop_exit_price(
                 &ctx.position.direction,
                 current_stop,
                 open_price,
                 ctx.current_price,
             );
-            
+
             let mut metadata = HashMap::new();
             metadata.insert("level".to_string(), current_stop.to_string());
             metadata.insert("triggered_price".to_string(), exit_price.to_string());
@@ -164,4 +194,3 @@ impl StopHandler for IndicatorStopHandler {
         }]
     }
 }
-

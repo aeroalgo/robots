@@ -287,8 +287,6 @@ pub enum ConditionOperator {
     FallingTrend,
     GreaterPercent,
     LowerPercent,
-    CrossesAbove,
-    CrossesBelow,
     Between,
 }
 
@@ -301,8 +299,6 @@ impl ConditionOperator {
             Self::FallingTrend => "falling_trend",
             Self::GreaterPercent => "greater_percent",
             Self::LowerPercent => "lower_percent",
-            Self::CrossesAbove => "crosses_above",
-            Self::CrossesBelow => "crosses_below",
             Self::Between => "between",
         }
     }
@@ -315,8 +311,6 @@ impl ConditionOperator {
             Self::FallingTrend => "FallingTrend (↘ падающий тренд)",
             Self::GreaterPercent => "GreaterPercent (выше на %)",
             Self::LowerPercent => "LowerPercent (ниже на %)",
-            Self::CrossesAbove => "CrossesAbove (↗ пересекает вверх)",
-            Self::CrossesBelow => "CrossesBelow (↘ пересекает вниз)",
             Self::Between => "Between (между)",
         }
     }
@@ -330,7 +324,20 @@ impl ConditionOperator {
     }
 
     pub fn is_crossover(&self) -> bool {
-        matches!(self, Self::CrossesAbove | Self::CrossesBelow)
+        false
+    }
+
+    /// Получить имя условия для использования в ConditionFactory
+    pub fn factory_name(&self) -> &'static str {
+        match self {
+            Self::Above => "ABOVE",
+            Self::Below => "BELOW",
+            Self::RisingTrend => "RISINGTREND",
+            Self::FallingTrend => "FALLINGTREND",
+            Self::GreaterPercent => "GREATERPERCENT",
+            Self::LowerPercent => "LOWERPERCENT",
+            Self::Between => "BETWEEN",
+        }
     }
 
     pub fn opposite(&self) -> Self {
@@ -341,8 +348,6 @@ impl ConditionOperator {
             Self::FallingTrend => Self::RisingTrend,
             Self::GreaterPercent => Self::LowerPercent,
             Self::LowerPercent => Self::GreaterPercent,
-            Self::CrossesAbove => Self::CrossesBelow,
-            Self::CrossesBelow => Self::CrossesAbove,
             Self::Between => Self::Between,
         }
     }
@@ -429,8 +434,6 @@ impl ConditionBindingSpec {
             ConditionOperator::FallingTrend => "FALLINGTREND",
             ConditionOperator::GreaterPercent => "GREATERPERCENT",
             ConditionOperator::LowerPercent => "LOWERPERCENT",
-            ConditionOperator::CrossesAbove => "CROSSESABOVE",
-            ConditionOperator::CrossesBelow => "CROSSESBELOW",
             ConditionOperator::Between => "BETWEEN",
         }
     }

@@ -30,18 +30,27 @@ impl CandidateBuilder {
     }
 
     /// Создаёт optimization_params для stop/take handler из конфигурации
+    /// Собирает все параметры для хендлера из всех доступных конфигов
     fn make_handler_params(
         config: &StopHandlerConfig,
+        all_configs: &[StopHandlerConfig],
     ) -> Vec<crate::discovery::ConditionParamInfo> {
-        if config.parameter_name.is_empty() {
-            Vec::new()
-        } else {
-            vec![crate::discovery::ConditionParamInfo {
-                name: config.parameter_name.clone(),
-                optimizable: true,
-                global_param_name: config.global_param_name.clone(),
-            }]
+        let handler_name = &config.handler_name;
+        let mut params = Vec::new();
+
+        for cfg in all_configs {
+            if cfg.handler_name == *handler_name && cfg.stop_type == config.stop_type {
+                if !cfg.parameter_name.is_empty() {
+                    params.push(crate::discovery::ConditionParamInfo {
+                        name: cfg.parameter_name.clone(),
+                        optimizable: true,
+                        global_param_name: cfg.global_param_name.clone(),
+                    });
+                }
+            }
         }
+
+        params
     }
 
     pub fn build_candidate(
@@ -192,7 +201,7 @@ impl CandidateBuilder {
                     name: config.handler_name.clone(),
                     handler_name: config.handler_name.clone(),
                     stop_type: config.stop_type.clone(),
-                    optimization_params: Self::make_handler_params(config),
+                    optimization_params: Self::make_handler_params(config, available_stop_handlers),
                     priority: config.priority,
                 });
             }
@@ -484,7 +493,10 @@ impl CandidateBuilder {
                         name: config.handler_name.clone(),
                         handler_name: config.handler_name.clone(),
                         stop_type: config.stop_type.clone(),
-                        optimization_params: Self::make_handler_params(config),
+                        optimization_params: Self::make_handler_params(
+                            config,
+                            available_stop_handlers,
+                        ),
                         priority: config.priority,
                     });
                     return;
@@ -517,7 +529,10 @@ impl CandidateBuilder {
                         name: config.handler_name.clone(),
                         handler_name: config.handler_name.clone(),
                         stop_type: config.stop_type.clone(),
-                        optimization_params: Self::make_handler_params(config),
+                        optimization_params: Self::make_handler_params(
+                            config,
+                            available_stop_handlers,
+                        ),
                         priority: config.priority,
                     });
                     return;
@@ -631,7 +646,7 @@ impl CandidateBuilder {
                 name: config.handler_name.clone(),
                 handler_name: config.handler_name.clone(),
                 stop_type: config.stop_type.clone(),
-                optimization_params: Self::make_handler_params(config),
+                optimization_params: Self::make_handler_params(config, available),
                 priority: config.priority,
             })
     }
@@ -1386,13 +1401,8 @@ impl CandidateBuilder {
         } else if (final_condition_type == "indicator_price"
             || final_condition_type == "indicator_indicator")
             && self.should_add(probabilities.use_percent_condition)
-            && !matches!(
-                operator,
-                ConditionOperator::CrossesAbove | ConditionOperator::CrossesBelow
-            )
         {
             // Добавляем параметр "percentage" для процентных условий
-            // НЕ добавляем для CrossesAbove/CrossesBelow - пересечение происходит когда значения равны
             let percent_value = self.rng.gen_range(0.1..=5.0);
             (
                 vec![crate::discovery::ConditionParamInfo {
@@ -1825,7 +1835,7 @@ impl CandidateBuilder {
                     name: config.handler_name.clone(),
                     handler_name: config.handler_name.clone(),
                     stop_type: config.stop_type.clone(),
-                    optimization_params: Self::make_handler_params(config),
+                    optimization_params: Self::make_handler_params(config, available_stop_handlers),
                     priority: config.priority,
                 });
             } else {

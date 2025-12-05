@@ -98,8 +98,6 @@ impl Indicator for WATR {
             nested_compare_conditions: &[
                 ConditionOperator::Above,
                 ConditionOperator::Below,
-                ConditionOperator::CrossesAbove,
-                ConditionOperator::CrossesBelow,
                 ConditionOperator::GreaterPercent,
                 ConditionOperator::LowerPercent,
             ],

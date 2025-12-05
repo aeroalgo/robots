@@ -59,8 +59,6 @@ impl GeneticAlgorithmV3 {
             ConditionOperator::FallingTrend,
             ConditionOperator::GreaterPercent,
             ConditionOperator::LowerPercent,
-            ConditionOperator::CrossesAbove,
-            ConditionOperator::CrossesBelow,
         ];
 
         let stop_handler_configs = vec![];
@@ -712,15 +710,14 @@ impl GeneticAlgorithmV3 {
     }
 
     fn remove_conditions_with_indicator(candidate: &mut StrategyCandidate, alias: &str) {
-        candidate.conditions.retain(|cond| {
-            !cond.all_indicator_aliases().contains(&alias.to_string())
-        });
+        candidate
+            .conditions
+            .retain(|cond| !cond.all_indicator_aliases().contains(&alias.to_string()));
 
-        candidate.exit_conditions.retain(|cond| {
-            !cond.all_indicator_aliases().contains(&alias.to_string())
-        });
+        candidate
+            .exit_conditions
+            .retain(|cond| !cond.all_indicator_aliases().contains(&alias.to_string()));
     }
-
 
     fn create_condition_for_indicator(
         indicator: &crate::discovery::IndicatorInfo,

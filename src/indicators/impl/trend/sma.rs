@@ -92,8 +92,6 @@ impl Indicator for SMA {
             allowed_conditions: &[
                 ConditionOperator::Above,
                 ConditionOperator::Below,
-                ConditionOperator::CrossesAbove,
-                ConditionOperator::CrossesBelow,
                 ConditionOperator::RisingTrend,
                 ConditionOperator::FallingTrend,
                 ConditionOperator::GreaterPercent,

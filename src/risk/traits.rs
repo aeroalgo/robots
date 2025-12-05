@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::indicators::types::ParameterSet;
 use crate::strategy::types::StopSignalKind;
 
 use super::auxiliary::AuxiliaryIndicatorSpec;
@@ -19,6 +20,9 @@ pub struct StopOutcome {
 
 pub trait StopHandler: Send + Sync {
     fn name(&self) -> &str;
+
+    fn parameters(&self) -> &ParameterSet;
+
     fn evaluate(&self, ctx: &StopEvaluationContext<'_>) -> Option<StopOutcome>;
 
     fn validate_before_entry(
@@ -50,6 +54,8 @@ pub struct TakeOutcome {
 
 pub trait TakeHandler: Send + Sync {
     fn name(&self) -> &str;
+
+    fn parameters(&self) -> &ParameterSet;
+
     fn evaluate(&self, ctx: &TakeEvaluationContext<'_>) -> Option<TakeOutcome>;
 }
-

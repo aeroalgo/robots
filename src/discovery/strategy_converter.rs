@@ -116,7 +116,8 @@ impl StrategyConverter {
         for indicator in &candidate.indicators {
             for param in &indicator.parameters {
                 if param.optimizable {
-                    let param_name = Self::make_parameter_name(&indicator.alias, &param.name);
+                    let param_name =
+                        ConditionId::indicator_parameter_name(&indicator.alias, &param.name);
                     let range = ParameterPresets::get_range_for_parameter(
                         &indicator.name,
                         &param.name,
@@ -157,7 +158,7 @@ impl StrategyConverter {
             for param in &nested.indicator.parameters {
                 if param.optimizable {
                     let param_name =
-                        Self::make_parameter_name(&nested.indicator.alias, &param.name);
+                        ConditionId::indicator_parameter_name(&nested.indicator.alias, &param.name);
                     let range = ParameterPresets::get_range_for_parameter(
                         &nested.indicator.name,
                         &param.name,
@@ -197,22 +198,24 @@ impl StrategyConverter {
         for condition in &candidate.conditions {
             for param in &condition.optimization_params {
                 if param.optimizable {
-                    let param_name = Self::make_parameter_name(&condition.id, &param.name);
+                    let param_name = ConditionId::parameter_name(&condition.id, &param.name);
                     let (default_val, min_val, max_val, step_val) = if param.name == "period" {
-                        let range = crate::condition::parameters::ConditionParameterPresets::trend_period();
+                        let range =
+                            crate::condition::parameters::ConditionParameterPresets::trend_period();
                         (
                             ((range.min + range.max) / 2.0) as f64,
                             Some(range.min as f64),
                             Some(range.max as f64),
-                            Some(range.step as f64)
+                            Some(range.step as f64),
                         )
                     } else if param.name == "percentage" {
-                        let range = crate::condition::parameters::ConditionParameterPresets::percentage();
+                        let range =
+                            crate::condition::parameters::ConditionParameterPresets::percentage();
                         (
                             ((range.min + range.max) / 2.0) as f64,
                             Some(range.min as f64),
                             Some(range.max as f64),
-                            Some(range.step as f64)
+                            Some(range.step as f64),
                         )
                     } else {
                         (1.0, None, None, None)
@@ -238,22 +241,24 @@ impl StrategyConverter {
             for param in &condition.optimization_params {
                 if param.optimizable {
                     let param_name =
-                        Self::make_parameter_name(&format!("exit_{}", condition.id), &param.name);
+                        ConditionId::parameter_name(&format!("exit_{}", condition.id), &param.name);
                     let (default_val, min_val, max_val, step_val) = if param.name == "period" {
-                        let range = crate::condition::parameters::ConditionParameterPresets::trend_period();
+                        let range =
+                            crate::condition::parameters::ConditionParameterPresets::trend_period();
                         (
                             ((range.min + range.max) / 2.0) as f64,
                             Some(range.min as f64),
                             Some(range.max as f64),
-                            Some(range.step as f64)
+                            Some(range.step as f64),
                         )
                     } else if param.name == "percentage" {
-                        let range = crate::condition::parameters::ConditionParameterPresets::percentage();
+                        let range =
+                            crate::condition::parameters::ConditionParameterPresets::percentage();
                         (
                             ((range.min + range.max) / 2.0) as f64,
                             Some(range.min as f64),
                             Some(range.max as f64),
-                            Some(range.step as f64)
+                            Some(range.step as f64),
                         )
                     } else {
                         (1.0, None, None, None)
@@ -276,71 +281,129 @@ impl StrategyConverter {
         }
 
         for stop_handler in &candidate.stop_handlers {
-            for param in &stop_handler.optimization_params {
-                if param.optimizable {
-                    let param_name = Self::make_parameter_name(&stop_handler.id, &param.name);
-                    let range_opt = crate::risk::get_stop_optimization_range(
-                        &stop_handler.handler_name,
-                        &param.name,
-                    );
-                    let (default_val, min_val, max_val, step_val) = if let Some(range) = range_opt {
-                        (
-                            ((range.start + range.end) / 2.0) as f64,
-                            Some(range.start as f64),
-                            Some(range.end as f64),
-                            Some(range.step as f64),
-                        )
-                    } else {
-                        (50.0, Some(10.0), Some(150.0), Some(10.0))
-                    };
-                    params.push(StrategyParameterSpec {
-                        name: param_name,
-                        description: Some(format!(
-                            "{} parameter for stop handler {}",
-                            param.name, stop_handler.name
-                        )),
-                        default_value: StrategyParamValue::Number(default_val),
-                        min: min_val,
-                        max: max_val,
-                        step: step_val,
-                        discrete_values: None,
-                        optimize: true,
-                    });
+            let temp_params = Self::get_default_stop_params(&stop_handler.handler_name);
+            if let Ok(temp_handler) = crate::risk::factory::StopHandlerFactory::create(
+                &stop_handler.handler_name,
+                &temp_params,
+            ) {
+                let handler_params = temp_handler.parameters();
+                for (param_name, param_value) in handler_params.get_current_values() {
+                    if let Some(param_info) = handler_params.get_parameter(&param_name) {
+                        let param_key =
+                            ConditionId::stop_handler_parameter_name(&stop_handler.id, &param_name);
+                        params.push(StrategyParameterSpec {
+                            name: param_key,
+                            description: Some(format!(
+                                "{} parameter for stop handler {}",
+                                param_name, stop_handler.name
+                            )),
+                            default_value: StrategyParamValue::Number(param_value as f64),
+                            min: Some(param_info.range.start as f64),
+                            max: Some(param_info.range.end as f64),
+                            step: Some(param_info.range.step as f64),
+                            discrete_values: None,
+                            optimize: true,
+                        });
+                    }
+                }
+            } else {
+                for param in &stop_handler.optimization_params {
+                    if param.optimizable {
+                        let param_name =
+                            ConditionId::stop_handler_parameter_name(&stop_handler.id, &param.name);
+                        let range_opt = crate::risk::get_stop_optimization_range(
+                            &stop_handler.handler_name,
+                            &param.name,
+                        );
+                        let (default_val, min_val, max_val, step_val) =
+                            if let Some(range) = range_opt {
+                                (
+                                    ((range.start + range.end) / 2.0) as f64,
+                                    Some(range.start as f64),
+                                    Some(range.end as f64),
+                                    Some(range.step as f64),
+                                )
+                            } else {
+                                (50.0, Some(10.0), Some(150.0), Some(10.0))
+                            };
+                        params.push(StrategyParameterSpec {
+                            name: param_name,
+                            description: Some(format!(
+                                "{} parameter for stop handler {}",
+                                param.name, stop_handler.name
+                            )),
+                            default_value: StrategyParamValue::Number(default_val),
+                            min: min_val,
+                            max: max_val,
+                            step: step_val,
+                            discrete_values: None,
+                            optimize: true,
+                        });
+                    }
                 }
             }
         }
 
         for take_handler in &candidate.take_handlers {
-            for param in &take_handler.optimization_params {
-                if param.optimizable {
-                    let param_name = Self::make_parameter_name(&take_handler.id, &param.name);
-                    let range_opt = crate::risk::get_stop_optimization_range(
-                        &take_handler.handler_name,
-                        &param.name,
-                    );
-                    let (default_val, min_val, max_val, step_val) = if let Some(range) = range_opt {
-                        (
-                            ((range.start + range.end) / 2.0) as f64,
-                            Some(range.start as f64),
-                            Some(range.end as f64),
-                            Some(range.step as f64),
-                        )
-                    } else {
-                        (10.0, Some(5.0), Some(30.0), Some(1.0))
-                    };
-                    params.push(StrategyParameterSpec {
-                        name: param_name,
-                        description: Some(format!(
-                            "{} parameter for take handler {}",
-                            param.name, take_handler.name
-                        )),
-                        default_value: StrategyParamValue::Number(default_val),
-                        min: min_val,
-                        max: max_val,
-                        step: step_val,
-                        discrete_values: None,
-                        optimize: true,
-                    });
+            let temp_params = Self::get_default_take_params(&take_handler.handler_name);
+            if let Ok(temp_handler) = crate::risk::factory::TakeHandlerFactory::create(
+                &take_handler.handler_name,
+                &temp_params,
+            ) {
+                let handler_params = temp_handler.parameters();
+                for (param_name, param_value) in handler_params.get_current_values() {
+                    if let Some(param_info) = handler_params.get_parameter(&param_name) {
+                        let param_key =
+                            ConditionId::take_handler_parameter_name(&take_handler.id, &param_name);
+                        params.push(StrategyParameterSpec {
+                            name: param_key,
+                            description: Some(format!(
+                                "{} parameter for take handler {}",
+                                param_name, take_handler.name
+                            )),
+                            default_value: StrategyParamValue::Number(param_value as f64),
+                            min: Some(param_info.range.start as f64),
+                            max: Some(param_info.range.end as f64),
+                            step: Some(param_info.range.step as f64),
+                            discrete_values: None,
+                            optimize: true,
+                        });
+                    }
+                }
+            } else {
+                for param in &take_handler.optimization_params {
+                    if param.optimizable {
+                        let param_name =
+                            ConditionId::take_handler_parameter_name(&take_handler.id, &param.name);
+                        let range_opt = crate::risk::get_stop_optimization_range(
+                            &take_handler.handler_name,
+                            &param.name,
+                        );
+                        let (default_val, min_val, max_val, step_val) =
+                            if let Some(range) = range_opt {
+                                (
+                                    ((range.start + range.end) / 2.0) as f64,
+                                    Some(range.start as f64),
+                                    Some(range.end as f64),
+                                    Some(range.step as f64),
+                                )
+                            } else {
+                                (10.0, Some(5.0), Some(30.0), Some(1.0))
+                            };
+                        params.push(StrategyParameterSpec {
+                            name: param_name,
+                            description: Some(format!(
+                                "{} parameter for take handler {}",
+                                param.name, take_handler.name
+                            )),
+                            default_value: StrategyParamValue::Number(default_val),
+                            min: min_val,
+                            max: max_val,
+                            step: step_val,
+                            discrete_values: None,
+                            optimize: true,
+                        });
+                    }
                 }
             }
         }
@@ -348,136 +411,8 @@ impl StrategyConverter {
         params
     }
 
-    fn extract_defaults(candidate: &StrategyCandidate) -> StrategyParameterMap {
-        use crate::indicators::parameters::ParameterPresets;
-
-        let mut defaults = HashMap::new();
-
-        for indicator in &candidate.indicators {
-            for param in &indicator.parameters {
-                if param.optimizable {
-                    let param_name = Self::make_parameter_name(&indicator.alias, &param.name);
-                    let range = ParameterPresets::get_range_for_parameter(
-                        &indicator.name,
-                        &param.name,
-                        &param.param_type,
-                    );
-                    let default_val = if let Some(r) = range {
-                        ((r.start + r.end) / 2.0) as f64
-                    } else {
-                        50.0
-                    };
-                    defaults.insert(
-                        param_name,
-                        Self::param_value_to_strategy_param_from_enum(
-                            &param.param_type,
-                            default_val,
-                        ),
-                    );
-                }
-            }
-        }
-
-        for nested in &candidate.nested_indicators {
-            for param in &nested.indicator.parameters {
-                if param.optimizable {
-                    let param_name =
-                        Self::make_parameter_name(&nested.indicator.alias, &param.name);
-                    let range = ParameterPresets::get_range_for_parameter(
-                        &nested.indicator.name,
-                        &param.name,
-                        &param.param_type,
-                    );
-                    let default_val = if let Some(r) = range {
-                        ((r.start + r.end) / 2.0) as f64
-                    } else {
-                        50.0
-                    };
-                    defaults.insert(
-                        param_name,
-                        Self::param_value_to_strategy_param_from_enum(
-                            &param.param_type,
-                            default_val,
-                        ),
-                    );
-                }
-            }
-        }
-
-        for condition in &candidate.conditions {
-            for param in &condition.optimization_params {
-                if param.optimizable {
-                    let param_name = Self::make_parameter_name(&condition.id, &param.name);
-                    let default_val = if param.name == "period" {
-                        let range = crate::condition::parameters::ConditionParameterPresets::trend_period();
-                        ((range.min + range.max) / 2.0) as f64
-                    } else if param.name == "percentage" {
-                        let range = crate::condition::parameters::ConditionParameterPresets::percentage();
-                        ((range.min + range.max) / 2.0) as f64
-                    } else {
-                        1.0
-                    };
-                    defaults.insert(param_name, StrategyParamValue::Number(default_val));
-                }
-            }
-        }
-
-        for condition in &candidate.exit_conditions {
-            for param in &condition.optimization_params {
-                if param.optimizable {
-                    let param_name =
-                        Self::make_parameter_name(&format!("exit_{}", condition.id), &param.name);
-                    let default_val = if param.name == "period" {
-                        let range = crate::condition::parameters::ConditionParameterPresets::trend_period();
-                        ((range.min + range.max) / 2.0) as f64
-                    } else if param.name == "percentage" {
-                        let range = crate::condition::parameters::ConditionParameterPresets::percentage();
-                        ((range.min + range.max) / 2.0) as f64
-                    } else {
-                        1.0
-                    };
-                    defaults.insert(param_name, StrategyParamValue::Number(default_val));
-                }
-            }
-        }
-
-        for stop_handler in &candidate.stop_handlers {
-            for param in &stop_handler.optimization_params {
-                if param.optimizable {
-                    let param_name = Self::make_parameter_name(&stop_handler.id, &param.name);
-                    let range_opt = crate::risk::get_stop_optimization_range(
-                        &stop_handler.handler_name,
-                        &param.name,
-                    );
-                    let default_val = if let Some(range) = range_opt {
-                        ((range.start + range.end) / 2.0) as f64
-                    } else {
-                        50.0
-                    };
-                    defaults.insert(param_name, StrategyParamValue::Number(default_val));
-                }
-            }
-        }
-
-        for take_handler in &candidate.take_handlers {
-            for param in &take_handler.optimization_params {
-                if param.optimizable {
-                    let param_name = Self::make_parameter_name(&take_handler.id, &param.name);
-                    let range_opt = crate::risk::get_stop_optimization_range(
-                        &take_handler.handler_name,
-                        &param.name,
-                    );
-                    let default_val = if let Some(range) = range_opt {
-                        ((range.start + range.end) / 2.0) as f64
-                    } else {
-                        10.0
-                    };
-                    defaults.insert(param_name, StrategyParamValue::Number(default_val));
-                }
-            }
-        }
-
-        defaults
+    fn extract_defaults(_candidate: &StrategyCandidate) -> StrategyParameterMap {
+        HashMap::new()
     }
 
     fn create_indicator_bindings(
@@ -596,30 +531,9 @@ impl StrategyConverter {
     }
 
     fn extract_indicator_params(
-        indicator: &IndicatorInfo,
+        _indicator: &IndicatorInfo,
     ) -> Result<HashMap<String, f32>, StrategyConversionError> {
-        use crate::indicators::parameters::ParameterPresets;
-        let mut rng = rand::thread_rng();
-        let mut params = HashMap::new();
-
-        for param in &indicator.parameters {
-            let range = ParameterPresets::get_range_for_parameter(
-                &indicator.name,
-                &param.name,
-                &param.param_type,
-            )
-            .ok_or_else(|| StrategyConversionError::MissingParameterRange {
-                indicator_name: indicator.name.clone(),
-                parameter_name: param.name.clone(),
-                parameter_type: format!("{:?}", param.param_type),
-            })?;
-
-            let steps = ((range.end - range.start) / range.step) as usize;
-            let step_index = rng.gen_range(0..=steps);
-            let value = range.start + (step_index as f32 * range.step);
-            params.insert(param.name.clone(), value);
-        }
-        Ok(params)
+        Ok(HashMap::new())
     }
 
     fn create_condition_bindings(
@@ -637,21 +551,7 @@ impl StrategyConverter {
                 description: Some(condition.name.clone()),
             };
 
-            let mut parameters = HashMap::new();
-            for param in &condition.optimization_params {
-                if param.optimizable {
-                    let value = if param.name == "period" {
-                        let range = crate::condition::parameters::ConditionParameterPresets::trend_period();
-                        ((range.min + range.max) / 2.0).round()
-                    } else if param.name == "percentage" {
-                        let range = crate::condition::parameters::ConditionParameterPresets::percentage();
-                        (range.min + range.max) / 2.0
-                    } else {
-                        condition.constant_value.unwrap_or(0.0) as f32
-                    };
-                    parameters.insert(param.name.clone(), value);
-                }
-            }
+            let parameters = HashMap::new();
 
             bindings.push(ConditionBindingSpec {
                 id: condition.id.clone(),
@@ -874,21 +774,7 @@ impl StrategyConverter {
         let mut take_handlers = Vec::new();
 
         for stop_handler in &candidate.stop_handlers {
-            let mut parameters = StrategyParameterMap::new();
-            for param in &stop_handler.optimization_params {
-                if param.optimizable {
-                    let range_opt = crate::risk::get_stop_optimization_range(
-                        &stop_handler.handler_name,
-                        &param.name,
-                    );
-                    let default_val = if let Some(range) = range_opt {
-                        ((range.start + range.end) / 2.0) as f64
-                    } else {
-                        50.0
-                    };
-                    parameters.insert(param.name.clone(), StrategyParamValue::Number(default_val));
-                }
-            }
+            let parameters = StrategyParameterMap::new();
 
             stop_handlers.push(StopHandlerSpec {
                 id: stop_handler.id.clone(),
@@ -905,21 +791,7 @@ impl StrategyConverter {
         }
 
         for take_handler in &candidate.take_handlers {
-            let mut parameters = StrategyParameterMap::new();
-            for param in &take_handler.optimization_params {
-                if param.optimizable {
-                    let range_opt = crate::risk::get_stop_optimization_range(
-                        &take_handler.handler_name,
-                        &param.name,
-                    );
-                    let default_val = if let Some(range) = range_opt {
-                        ((range.start + range.end) / 2.0) as f64
-                    } else {
-                        10.0
-                    };
-                    parameters.insert(param.name.clone(), StrategyParamValue::Number(default_val));
-                }
-            }
+            let parameters = StrategyParameterMap::new();
 
             take_handlers.push(TakeHandlerSpec {
                 id: take_handler.id.clone(),
@@ -977,21 +849,7 @@ impl StrategyConverter {
                 description: Some(condition.name.clone()),
             };
 
-            let mut parameters = HashMap::new();
-            for param in &condition.optimization_params {
-                if param.optimizable {
-                    let value = if param.name == "period" {
-                        let range = crate::condition::parameters::ConditionParameterPresets::trend_period();
-                        ((range.min + range.max) / 2.0).round()
-                    } else if param.name == "percentage" {
-                        let range = crate::condition::parameters::ConditionParameterPresets::percentage();
-                        (range.min + range.max) / 2.0
-                    } else {
-                        condition.constant_value.unwrap_or(0.0) as f32
-                    };
-                    parameters.insert(param.name.clone(), value);
-                }
-            }
+            let parameters = HashMap::new();
 
             bindings.push(ConditionBindingSpec {
                 id: format!("exit_{}", condition.id),
@@ -1043,7 +901,45 @@ impl StrategyConverter {
     }
 
     fn make_parameter_name(prefix: &str, param_name: &str) -> String {
-        format!("{}_{}", prefix, param_name)
+        ConditionId::parameter_name(prefix, param_name)
+    }
+
+    fn get_default_stop_params(handler_name: &str) -> HashMap<String, StrategyParamValue> {
+        let mut params = HashMap::new();
+        match handler_name.to_ascii_uppercase().as_str() {
+            "STOPLOSSPCT" | "STOP_LOSS_PCT" | "STOPLOSS_PCT" => {
+                params.insert("percentage".to_string(), StrategyParamValue::Number(0.2));
+            }
+            "ATRTRAILSTOP" | "ATR_TRAIL_STOP" | "ATR_TRAIL" => {
+                params.insert("period".to_string(), StrategyParamValue::Number(14.0));
+                params.insert("coeff_atr".to_string(), StrategyParamValue::Number(5.0));
+            }
+            "HILOTRAILSTOP" | "HILOTRAILINGSTOP" | "HILO_TRAIL_STOP" | "HILO_TRAIL" => {
+                params.insert("period".to_string(), StrategyParamValue::Number(14.0));
+            }
+            "PERCENTTRAILSTOP" | "PERCENTTRAILINGSTOP" | "PERCENT_TRAIL_STOP" | "PERCENT_TRAIL" => {
+                params.insert("percentage".to_string(), StrategyParamValue::Number(1.0));
+            }
+            "INDICATORSTOP" | "INDICATOR_STOP" | "IND_STOP" => {
+                params.insert(
+                    "offset_percent".to_string(),
+                    StrategyParamValue::Number(0.0),
+                );
+            }
+            _ => {}
+        }
+        params
+    }
+
+    fn get_default_take_params(handler_name: &str) -> HashMap<String, StrategyParamValue> {
+        let mut params = HashMap::new();
+        match handler_name.to_ascii_uppercase().as_str() {
+            "TAKEPROFITPCT" | "TAKE_PROFIT_PCT" => {
+                params.insert("percentage".to_string(), StrategyParamValue::Number(0.4));
+            }
+            _ => {}
+        }
+        params
     }
 
     fn param_value_to_strategy_param_from_enum(
@@ -1136,8 +1032,14 @@ mod tests {
 
         let percentage_range = ConditionParameterPresets::percentage();
         assert_eq!(percentage_range.min, 0.5, "percentage min должен быть 0.5");
-        assert_eq!(percentage_range.max, 10.0, "percentage max должен быть 10.0");
-        assert_eq!(percentage_range.step, 0.5, "percentage step должен быть 0.5");
+        assert_eq!(
+            percentage_range.max, 10.0,
+            "percentage max должен быть 10.0"
+        );
+        assert_eq!(
+            percentage_range.step, 0.5,
+            "percentage step должен быть 0.5"
+        );
     }
 
     #[test]
@@ -1145,27 +1047,23 @@ mod tests {
         let candidate = StrategyCandidate {
             indicators: vec![],
             nested_indicators: vec![],
-            conditions: vec![
-                ConditionInfo {
-                    id: "test_condition_1".to_string(),
-                    name: "Test RisingTrend".to_string(),
-                    operator: ConditionOperator::RisingTrend,
-                    primary_indicator_alias: "test_sma".to_string(),
-                    secondary_indicator_alias: None,
-                    condition_type: "trend_condition".to_string(),
-                    primary_timeframe: Some(TimeFrame::Minutes(60)),
-                    secondary_timeframe: None,
-                    price_field: None,
-                    constant_value: Some(3.0),
-                    optimization_params: vec![
-                        ConditionParamInfo {
-                            name: "period".to_string(),
-                            optimizable: true,
-                            global_param_name: None,
-                        }
-                    ],
-                }
-            ],
+            conditions: vec![ConditionInfo {
+                id: "test_condition_1".to_string(),
+                name: "Test RisingTrend".to_string(),
+                operator: ConditionOperator::RisingTrend,
+                primary_indicator_alias: "test_sma".to_string(),
+                secondary_indicator_alias: None,
+                condition_type: "trend_condition".to_string(),
+                primary_timeframe: Some(TimeFrame::Minutes(60)),
+                secondary_timeframe: None,
+                price_field: None,
+                constant_value: Some(3.0),
+                optimization_params: vec![ConditionParamInfo {
+                    name: "period".to_string(),
+                    optimizable: true,
+                    global_param_name: None,
+                }],
+            }],
             exit_conditions: vec![],
             stop_handlers: vec![],
             take_handlers: vec![],
@@ -1174,42 +1072,51 @@ mod tests {
         };
 
         let params = StrategyConverter::extract_parameters(&candidate);
-        
-        let period_param = params.iter()
+
+        let period_param = params
+            .iter()
             .find(|p| p.name.contains("period"))
             .expect("Должен быть параметр period");
 
-        assert_eq!(period_param.min, Some(2.0), "min для period должен быть 2.0");
-        assert_eq!(period_param.max, Some(4.0), "max для period должен быть 4.0 (не 10.0!)");
-        assert_eq!(period_param.step, Some(1.0), "step для period должен быть 1.0");
+        assert_eq!(
+            period_param.min,
+            Some(2.0),
+            "min для period должен быть 2.0"
+        );
+        assert_eq!(
+            period_param.max,
+            Some(4.0),
+            "max для period должен быть 4.0 (не 10.0!)"
+        );
+        assert_eq!(
+            period_param.step,
+            Some(1.0),
+            "step для period должен быть 1.0"
+        );
     }
 
     #[test]
-    fn test_extract_defaults_uses_correct_ranges() {
+    fn test_extract_defaults_returns_empty() {
         let candidate = StrategyCandidate {
             indicators: vec![],
             nested_indicators: vec![],
-            conditions: vec![
-                ConditionInfo {
-                    id: "test_condition_1".to_string(),
-                    name: "Test RisingTrend".to_string(),
-                    operator: ConditionOperator::RisingTrend,
-                    primary_indicator_alias: "test_sma".to_string(),
-                    secondary_indicator_alias: None,
-                    condition_type: "trend_condition".to_string(),
-                    primary_timeframe: Some(TimeFrame::Minutes(60)),
-                    secondary_timeframe: None,
-                    price_field: None,
-                    constant_value: Some(3.0),
-                    optimization_params: vec![
-                        ConditionParamInfo {
-                            name: "period".to_string(),
-                            optimizable: true,
-                            global_param_name: None,
-                        }
-                    ],
-                }
-            ],
+            conditions: vec![ConditionInfo {
+                id: "test_condition_1".to_string(),
+                name: "Test RisingTrend".to_string(),
+                operator: ConditionOperator::RisingTrend,
+                primary_indicator_alias: "test_sma".to_string(),
+                secondary_indicator_alias: None,
+                condition_type: "trend_condition".to_string(),
+                primary_timeframe: Some(TimeFrame::Minutes(60)),
+                secondary_timeframe: None,
+                price_field: None,
+                constant_value: Some(3.0),
+                optimization_params: vec![ConditionParamInfo {
+                    name: "period".to_string(),
+                    optimizable: true,
+                    global_param_name: None,
+                }],
+            }],
             exit_conditions: vec![],
             stop_handlers: vec![],
             take_handlers: vec![],
@@ -1218,18 +1125,10 @@ mod tests {
         };
 
         let defaults = StrategyConverter::extract_defaults(&candidate);
-        
-        let period_default = defaults.iter()
-            .find(|(k, _)| k.contains("period"))
-            .map(|(_, v)| v)
-            .expect("Должен быть default для period");
 
-        if let StrategyParamValue::Number(val) = period_default {
-            let trend_range = ConditionParameterPresets::trend_period();
-            let expected_default = ((trend_range.min + trend_range.max) / 2.0) as f64;
-            assert_eq!(*val, expected_default, "default для period должен быть средним значением диапазона");
-        } else {
-            panic!("period должен быть Number типа");
-        }
+        assert!(
+            defaults.is_empty(),
+            "extract_defaults должен возвращать пустой HashMap, так как все параметры должны передаваться явно"
+        );
     }
 }

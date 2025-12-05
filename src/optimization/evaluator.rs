@@ -99,7 +99,6 @@ impl StrategyEvaluationRunner {
         self.backtest_config = config;
     }
 
-
     pub async fn evaluate_strategy(
         &self,
         candidate: &StrategyCandidate,
@@ -114,20 +113,19 @@ impl StrategyEvaluationRunner {
             }
         }
 
-        let definition = StrategyConverter::candidate_to_definition(
-            candidate,
-            self.base_timeframe.clone(),
-        )
-        .context("Не удалось конвертировать StrategyCandidate в StrategyDefinition")?;
+        let definition =
+            StrategyConverter::candidate_to_definition(candidate, self.base_timeframe.clone())
+                .context("Не удалось конвертировать StrategyCandidate в StrategyDefinition")?;
 
         let mut frames_clone = HashMap::with_capacity(self.frames.len());
         for (k, v) in self.frames.iter() {
             frames_clone.insert(k.clone(), v.clone());
         }
 
-        let mut executor = BacktestExecutor::from_definition(definition, None, frames_clone)
-            .context("Не удалось создать BacktestExecutor")?
-            .with_config(self.backtest_config.clone());
+        let mut executor =
+            BacktestExecutor::from_definition(definition, Some(parameters.clone()), frames_clone)
+                .context("Не удалось создать BacktestExecutor")?
+                .with_config(self.backtest_config.clone());
 
         let report = executor
             .run_backtest()
@@ -140,8 +138,6 @@ impl StrategyEvaluationRunner {
 
         Ok(report)
     }
-
-
 }
 
 impl Clone for StrategyEvaluationRunner {

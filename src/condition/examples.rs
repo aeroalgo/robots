@@ -25,28 +25,6 @@ pub fn above_condition_example() -> Result<(), String> {
     Ok(())
 }
 
-/// Пример использования условия "пересечение выше"
-pub fn crosses_above_example() -> Result<(), String> {
-    println!("\n=== Пример условия 'CrossesAbove' ===");
-
-    let condition = ConditionFactory::create_condition_default("CrossesAbove")
-        .map_err(|e| format!("Ошибка создания условия: {:?}", e))?;
-
-    let line1 = vec![95.0, 98.0, 102.0, 105.0, 103.0, 108.0, 110.0];
-    let line2 = vec![100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0];
-
-    let result = condition
-        .check(ConditionInputData::dual(&line1, &line2))
-        .map_err(|e| format!("Ошибка проверки условия: {:?}", e))?;
-
-    println!("Линия 1: {:?}", line1);
-    println!("Линия 2: {:?}", line2);
-    println!("Сигналы пересечения: {:?}", result.signals);
-    println!("Силы сигналов: {:?}", result.strengths);
-
-    Ok(())
-}
-
 /// Пример использования трендового условия
 pub fn rising_trend_example() -> Result<(), String> {
     println!("\n=== Пример условия 'RisingTrend' ===");
@@ -148,7 +126,6 @@ pub fn run_all_examples() -> Result<(), String> {
     println!("🚀 Запуск примеров системы условий\n");
 
     above_condition_example()?;
-    crosses_above_example()?;
     rising_trend_example()?;
     combined_conditions_example()?;
     ohlc_conditions_example()?;
@@ -162,7 +139,6 @@ pub fn run_all_examples_with_integration() -> Result<(), String> {
     println!("🚀 Запуск всех примеров системы условий\n");
 
     above_condition_example()?;
-    crosses_above_example()?;
     rising_trend_example()?;
     combined_conditions_example()?;
     ohlc_conditions_example()?;

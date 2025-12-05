@@ -49,12 +49,31 @@ impl StopHandlerFactory {
                 Ok(Box::new(StopLossPctHandler::new(percentage)))
             }
             "ATRTRAILSTOP" | "ATR_TRAIL_STOP" | "ATR_TRAIL" => {
+                if !parameters.keys().any(|k| k.eq_ignore_ascii_case("period")) {
+                    return Err(StopHandlerError::InvalidParameter(
+                        "period parameter is required for ATRTrailStop".to_string(),
+                    ));
+                }
+                if !parameters.keys().any(|k| {
+                    k.eq_ignore_ascii_case("coeff_atr")
+                        || k.eq_ignore_ascii_case("coeff")
+                        || k.eq_ignore_ascii_case("atr_coeff")
+                }) {
+                    return Err(StopHandlerError::InvalidParameter(
+                        "coeff_atr parameter is required for ATRTrailStop".to_string(),
+                    ));
+                }
                 let period = extract_number(parameters, &["period"], 14.0)?;
                 let coeff_atr =
                     extract_number(parameters, &["coeff_atr", "coeff", "atr_coeff"], 5.0)?;
                 Ok(Box::new(ATRTrailStopHandler::new(period, coeff_atr)))
             }
             "HILOTRAILSTOP" | "HILOTRAILINGSTOP" | "HILO_TRAIL_STOP" | "HILO_TRAIL" => {
+                if !parameters.keys().any(|k| k.eq_ignore_ascii_case("period")) {
+                    return Err(StopHandlerError::InvalidParameter(
+                        "period parameter is required for HILOTrailingStop".to_string(),
+                    ));
+                }
                 let period = extract_number(parameters, &["period"], 14.0)?;
                 Ok(Box::new(HILOTrailingStopHandler::new(period)))
             }

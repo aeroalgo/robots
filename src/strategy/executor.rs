@@ -223,8 +223,11 @@ impl BacktestExecutor {
 
         let context = feed.initialize_context_ordered(&timeframe_order);
         let config = BacktestConfig::default();
-        let position_manager = PositionManager::new(strategy.id().to_string())
-            .with_capital(config.initial_capital, config.use_full_capital, config.reinvest_profits);
+        let position_manager = PositionManager::new(strategy.id().to_string()).with_capital(
+            config.initial_capital,
+            config.use_full_capital,
+            config.reinvest_profits,
+        );
         let risk_manager = Self::build_risk_manager(&*strategy);
         let cached_session_duration = feed.primary_timeframe.as_ref().and_then(|tf| tf.duration());
         let initial_capital = config.initial_capital;
@@ -247,8 +250,11 @@ impl BacktestExecutor {
 
     pub fn with_config(mut self, config: BacktestConfig) -> Self {
         self.initial_capital = config.initial_capital;
-        self.position_manager
-            .set_capital(config.initial_capital, config.use_full_capital, config.reinvest_profits);
+        self.position_manager.set_capital(
+            config.initial_capital,
+            config.use_full_capital,
+            config.reinvest_profits,
+        );
         self.config = config;
         self
     }
@@ -335,6 +341,20 @@ impl BacktestExecutor {
             builder = builder.with_parameters(overrides);
         }
         let strategy = builder.build().map_err(StrategyExecutionError::Strategy)?;
+
+        static BACKTEST_COUNTER: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
+        let backtest_number =
+            BACKTEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+
+        if backtest_number % 5 == 1 {
+            println!(
+                "\n      📋 StrategyDefinition (перед вызовом run_backtest, backtest #{}):",
+                backtest_number
+            );
+            println!("{:#?}", strategy.definition());
+        }
+
         let mut executor = Self::new(Box::new(strategy), frames)?;
         executor.warmup_bars = executor.compute_warmup_bars();
         Ok(executor)

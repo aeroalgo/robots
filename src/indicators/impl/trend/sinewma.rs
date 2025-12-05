@@ -93,8 +93,6 @@ impl Indicator for SINEWMA {
             allowed_conditions: &[
                 ConditionOperator::Above,
                 ConditionOperator::Below,
-                ConditionOperator::CrossesAbove,
-                ConditionOperator::CrossesBelow,
                 ConditionOperator::RisingTrend,
                 ConditionOperator::FallingTrend,
                 ConditionOperator::GreaterPercent,

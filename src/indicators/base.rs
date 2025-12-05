@@ -534,12 +534,7 @@ pub struct IndicatorBuildRules {
 impl Default for IndicatorBuildRules {
     fn default() -> Self {
         Self {
-            allowed_conditions: &[
-                ConditionOperator::Above,
-                ConditionOperator::Below,
-                ConditionOperator::CrossesAbove,
-                ConditionOperator::CrossesBelow,
-            ],
+            allowed_conditions: &[ConditionOperator::Above, ConditionOperator::Below],
             price_compare: PriceCompareConfig::STANDARD,
             threshold_type: ThresholdType::None,
             indicator_compare: IndicatorCompareConfig::TREND_AND_CHANNEL,
@@ -558,8 +553,6 @@ impl IndicatorBuildRules {
         allowed_conditions: &[
             ConditionOperator::Above,
             ConditionOperator::Below,
-            ConditionOperator::CrossesAbove,
-            ConditionOperator::CrossesBelow,
             ConditionOperator::RisingTrend,
             ConditionOperator::FallingTrend,
         ],
@@ -578,8 +571,6 @@ impl IndicatorBuildRules {
         allowed_conditions: &[
             ConditionOperator::Above,
             ConditionOperator::Below,
-            ConditionOperator::CrossesAbove,
-            ConditionOperator::CrossesBelow,
             ConditionOperator::RisingTrend,
             ConditionOperator::FallingTrend,
             ConditionOperator::GreaterPercent,
@@ -600,8 +591,6 @@ impl IndicatorBuildRules {
         allowed_conditions: &[
             ConditionOperator::Above,
             ConditionOperator::Below,
-            ConditionOperator::CrossesAbove,
-            ConditionOperator::CrossesBelow,
             ConditionOperator::GreaterPercent,
             ConditionOperator::LowerPercent,
         ],
@@ -631,8 +620,6 @@ impl IndicatorBuildRules {
         nested_compare_conditions: &[
             ConditionOperator::Above,
             ConditionOperator::Below,
-            ConditionOperator::CrossesAbove,
-            ConditionOperator::CrossesBelow,
             ConditionOperator::GreaterPercent,
             ConditionOperator::LowerPercent,
         ],

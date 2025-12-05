@@ -1,19 +1,31 @@
 use std::collections::HashMap;
 
+use crate::indicators::types::ParameterSet;
 use crate::position::view::ActivePosition;
 use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 
 use crate::risk::context::TakeEvaluationContext;
+use crate::risk::parameters::create_take_percentage_parameter;
 use crate::risk::traits::{TakeHandler, TakeOutcome};
 use crate::risk::utils::get_price_at_index;
 
 pub struct TakeProfitPctHandler {
     pub percentage: f64,
+    parameters: ParameterSet,
 }
 
 impl TakeProfitPctHandler {
     pub fn new(percentage: f64) -> Self {
-        Self { percentage }
+        let mut params = ParameterSet::new();
+        params.add_parameter_unchecked(create_take_percentage_parameter(
+            "percentage",
+            percentage as f32,
+            "Процент тейк-профита",
+        ));
+        Self {
+            percentage,
+            parameters: params,
+        }
     }
 
     fn level(&self, position: &ActivePosition) -> Option<f64> {
@@ -29,6 +41,10 @@ impl TakeProfitPctHandler {
 impl TakeHandler for TakeProfitPctHandler {
     fn name(&self) -> &str {
         "TakeProfitPct"
+    }
+
+    fn parameters(&self) -> &ParameterSet {
+        &self.parameters
     }
 
     fn evaluate(&self, ctx: &TakeEvaluationContext<'_>) -> Option<TakeOutcome> {

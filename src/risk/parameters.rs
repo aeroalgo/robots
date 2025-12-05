@@ -1,7 +1,43 @@
 use crate::indicators::parameters::ParameterPresets;
-use crate::indicators::types::ParameterRange;
+use crate::indicators::types::{IndicatorParameter, ParameterRange, ParameterSet, ParameterType};
 
 pub struct StopParameterPresets;
+
+pub fn create_stop_period_parameter(
+    name: &str,
+    value: f32,
+    description: &str,
+) -> IndicatorParameter {
+    let range = StopParameterPresets::trailing_period();
+    IndicatorParameter::new(name, value, range, description, ParameterType::Period)
+}
+
+pub fn create_stop_percentage_parameter(
+    name: &str,
+    value: f32,
+    description: &str,
+) -> IndicatorParameter {
+    let range = StopParameterPresets::stop_loss_percentage();
+    IndicatorParameter::new(name, value, range, description, ParameterType::Threshold)
+}
+
+pub fn create_take_percentage_parameter(
+    name: &str,
+    value: f32,
+    description: &str,
+) -> IndicatorParameter {
+    let range = StopParameterPresets::take_profit_percentage();
+    IndicatorParameter::new(name, value, range, description, ParameterType::Threshold)
+}
+
+pub fn create_atr_coefficient_parameter(
+    name: &str,
+    value: f32,
+    description: &str,
+) -> IndicatorParameter {
+    let range = StopParameterPresets::atr_coefficient();
+    IndicatorParameter::new(name, value, range, description, ParameterType::Coefficient)
+}
 
 impl StopParameterPresets {
     pub fn stop_loss_percentage() -> ParameterRange {

@@ -59,17 +59,13 @@ pub fn example_strategy_generation() {
     let price_fields = vec![PriceField::Close, PriceField::High, PriceField::Low];
 
     // Операторы
-    let operators = vec![
-        ConditionOperator::Above,
-        ConditionOperator::Below,
-        ConditionOperator::CrossesAbove,
-    ];
+    let operators = vec![ConditionOperator::Above, ConditionOperator::Below];
 
     println!("📊 Входные данные:");
     println!("   Индикаторы: SMA, EMA, RSI (по 1 параметру каждый)");
     println!("   Таймфреймы: 60, 120, 180 минут (count=3)");
     println!("   Поля цены: Close, High, Low");
-    println!("   Операторы: >, <, CrossesAbove");
+    println!("   Операторы: >, <");
     println!("   Макс. параметров оптимизации: 10\n");
 
     // Генерация комбинаций таймфреймов

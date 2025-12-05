@@ -81,12 +81,6 @@ pub fn select_operator(
                 } else {
                     ConditionOperator::FallingTrend
                 }
-            } else if rng.gen::<f64>() < probabilities.use_crosses_operator {
-                if rng.gen_bool(0.5) {
-                    ConditionOperator::CrossesAbove
-                } else {
-                    ConditionOperator::CrossesBelow
-                }
             } else if rng.gen_bool(0.5) {
                 ConditionOperator::Above
             } else {

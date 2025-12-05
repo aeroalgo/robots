@@ -1,19 +1,31 @@
 use std::collections::HashMap;
 
+use crate::indicators::types::ParameterSet;
 use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 
 use crate::risk::auxiliary::AuxiliaryIndicatorSpec;
 use crate::risk::context::{StopEvaluationContext, StopValidationContext};
+use crate::risk::parameters::create_stop_period_parameter;
 use crate::risk::traits::{StopHandler, StopOutcome, StopValidationResult};
 use crate::risk::utils::{calculate_stop_exit_price, get_price_at_index, is_stop_triggered};
 
 pub struct HILOTrailingStopHandler {
     pub period: f64,
+    parameters: ParameterSet,
 }
 
 impl HILOTrailingStopHandler {
     pub fn new(period: f64) -> Self {
-        Self { period }
+        let mut params = ParameterSet::new();
+        params.add_parameter_unchecked(create_stop_period_parameter(
+            "period",
+            period as f32,
+            "Период для расчета MINFOR/MAXFOR",
+        ));
+        Self {
+            period,
+            parameters: params,
+        }
     }
 
     fn minfor_auxiliary_alias(&self) -> String {
@@ -90,6 +102,10 @@ impl HILOTrailingStopHandler {
 impl StopHandler for HILOTrailingStopHandler {
     fn name(&self) -> &str {
         "HILOTrailingStop"
+    }
+
+    fn parameters(&self) -> &ParameterSet {
+        &self.parameters
     }
 
     fn compute_stop_level(&self, ctx: &StopEvaluationContext<'_>) -> Option<f64> {

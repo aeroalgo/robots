@@ -367,10 +367,7 @@ impl ConditionCombinationGenerator {
     fn is_valid_operator_for_indicator_price(operator: &ConditionOperator) -> bool {
         matches!(
             operator,
-            ConditionOperator::Above
-                | ConditionOperator::Below
-                | ConditionOperator::CrossesAbove
-                | ConditionOperator::CrossesBelow
+            ConditionOperator::Above | ConditionOperator::Below
         )
     }
 
@@ -378,11 +375,7 @@ impl ConditionCombinationGenerator {
     fn is_valid_operator_for_indicator_indicator(operator: &ConditionOperator) -> bool {
         matches!(
             operator,
-            ConditionOperator::Above
-                | ConditionOperator::Below
-                | ConditionOperator::CrossesAbove
-                | ConditionOperator::CrossesBelow
-                | ConditionOperator::Between
+            ConditionOperator::Above | ConditionOperator::Below | ConditionOperator::Between
         )
     }
 
@@ -404,8 +397,6 @@ impl ConditionCombinationGenerator {
             ConditionOperator::FallingTrend => "FallingTrend",
             ConditionOperator::GreaterPercent => ">%",
             ConditionOperator::LowerPercent => "<%",
-            ConditionOperator::CrossesAbove => "Crosses Above",
-            ConditionOperator::CrossesBelow => "Crosses Below",
             ConditionOperator::Between => "Between",
         }
     }

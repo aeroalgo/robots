@@ -236,17 +236,20 @@ impl<'a> ConditionBuilder<'a> {
     )> {
         let trend_range = ConditionParameterPresets::trend_period();
         let period = self.rng.gen_range(trend_range.min..=trend_range.max);
-        let trend_name = match operator {
-            ConditionOperator::RisingTrend => "RisingTrend",
-            ConditionOperator::FallingTrend => "FallingTrend",
-            _ => "RisingTrend",
+        let trend_type = match operator {
+            ConditionOperator::RisingTrend => crate::optimization::condition_id::TrendType::Rising,
+            ConditionOperator::FallingTrend => {
+                crate::optimization::condition_id::TrendType::Falling
+            }
+            _ => crate::optimization::condition_id::TrendType::Rising,
         };
-        let id = format!(
-            "{}_{}::{}_{}",
-            if is_entry { "entry" } else { "exit" },
-            primary_indicator.alias,
-            trend_name.to_lowercase(),
-            self.rng.gen::<u32>()
+        let trend_name = trend_type.display_name();
+        let prefix = ConditionId::prefix_for(is_entry);
+        let id = ConditionId::trend_condition(
+            prefix,
+            &primary_indicator.alias,
+            trend_type,
+            self.rng.gen::<u32>(),
         );
         let name = format!(
             "{} {} (period: {:.0})",
@@ -701,13 +704,10 @@ impl<'a> ConditionBuilder<'a> {
         false
     }
 
-
     pub fn is_comparison_operator(operator: &ConditionOperator) -> bool {
         matches!(
             operator,
-            ConditionOperator::CrossesAbove
-                | ConditionOperator::CrossesBelow
-                | ConditionOperator::Above
+            ConditionOperator::Above
                 | ConditionOperator::Below
                 | ConditionOperator::GreaterPercent
                 | ConditionOperator::LowerPercent
@@ -998,17 +998,20 @@ impl<'a> ConditionBuilder<'a> {
     )> {
         let trend_range = ConditionParameterPresets::trend_period();
         let period = rng.gen_range(trend_range.min..=trend_range.max);
-        let trend_name = match operator {
-            ConditionOperator::RisingTrend => "RisingTrend",
-            ConditionOperator::FallingTrend => "FallingTrend",
-            _ => "RisingTrend",
+        let trend_type = match operator {
+            ConditionOperator::RisingTrend => crate::optimization::condition_id::TrendType::Rising,
+            ConditionOperator::FallingTrend => {
+                crate::optimization::condition_id::TrendType::Falling
+            }
+            _ => crate::optimization::condition_id::TrendType::Rising,
         };
-        let id = format!(
-            "{}_{}_{}_{}",
-            if is_entry { "entry" } else { "exit" },
-            primary_indicator.alias,
-            trend_name.to_lowercase(),
-            rng.gen::<u32>()
+        let trend_name = trend_type.display_name();
+        let prefix = ConditionId::prefix_for(is_entry);
+        let id = ConditionId::trend_condition(
+            prefix,
+            &primary_indicator.alias,
+            trend_type,
+            rng.gen::<u32>(),
         );
         let name = format!(
             "{} {} (period: {:.0})",

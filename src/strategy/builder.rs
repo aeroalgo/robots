@@ -1,5 +1,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+
+static BUILD_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 use crate::condition::factory::ConditionFactory;
 use crate::condition::types::{ConditionError, SignalStrength};
@@ -571,6 +574,7 @@ impl StrategyBuilder {
     }
 
     pub fn build(self) -> Result<DynamicStrategy, StrategyError> {
+        let parameter_overrides_clone = self.parameter_overrides.clone();
         use crate::indicators::parameters::ParameterPresets;
         use crate::indicators::types::ParameterType;
         let mut indicator_bindings = self.definition.indicator_bindings.clone();
@@ -578,7 +582,7 @@ impl StrategyBuilder {
             if let IndicatorSourceSpec::Registry { name, parameters } = &mut binding.source {
                 let alias = &binding.alias;
                 let prefix = format!("{}_", alias);
-                for (key, value) in &self.parameter_overrides {
+                for (key, value) in &parameter_overrides_clone {
                     if let Some(param_name) = key.strip_prefix(&prefix) {
                         let param_value = if let StrategyParamValue::Number(num_value) = value {
                             *num_value as f32
@@ -622,8 +626,8 @@ impl StrategyBuilder {
         let mut prepared_conditions = Vec::with_capacity(self.definition.condition_bindings.len());
         for binding in &self.definition.condition_bindings {
             let mut condition_params = binding.parameters.clone();
-            let condition_prefix = format!("condition_{}_", binding.id);
-            for (key, value) in &self.parameter_overrides {
+            let condition_prefix = format!("{}_", binding.id);
+            for (key, value) in &parameter_overrides_clone {
                 if let Some(param_name) = key.strip_prefix(&condition_prefix) {
                     let mut param_value = if let StrategyParamValue::Number(num_value) = value {
                         *num_value as f32
@@ -632,11 +636,11 @@ impl StrategyBuilder {
                     } else {
                         continue;
                     };
-                    
+
                     if param_name == "period" {
                         param_value = param_value.round();
                     }
-                    
+
                     condition_params.insert(param_name.to_string(), param_value);
                 }
             }
@@ -679,10 +683,10 @@ impl StrategyBuilder {
 
         for handler in &self.definition.stop_handlers {
             // Применяем параметры из parameter_overrides к stop handlers
-            // Формат: "stop_{handler.name}_{param.name}"
+            // Формат: "{handler.id}_{param.name}" (без префикса stop_)
             let mut handler_params = handler.parameters.clone();
-            let handler_prefix = format!("stop_{}_", handler.name);
-            for (key, value) in &self.parameter_overrides {
+            let handler_prefix = format!("{}_", handler.id);
+            for (key, value) in &parameter_overrides_clone {
                 if let Some(param_name) = key.strip_prefix(&handler_prefix) {
                     handler_params.insert(param_name.to_string(), value.clone());
                 }
@@ -722,10 +726,10 @@ impl StrategyBuilder {
         let mut prepared_take_handlers = Vec::with_capacity(self.definition.take_handlers.len());
         for handler in &self.definition.take_handlers {
             // Применяем параметры из parameter_overrides к take handlers
-            // Формат: "take_{handler.name}_{param.name}"
+            // Формат: "{handler.id}_{param.name}" (без префикса take_)
             let mut handler_params = handler.parameters.clone();
-            let handler_prefix = format!("take_{}_", handler.name);
-            for (key, value) in &self.parameter_overrides {
+            let handler_prefix = format!("{}_", handler.id);
+            for (key, value) in &parameter_overrides_clone {
                 if let Some(param_name) = key.strip_prefix(&handler_prefix) {
                     handler_params.insert(param_name.to_string(), value.clone());
                 }
@@ -752,23 +756,100 @@ impl StrategyBuilder {
         }
 
         let mut parameters = self.definition.defaults.clone();
-        for (key, value) in self.parameter_overrides {
-            parameters.insert(key, value);
+        for (key, value) in &parameter_overrides_clone {
+            parameters.insert(key.clone(), value.clone());
         }
 
         // auxiliary_specs уже собраны при обработке stop_handlers с учетом parameter_overrides
         let auxiliary_specs = auxiliary_specs_collector;
 
+        let build_number = BUILD_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+
+        let mut final_definition = self.definition.clone();
+        final_definition.indicator_bindings = indicator_bindings.clone();
+
+        for binding in &mut final_definition.condition_bindings {
+            let condition_prefix = format!("{}_", binding.id);
+            let mut applied_params = binding.parameters.clone();
+            for (key, value) in &parameter_overrides_clone {
+                if let Some(param_name) = key.strip_prefix(&condition_prefix) {
+                    let param_value = if let StrategyParamValue::Number(num_value) = value {
+                        *num_value as f32
+                    } else if let StrategyParamValue::Integer(int_value) = value {
+                        *int_value as f32
+                    } else {
+                        continue;
+                    };
+                    applied_params.insert(param_name.to_string(), param_value);
+                }
+            }
+            binding.parameters = applied_params;
+        }
+
+        for handler in &mut final_definition.stop_handlers {
+            let handler_prefix = format!("{}_", handler.id);
+            let mut applied_params = handler.parameters.clone();
+            for (key, value) in &parameter_overrides_clone {
+                if let Some(param_name) = key.strip_prefix(&handler_prefix) {
+                    if let StrategyParamValue::Number(num_value) = value {
+                        applied_params.insert(
+                            param_name.to_string(),
+                            StrategyParamValue::Number(*num_value),
+                        );
+                    } else if let StrategyParamValue::Integer(int_value) = value {
+                        applied_params.insert(
+                            param_name.to_string(),
+                            StrategyParamValue::Integer(*int_value),
+                        );
+                    } else {
+                        applied_params.insert(param_name.to_string(), value.clone());
+                    }
+                }
+            }
+            handler.parameters = applied_params;
+        }
+
+        for handler in &mut final_definition.take_handlers {
+            let handler_prefix = format!("{}_", handler.id);
+            let mut applied_params = handler.parameters.clone();
+            for (key, value) in &parameter_overrides_clone {
+                if let Some(param_name) = key.strip_prefix(&handler_prefix) {
+                    if let StrategyParamValue::Number(num_value) = value {
+                        applied_params.insert(
+                            param_name.to_string(),
+                            StrategyParamValue::Number(*num_value),
+                        );
+                    } else if let StrategyParamValue::Integer(int_value) = value {
+                        applied_params.insert(
+                            param_name.to_string(),
+                            StrategyParamValue::Integer(*int_value),
+                        );
+                    } else {
+                        applied_params.insert(param_name.to_string(), value.clone());
+                    }
+                }
+            }
+            handler.parameters = applied_params;
+        }
+
+        if build_number % 5 == 1 {
+            println!(
+                "\n      📋 StrategyDefinition (после применения параметров, build #{}):",
+                build_number
+            );
+            println!("{:#?}", final_definition);
+        }
+
         let strategy = DynamicStrategy::new(
-            self.definition.metadata.clone(),
-            self.definition.clone(),
+            final_definition.metadata.clone(),
+            final_definition.clone(),
             indicator_bindings,
             prepared_conditions,
-            self.definition.entry_rules.clone(),
-            self.definition.exit_rules.clone(),
+            final_definition.entry_rules.clone(),
+            final_definition.exit_rules.clone(),
             prepared_stop_handlers,
             prepared_take_handlers,
-            self.definition.timeframe_requirements.clone(),
+            final_definition.timeframe_requirements.clone(),
             parameters,
             auxiliary_specs,
         );
@@ -981,12 +1062,6 @@ fn parse_condition_operator(value: &str) -> Option<ConditionOperator> {
             return Some(ConditionOperator::GreaterPercent)
         }
         "LOWERPERCENT" | "LOWER_PERCENT" | "<%" => return Some(ConditionOperator::LowerPercent),
-        "CROSSESABOVE" | "CROSSABOVE" | "CROSSUP" | "CROSS_UP" => {
-            return Some(ConditionOperator::CrossesAbove)
-        }
-        "CROSSESBELOW" | "CROSSBELOW" | "CROSSDOWN" | "CROSS_DOWN" => {
-            return Some(ConditionOperator::CrossesBelow)
-        }
         "BETWEEN" => return Some(ConditionOperator::Between),
         _ => {}
     }
@@ -996,12 +1071,6 @@ fn parse_condition_operator(value: &str) -> Option<ConditionOperator> {
     }
     if lower.contains("falling") && lower.contains("trend") {
         return Some(ConditionOperator::FallingTrend);
-    }
-    if lower.contains("cross") && lower.contains("above") {
-        return Some(ConditionOperator::CrossesAbove);
-    }
-    if lower.contains("cross") && lower.contains("below") {
-        return Some(ConditionOperator::CrossesBelow);
     }
     if lower.contains("between") {
         return Some(ConditionOperator::Between);
@@ -1091,9 +1160,7 @@ fn build_condition_input_spec(
         ConditionOperator::Above
         | ConditionOperator::Below
         | ConditionOperator::GreaterPercent
-        | ConditionOperator::LowerPercent
-        | ConditionOperator::CrossesAbove
-        | ConditionOperator::CrossesBelow => Err(StrategyError::DefinitionError(
+        | ConditionOperator::LowerPercent => Err(StrategyError::DefinitionError(
             "condition requires secondary source".to_string(),
         )),
         ConditionOperator::RisingTrend | ConditionOperator::FallingTrend => {
