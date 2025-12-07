@@ -41,7 +41,7 @@ Trait для абстракции DI контейнера, позволяющи�
 ### Legacy режим (без DI)
 
 ```rust
-let executor = BacktestExecutor::new(strategy, frames)?;
+let executor = BacktestEngine::new(strategy, frames)?;
 ```
 
 ### С DI контейнером
@@ -124,7 +124,7 @@ mod tests {
         container.register_instance::<MyService>(mock_service);
         
         // Создаем executor с mock-зависимостями
-        let executor = BacktestExecutor::new_with_provider(
+        let executor = BacktestEngine::new_with_provider(
             strategy,
             frames,
             Some(Arc::new(container)),

@@ -67,9 +67,9 @@ impl IndicatorEngine {
                             context,
                             &timeframe,
                             &binding.alias,
-                            Arc::clone(&values),
+                            values.clone(),
                         )?;
-                        computed.insert(binding.alias.clone(), Arc::clone(&values));
+                        computed.insert(binding.alias.clone(), values);
                     }
                     IndicatorSourceSpec::Formula { .. } => {
                         let definition = plan.formula(&binding.alias).ok_or_else(|| {
@@ -87,9 +87,9 @@ impl IndicatorEngine {
                             context,
                             &timeframe,
                             &binding.alias,
-                            Arc::clone(&values),
+                            values.clone(),
                         )?;
-                        computed.insert(binding.alias.clone(), Arc::clone(&values));
+                        computed.insert(binding.alias.clone(), values);
                     }
                 }
             }
@@ -143,53 +143,118 @@ impl IndicatorEngine {
         frames: &HashMap<TimeFrame, Arc<QuoteFrame>>,
         context: &mut StrategyContext,
     ) -> Result<(), BacktestError> {
-        for requirement in strategy.timeframe_requirements() {
-            let frame = frames.get(&requirement.timeframe);
-            if frame.is_none() {
-                continue;
+        use crate::strategy::types::DataSeriesSource;
+        use std::collections::HashMap;
+
+        let mut constants_by_timeframe: HashMap<TimeFrame, HashMap<String, f32>> = HashMap::new();
+
+        for condition in strategy.conditions() {
+            let extract_constants = |source: &DataSeriesSource| -> Option<(String, f32)> {
+                match source {
+                    DataSeriesSource::Custom { key, .. } => {
+                        if key.starts_with("constant_") {
+                            if let Ok(value) = key.strip_prefix("constant_")?.parse::<f32>() {
+                                return Some((key.clone(), value));
+                            }
+                        }
+                        None
+                    }
+                    _ => None,
+                }
+            };
+
+            match &condition.input {
+                crate::strategy::types::ConditionInputSpec::Single { source } => {
+                    if let Some((key, value)) = extract_constants(source) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                }
+                crate::strategy::types::ConditionInputSpec::Dual { primary, secondary } => {
+                    if let Some((key, value)) = extract_constants(primary) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                    if let Some((key, value)) = extract_constants(secondary) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                }
+                crate::strategy::types::ConditionInputSpec::DualWithPercent {
+                    primary, secondary, ..
+                } => {
+                    if let Some((key, value)) = extract_constants(primary) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                    if let Some((key, value)) = extract_constants(secondary) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                }
+                crate::strategy::types::ConditionInputSpec::Range {
+                    source,
+                    lower,
+                    upper,
+                } => {
+                    if let Some((key, value)) = extract_constants(source) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                    if let Some((key, value)) = extract_constants(lower) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                    if let Some((key, value)) = extract_constants(upper) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                }
+                crate::strategy::types::ConditionInputSpec::Indexed { source, .. } => {
+                    if let Some((key, value)) = extract_constants(source) {
+                        constants_by_timeframe
+                            .entry(condition.timeframe.clone())
+                            .or_default()
+                            .insert(key, value);
+                    }
+                }
+                crate::strategy::types::ConditionInputSpec::Ohlc => {}
             }
-            let frame = frame.unwrap();
+        }
 
-            Self::ensure_timeframe_data(context, &requirement.timeframe, frame);
+        for (timeframe, constants) in constants_by_timeframe {
+            let frame = frames.get(&timeframe).ok_or_else(|| {
+                BacktestError::Feed(format!(
+                    "timeframe {:?} not available for custom data",
+                    timeframe
+                ))
+            })?;
 
+            let frame_len = frame.len();
+            Self::ensure_timeframe_data(context, &timeframe, frame);
             let data = context
-                .timeframe_mut(&requirement.timeframe)
+                .timeframe_mut(&timeframe)
                 .map_err(|e| BacktestError::Strategy(e))?;
 
-            for custom in &requirement.custom_data {
-                match custom.as_str() {
-                    "close" | "price" => {
-                        let close_values: Vec<f32> = (0..frame.len())
-                            .filter_map(|i| frame.get(i).map(|bar| bar.close()))
-                            .collect();
-                        data.insert_custom(custom.clone(), Arc::new(close_values));
-                    }
-                    "high" => {
-                        let high_values: Vec<f32> = (0..frame.len())
-                            .filter_map(|i| frame.get(i).map(|bar| bar.high()))
-                            .collect();
-                        data.insert_custom(custom.clone(), Arc::new(high_values));
-                    }
-                    "low" => {
-                        let low_values: Vec<f32> = (0..frame.len())
-                            .filter_map(|i| frame.get(i).map(|bar| bar.low()))
-                            .collect();
-                        data.insert_custom(custom.clone(), Arc::new(low_values));
-                    }
-                    "open" => {
-                        let open_values: Vec<f32> = (0..frame.len())
-                            .filter_map(|i| frame.get(i).map(|bar| bar.open()))
-                            .collect();
-                        data.insert_custom(custom.clone(), Arc::new(open_values));
-                    }
-                    "volume" => {
-                        let volume_values: Vec<f32> = (0..frame.len())
-                            .filter_map(|i| frame.get(i).map(|bar| bar.volume()))
-                            .collect();
-                        data.insert_custom(custom.clone(), Arc::new(volume_values));
-                    }
-                    _ => {}
-                }
+            for (key, value) in constants {
+                let constant_series: Vec<f32> = vec![value; frame_len];
+                data.insert_custom_series(key, constant_series);
             }
         }
 
@@ -217,7 +282,7 @@ impl IndicatorEngine {
         let data = context
             .timeframe_mut(timeframe)
             .map_err(|e| BacktestError::Strategy(e))?;
-        data.insert_indicator(alias.to_string(), values);
+        data.insert_indicator_arc(alias.to_string(), values);
         Ok(())
     }
 }

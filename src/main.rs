@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use chrono::{NaiveDate, Utc};
 #[cfg(feature = "profiling")]
 use pprof::ProfilerGuard;
+use robots::backtest::{BacktestConfig, BacktestEngine};
 use robots::candles::aggregator::TimeFrameAggregator;
 use robots::data_access::database::clickhouse::OhlcvData;
 use robots::data_access::database::clickhouse::{ClickHouseConfig, ClickHouseConnector};
@@ -17,7 +18,6 @@ use robots::debug::{
 use robots::discovery::StrategyDiscoveryConfig;
 use robots::indicators::registry::IndicatorFactory;
 use robots::optimization::*;
-use robots::strategy::executor::{BacktestConfig, BacktestExecutor};
 use robots::strategy::presets::default_strategy_definitions;
 use robots::strategy::types::PriceField;
 
@@ -103,7 +103,7 @@ async fn run() -> Result<()> {
         use_full_capital: true,
         reinvest_profits: false,
     };
-    let mut executor = BacktestExecutor::from_definition(definition, None, frames)
+    let mut executor = BacktestEngine::from_definition(definition, None, frames)
         .map_err(anyhow::Error::new)?
         .with_config(config.clone());
 
@@ -114,7 +114,7 @@ async fn run() -> Result<()> {
         ProfilerGuard::new(100).expect("Failed to start profiler")
     };
     let start_time = std::time::Instant::now();
-    let report = executor.run_backtest().map_err(anyhow::Error::new)?;
+    let report = executor.run().map_err(anyhow::Error::new)?;
     let elapsed = start_time.elapsed();
     #[cfg(feature = "profiling")]
     {

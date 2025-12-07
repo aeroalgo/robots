@@ -1,12 +1,17 @@
 mod condition_evaluator;
+mod constants;
 mod engine;
+mod equity_calculator;
 mod feed_manager;
 mod indicator_engine;
+mod session_manager;
 
 pub use condition_evaluator::ConditionEvaluator;
 pub use engine::BacktestEngine;
+pub use equity_calculator::EquityCalculator;
 pub use feed_manager::FeedManager;
 pub use indicator_engine::IndicatorEngine;
+pub use session_manager::{SessionManager, SessionState};
 
 use thiserror::Error;
 

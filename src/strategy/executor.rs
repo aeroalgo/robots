@@ -1581,8 +1581,9 @@ mod tests {
         let mut frames = HashMap::new();
         frames.insert(timeframe.clone(), frame);
         let strategy: Box<dyn Strategy> = Box::new(SimpleStrategy::new(timeframe.clone()));
-        let mut executor = BacktestExecutor::new(strategy, frames).expect("executor creation");
-        let report = executor.run_backtest().expect("backtest run");
+        use crate::backtest::BacktestEngine;
+        let mut executor = BacktestEngine::new(strategy, frames).expect("executor creation");
+        let report = executor.run().expect("backtest run");
         assert_eq!(report.trades.len(), 1);
         let trade = &report.trades[0];
         assert!((trade.pnl - 5.0).abs() < 1e-6);

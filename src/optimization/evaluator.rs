@@ -6,7 +6,7 @@ use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
 use crate::discovery::{StrategyCandidate, StrategyConverter};
 use crate::metrics::backtest::BacktestReport;
-use crate::strategy::executor::{BacktestConfig, BacktestExecutor};
+use crate::backtest::{BacktestConfig, BacktestEngine};
 use crate::strategy::types::StrategyParameterMap;
 use anyhow::{Context, Result};
 
@@ -123,12 +123,12 @@ impl StrategyEvaluationRunner {
         }
 
         let mut executor =
-            BacktestExecutor::from_definition(definition, Some(parameters.clone()), frames_clone)
-                .context("Не удалось создать BacktestExecutor")?
+            BacktestEngine::from_definition(definition, Some(parameters.clone()), frames_clone)
+                .context("Не удалось создать BacktestEngine")?
                 .with_config(self.backtest_config.clone());
 
         let report = executor
-            .run_backtest()
+            .run()
             .context("Ошибка выполнения backtest")?;
 
         {

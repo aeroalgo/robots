@@ -22,14 +22,14 @@ use super::container::ServiceContainer;
 /// 
 /// ```rust
 /// use crate::di::setup::setup_backtest_container;
-/// use crate::strategy::executor::BacktestExecutor;
+/// use crate::backtest::BacktestEngine;
 /// 
 /// let container = setup_backtest_container(
 ///     "strategy-1",
 ///     BacktestConfig::default(),
 /// );
 /// 
-/// let executor = BacktestExecutor::new_with_provider(
+/// let executor = BacktestEngine::new_with_provider(
 ///     strategy,
 ///     frames,
 ///     Some(Arc::new(container)),

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::candles::aggregator::TimeFrameAggregator;
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
 use crate::di::ServiceContainer;
@@ -8,13 +9,16 @@ use crate::metrics::{BacktestAnalytics, BacktestReport};
 use crate::position::{PositionBook, PositionManager};
 use crate::risk::RiskManager;
 use crate::strategy::base::Strategy;
+use crate::strategy::builder::StrategyBuilder;
 use crate::strategy::context::{StrategyContext, TimeframeData};
-use crate::strategy::types::StrategyDecision;
+use crate::strategy::types::{
+    StrategyDecision, StrategyDefinition, StrategyParameterMap, StrategySignalType,
+};
 
 use super::{
-    BacktestConfig, BacktestError, ConditionEvaluator, FeedManager, IndicatorEngine,
+    constants, BacktestConfig, BacktestError, ConditionEvaluator, EquityCalculator, FeedManager,
+    IndicatorEngine, SessionManager,
 };
-use crate::strategy::executor::BacktestConfig as ExecutorBacktestConfig;
 
 pub struct BacktestEngine {
     feed_manager: FeedManager,
@@ -23,20 +27,13 @@ pub struct BacktestEngine {
     position_manager: PositionManager,
     risk_manager: RiskManager,
     metrics_collector: BacktestAnalytics,
+    session_manager: SessionManager,
+    equity_calculator: EquityCalculator,
     strategy: Box<dyn Strategy>,
     context: StrategyContext,
     warmup_bars: usize,
-    cached_session_duration: Option<chrono::Duration>,
-    cached_equity: Option<f64>,
-    last_equity_bar: usize,
     initial_capital: f64,
     config: BacktestConfig,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct SessionState {
-    is_session_start: bool,
-    is_session_end: bool,
 }
 
 impl BacktestEngine {
@@ -44,8 +41,18 @@ impl BacktestEngine {
         strategy: Box<dyn Strategy>,
         frames: HashMap<TimeFrame, QuoteFrame>,
     ) -> Result<Self, BacktestError> {
+        Self::new_with_provider(strategy, frames, None)
+    }
+
+    pub fn new_with_provider(
+        strategy: Box<dyn Strategy>,
+        frames: HashMap<TimeFrame, QuoteFrame>,
+        container: Option<Arc<ServiceContainer>>,
+    ) -> Result<Self, BacktestError> {
         if frames.is_empty() {
-            return Err(BacktestError::Feed("frames collection is empty".to_string()));
+            return Err(BacktestError::Feed(
+                "frames collection is empty".to_string(),
+            ));
         }
 
         let mut required_timeframes: std::collections::HashSet<TimeFrame> =
@@ -67,7 +74,95 @@ impl BacktestEngine {
 
         let mut arc_frames: HashMap<TimeFrame, Arc<QuoteFrame>> =
             HashMap::with_capacity(frames.len());
+        let mut base_timeframes: Vec<TimeFrame> = Vec::new();
+
         for (tf, frame) in frames {
+            let tf_clone = tf.clone();
+            arc_frames.insert(tf_clone.clone(), Arc::new(frame));
+            base_timeframes.push(tf_clone);
+        }
+
+        let mut aggregated_frames = HashMap::new();
+        for base_tf in &base_timeframes {
+            if let Some(base_frame) = arc_frames.get(base_tf) {
+                let all_required: Vec<TimeFrame> = required_timeframes
+                    .iter()
+                    .filter(|tf| {
+                        FeedManager::is_higher_timeframe(tf, base_tf)
+                            && FeedManager::is_multiple_of(base_tf, tf)
+                    })
+                    .cloned()
+                    .collect();
+
+                for target_tf in all_required {
+                    if arc_frames.contains_key(&target_tf) {
+                        continue;
+                    }
+                    if aggregated_frames.contains_key(&target_tf) {
+                        continue;
+                    }
+
+                    match TimeFrameAggregator::aggregate(base_frame.as_ref(), target_tf.clone()) {
+                        Ok(aggregated) => {
+                            aggregated_frames.insert(target_tf.clone(), aggregated.frame);
+                        }
+                        Err(e) => {
+                            return Err(BacktestError::Feed(format!(
+                                "Failed to aggregate timeframe {:?} from {:?}: {}",
+                                target_tf, base_tf, e
+                            )));
+                        }
+                    }
+                }
+
+                let base_minutes = FeedManager::timeframe_to_minutes(base_tf);
+                if let Some(base_mins) = base_minutes {
+                    let multipliers = match base_mins {
+                        5 => vec![2, 3, 4],
+                        15 => vec![2, 4],
+                        30 => vec![2, 4],
+                        60 => vec![2, 3, 4, 6, 8, 12],
+                        120 => vec![2, 3],
+                        180 => vec![2],
+                        240 => vec![],
+                        _ => vec![],
+                    };
+
+                    for mult in multipliers {
+                        if let Some(target_tf) =
+                            FeedManager::create_derived_timeframe(base_tf, mult)
+                        {
+                            if arc_frames.contains_key(&target_tf) {
+                                continue;
+                            }
+                            if aggregated_frames.contains_key(&target_tf) {
+                                continue;
+                            }
+                            if !required_timeframes.contains(&target_tf) {
+                                continue;
+                            }
+
+                            match TimeFrameAggregator::aggregate(
+                                base_frame.as_ref(),
+                                target_tf.clone(),
+                            ) {
+                                Ok(aggregated) => {
+                                    aggregated_frames.insert(target_tf.clone(), aggregated.frame);
+                                }
+                                Err(e) => {
+                                    return Err(BacktestError::Feed(format!(
+                                        "Failed to aggregate timeframe {:?} from {:?}: {}",
+                                        target_tf, base_tf, e
+                                    )));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (tf, frame) in aggregated_frames {
             arc_frames.insert(tf, Arc::new(frame));
         }
 
@@ -88,23 +183,43 @@ impl BacktestEngine {
 
         let config = BacktestConfig::default();
         let initial_capital = config.initial_capital;
-        
-        // Разрешаем зависимости через DI или создаем напрямую
+
         let position_manager = if let Some(container) = &container {
-            container.resolve::<PositionManager>()
+            container
+                .resolve::<PositionManager>()
                 .and_then(|pm_arc| Arc::try_unwrap(pm_arc).ok())
-                .unwrap_or_else(|| PositionManager::new(initial_capital))
+                .unwrap_or_else(|| {
+                    PositionManager::new(strategy.id().to_string()).with_capital(
+                        initial_capital,
+                        config.use_full_capital,
+                        config.reinvest_profits,
+                    )
+                })
         } else {
-            PositionManager::new(initial_capital)
+            PositionManager::new(strategy.id().to_string()).with_capital(
+                initial_capital,
+                config.use_full_capital,
+                config.reinvest_profits,
+            )
         };
-        
+
         let risk_manager = if let Some(container) = &container {
-            container.resolve::<RiskManager>()
+            container
+                .resolve::<RiskManager>()
                 .and_then(|rm_arc| Arc::try_unwrap(rm_arc).ok())
                 .unwrap_or_else(|| Self::build_risk_manager(strategy.as_ref()))
         } else {
             Self::build_risk_manager(strategy.as_ref())
         };
+
+        let cached_session_duration = feed_manager.primary_timeframe().and_then(|tf| match tf {
+            TimeFrame::Minutes(m) => Some(chrono::Duration::minutes(*m as i64)),
+            TimeFrame::Hours(h) => Some(chrono::Duration::hours(*h as i64)),
+            TimeFrame::Days(d) => Some(chrono::Duration::days(*d as i64)),
+            TimeFrame::Weeks(w) => Some(chrono::Duration::weeks(*w as i64)),
+            TimeFrame::Months(m) => Some(chrono::Duration::days(*m as i64 * 30)),
+            TimeFrame::Custom(_) => None,
+        });
 
         Ok(Self {
             feed_manager,
@@ -113,12 +228,11 @@ impl BacktestEngine {
             position_manager,
             risk_manager,
             metrics_collector: BacktestAnalytics::new(),
+            session_manager: SessionManager::new(cached_session_duration),
+            equity_calculator: EquityCalculator::new(initial_capital),
             strategy,
             context,
             warmup_bars: 0,
-            cached_session_duration: None,
-            cached_equity: None,
-            last_equity_bar: 0,
             initial_capital,
             config,
         })
@@ -126,13 +240,35 @@ impl BacktestEngine {
 
     pub fn with_config(mut self, config: BacktestConfig) -> Self {
         self.initial_capital = config.initial_capital;
-        self.position_manager = PositionManager::new(config.initial_capital);
+        self.position_manager = PositionManager::new(self.strategy.id().to_string()).with_capital(
+            config.initial_capital,
+            config.use_full_capital,
+            config.reinvest_profits,
+        );
+        self.equity_calculator
+            .set_initial_capital(config.initial_capital);
         self.config = config;
         self
     }
 
     pub fn config(&self) -> &BacktestConfig {
         &self.config
+    }
+
+    pub fn from_definition(
+        definition: StrategyDefinition,
+        parameter_overrides: Option<StrategyParameterMap>,
+        frames: HashMap<TimeFrame, QuoteFrame>,
+    ) -> Result<Self, BacktestError> {
+        let mut builder = StrategyBuilder::new(definition);
+        if let Some(overrides) = parameter_overrides {
+            builder = builder.with_parameters(overrides);
+        }
+        let strategy = builder.build().map_err(|e| BacktestError::Strategy(e))?;
+
+        let mut engine = Self::new(Box::new(strategy), frames)?;
+        engine.warmup_bars = engine.compute_warmup_bars();
+        Ok(engine)
     }
 
     pub fn context(&self) -> &StrategyContext {
@@ -154,43 +290,74 @@ impl BacktestEngine {
     fn build_risk_manager(strategy: &dyn Strategy) -> RiskManager {
         let mut risk_manager = RiskManager::new();
 
-        for entry in strategy.stop_handlers() {
-            risk_manager.add_stop_handler(entry.handler_name.clone(), entry.clone());
-        }
+        use crate::risk::factory::StopHandlerFactory;
+        use crate::risk::StopHandlerEntry;
+        use std::sync::Arc;
 
-        for entry in strategy.take_handlers() {
-            risk_manager.add_take_handler(entry.handler_name.clone(), entry.clone());
+        for spec in strategy.stop_handler_specs() {
+            if let Ok(handler) = StopHandlerFactory::create(&spec.handler_name, &spec.parameters) {
+                let entry = StopHandlerEntry {
+                    handler: Arc::from(handler),
+                    timeframe: spec.timeframe.clone(),
+                    price_field: spec.price_field.clone(),
+                    direction: spec.direction.clone(),
+                    priority: spec.priority,
+                };
+                risk_manager.add_handler(entry);
+            }
         }
 
         risk_manager
     }
 
     fn compute_warmup_bars(&self) -> usize {
-        let mut max_period: usize = 0;
+        let mut max_warmup_bars = 0usize;
 
         for binding in self.strategy.indicator_bindings() {
-            for (_, value) in &binding.parameters {
-                if let Ok(period) = value.parse::<usize>() {
-                    max_period = max_period.max(period);
-                }
-            }
-        }
+            if let crate::strategy::types::IndicatorSourceSpec::Registry { parameters, .. } =
+                &binding.source
+            {
+                if let Some(period) = parameters.get("period") {
+                    let period_usize = period.max(1.0).round() as usize;
+                    let warmup_on_tf = period_usize * 2;
 
-        for cond in self.strategy.conditions() {
-            for param in &cond.parameters {
-                if let Some(val) = param.value.as_ref() {
-                    if let Ok(period) = val.parse::<usize>() {
-                        max_period = max_period.max(period);
+                    if let Some(primary_tf) = self.feed_manager.primary_timeframe() {
+                        let warmup_base = Self::convert_warmup_to_base_timeframe(
+                            &binding.timeframe,
+                            primary_tf,
+                            warmup_on_tf,
+                        );
+                        max_warmup_bars = max_warmup_bars.max(warmup_base);
                     }
                 }
             }
         }
 
-        let warmup = (max_period as f64 * 1.5).ceil() as usize;
-        warmup.max(50)
+        max_warmup_bars.max(constants::MIN_WARMUP_BARS)
+    }
+
+    fn convert_warmup_to_base_timeframe(
+        indicator_tf: &TimeFrame,
+        base_tf: &TimeFrame,
+        warmup_bars: usize,
+    ) -> usize {
+        let indicator_minutes = FeedManager::timeframe_to_minutes(indicator_tf).unwrap_or(1);
+        let base_minutes = FeedManager::timeframe_to_minutes(base_tf).unwrap_or(1);
+
+        if indicator_minutes >= base_minutes {
+            let ratio = indicator_minutes / base_minutes;
+            warmup_bars * ratio as usize
+        } else {
+            let ratio = base_minutes / indicator_minutes;
+            (warmup_bars + ratio as usize - 1) / ratio as usize
+        }
     }
 
     pub fn run(&mut self) -> Result<BacktestReport, BacktestError> {
+        self.run_backtest()
+    }
+
+    pub fn run_backtest(&mut self) -> Result<BacktestReport, BacktestError> {
         if self.warmup_bars == 0 {
             self.warmup_bars = self.compute_warmup_bars();
         }
@@ -200,8 +367,7 @@ impl BacktestEngine {
         self.context.set_active_positions(PositionBook::default());
         self.feed_manager.reset();
         self.metrics_collector.reset();
-        self.cached_equity = None;
-        self.last_equity_bar = 0;
+        self.equity_calculator.reset();
 
         for timeframe in self.feed_manager.frames().keys() {
             if let Ok(data) = self.context.timeframe_mut(timeframe) {
@@ -236,7 +402,8 @@ impl BacktestEngine {
             &mut self.context,
         )?;
 
-        self.metrics_collector.push_equity_point(self.initial_capital);
+        self.metrics_collector
+            .push_equity_point(self.initial_capital);
 
         let mut processed_bars = 0usize;
         let mut needs_session_check = true;
@@ -245,17 +412,25 @@ impl BacktestEngine {
             processed_bars += 1;
 
             if processed_bars < self.warmup_bars {
-                self.metrics_collector.push_equity_point(self.initial_capital);
+                self.metrics_collector
+                    .push_equity_point(self.initial_capital);
                 continue;
             }
 
             if needs_session_check {
-                let session_state = self.session_state();
-                if session_state.is_some() {
-                    self.update_session_metadata(session_state);
-                    needs_session_check = false;
+                if let Some(primary_tf) = self.feed_manager.primary_timeframe() {
+                    if let Some(frame) = self.feed_manager.get_frame(primary_tf) {
+                        let session_state =
+                            self.session_manager
+                                .session_state(primary_tf, frame, &self.context);
+                        if session_state.is_some() {
+                            self.session_manager
+                                .update_metadata(&mut self.context, session_state);
+                            needs_session_check = false;
+                        }
+                    }
                 }
-            } else if processed_bars % 10 == 0 {
+            } else if processed_bars % constants::SESSION_CHECK_INTERVAL == 0 {
                 needs_session_check = true;
             }
 
@@ -280,9 +455,41 @@ impl BacktestEngine {
             let had_new_entries = !decision.entries.is_empty();
 
             if equity_changed {
+                let mut validated_decision = decision;
+
+                if !validated_decision.entries.is_empty() {
+                    let mut filtered_entries = Vec::new();
+                    for entry in &validated_decision.entries {
+                        let entry_price = self
+                            .context
+                            .timeframe(&entry.timeframe)
+                            .ok()
+                            .and_then(|tf| {
+                                tf.price_series_slice(&crate::strategy::types::PriceField::Close)
+                                    .and_then(|series| series.get(tf.index()).copied())
+                                    .map(|p| p as f64)
+                            })
+                            .unwrap_or(0.0);
+
+                        if entry_price > 0.0 {
+                            if let Some(_reason) = self.risk_manager.validate_before_entry(
+                                &self.context,
+                                &entry.direction,
+                                entry_price,
+                                &entry.timeframe,
+                                crate::strategy::types::PriceField::Close,
+                            ) {
+                                continue;
+                            }
+                        }
+                        filtered_entries.push(entry.clone());
+                    }
+                    validated_decision.entries = filtered_entries;
+                }
+
                 let mut report = self
                     .position_manager
-                    .process_decision(&mut self.context, &decision)
+                    .process_decision(&mut self.context, &validated_decision)
                     .map_err(BacktestError::Position)?;
 
                 for trade in &mut report.closed_trades {
@@ -299,7 +506,7 @@ impl BacktestEngine {
                 }
 
                 self.collect_report(&report);
-                self.cached_equity = None;
+                self.equity_calculator.reset();
 
                 if had_new_entries && self.position_manager.open_position_count() > 0 {
                     self.update_trailing_stops();
@@ -310,123 +517,36 @@ impl BacktestEngine {
                 self.process_immediate_stop_checks()?;
             }
 
-            let equity = self.calculate_equity(has_open_positions, equity_changed, processed_bars);
+            let equity = self.equity_calculator.calculate(
+                &self.position_manager,
+                has_open_positions,
+                equity_changed,
+                processed_bars,
+            );
             self.metrics_collector.push_equity_point(equity);
         }
 
         self.build_report()
     }
 
-    fn calculate_equity(
-        &mut self,
-        has_open_positions: bool,
-        equity_changed: bool,
-        processed_bars: usize,
-    ) -> f64 {
-        let needs_snapshot = (has_open_positions
-            && (equity_changed || self.cached_equity.is_none()))
-            || (has_open_positions && processed_bars - self.last_equity_bar >= 10)
-            || self.cached_equity.is_none();
-
-        if !needs_snapshot {
-            return self.cached_equity.unwrap();
-        }
-
-        let total_equity = self.position_manager.portfolio_snapshot().total_equity;
-        let current_equity = self.initial_capital + total_equity;
-
-        let should_update_cache = if has_open_positions
-            && (equity_changed || self.cached_equity.is_none())
-        {
-            self.cached_equity
-                .map_or(true, |cached| (cached - current_equity).abs() > 0.01)
-        } else if has_open_positions && processed_bars - self.last_equity_bar >= 10 {
-            (self.cached_equity.unwrap() - current_equity).abs() > 0.01
-        } else {
-            true
-        };
-
-        if should_update_cache {
-            self.cached_equity = Some(current_equity);
-            self.last_equity_bar = processed_bars;
-        }
-
-        current_equity
-    }
-
-    fn session_state(&self) -> Option<SessionState> {
-        let primary = self.feed_manager.primary_timeframe()?;
-        let frame = self.feed_manager.get_frame(primary)?;
-        let timeframe_data = self.context.timeframe(primary).ok()?;
-        let idx = timeframe_data.index();
-
-        if frame.len() == 0 || idx >= frame.len() {
-            return None;
-        }
-
-        let duration = self.cached_session_duration?;
-        let current = frame.get(idx)?;
-        let mut state = SessionState::default();
-
-        if idx == 0 {
-            state.is_session_start = true;
-        } else if let Some(prev) = frame.get(idx.saturating_sub(1)) {
-            let delta = current.timestamp() - prev.timestamp();
-            if delta > duration {
-                state.is_session_start = true;
-            }
-        }
-
-        if idx + 1 >= frame.len() {
-            state.is_session_end = true;
-        } else if let Some(next) = frame.get(idx + 1) {
-            let delta = next.timestamp() - current.timestamp();
-            if delta > duration {
-                state.is_session_end = true;
-            }
-        }
-
-        Some(state)
-    }
-
-    fn update_session_metadata(&mut self, state: Option<SessionState>) {
-        if let Some(s) = state {
-            if s.is_session_start {
-                self.context
-                    .metadata
-                    .insert("session_start".to_string(), "true".to_string());
-            } else {
-                self.context.metadata.remove("session_start");
-            }
-            if s.is_session_end {
-                self.context
-                    .metadata
-                    .insert("session_end".to_string(), "true".to_string());
-            } else {
-                self.context.metadata.remove("session_end");
-            }
-        }
-    }
-
     fn collect_report(&mut self, report: &crate::position::ExecutionReport) {
-        self.metrics_collector.record_trades(&report.closed_trades);
+        self.metrics_collector.absorb_execution_report(report);
     }
 
     fn update_trailing_stops(&mut self) {
-        self.risk_manager
-            .update_trailing_stops(&mut self.position_manager, &self.context);
+        self.risk_manager.sync_with_positions(&self.context);
+        self.risk_manager.on_new_bar(&self.context);
     }
 
     fn process_immediate_stop_checks(&mut self) -> Result<(), BacktestError> {
-        let stop_decisions = self
-            .risk_manager
-            .check_stops(&self.position_manager, &self.context);
+        loop {
+            let stop_signals = self.risk_manager.check_stops(&self.context);
+            if stop_signals.is_empty() {
+                break;
+            }
 
-        if !stop_decisions.is_empty() {
-            let decision = StrategyDecision {
-                entries: Vec::new(),
-                exits: stop_decisions,
-            };
+            let mut decision = StrategyDecision::empty();
+            decision.stop_signals = stop_signals;
 
             let mut report = self
                 .position_manager
@@ -447,7 +567,7 @@ impl BacktestEngine {
             }
 
             self.collect_report(&report);
-            self.cached_equity = None;
+            self.equity_calculator.reset();
         }
 
         Ok(())

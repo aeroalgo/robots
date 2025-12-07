@@ -91,7 +91,7 @@ impl FeedManager {
         }
 
         if let Some(bar) = primary_frame.get(current_idx) {
-            let current_timestamp = bar.timestamp();
+            let current_timestamp = bar.timestamp_millis();
 
             for (tf, frame) in &self.frames {
                 if tf == primary_tf {
@@ -120,7 +120,7 @@ impl FeedManager {
                     .entry(tf.clone())
                     .or_insert_with(|| {
                         (0..frame.len())
-                            .filter_map(|i| frame.get(i).map(|b| b.timestamp()))
+                            .filter_map(|i| frame.get(i).map(|b| b.timestamp_millis()))
                             .collect()
                     });
 

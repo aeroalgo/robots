@@ -311,7 +311,7 @@ fn vtrand_falling_trend_definition() -> StrategyDefinition {
         timeframe: timeframe.clone(),
         source: IndicatorSourceSpec::Registry {
             name: "VTRAND".to_string(),
-            parameters: HashMap::from([("period".to_string(), 105.0)]),
+            parameters: HashMap::from([("period".to_string(), 50.0)]),
         },
         tags: vec!["base".to_string()],
     }];
@@ -351,8 +351,8 @@ fn vtrand_falling_trend_definition() -> StrategyDefinition {
     let exit_rules = vec![];
 
     let mut atr_trail_params = StrategyParameterMap::new();
-    atr_trail_params.insert("period".to_string(), StrategyParamValue::Number(14.0));
-    atr_trail_params.insert("coeff_atr".to_string(), StrategyParamValue::Number(5.0));
+    atr_trail_params.insert("period".to_string(), StrategyParamValue::Number(60.0));
+    atr_trail_params.insert("coeff_atr".to_string(), StrategyParamValue::Number(6.0));
 
     let stop_handlers = vec![StopHandlerSpec {
         id: "stop_734731176".to_string(),
@@ -368,7 +368,7 @@ fn vtrand_falling_trend_definition() -> StrategyDefinition {
     }];
 
     let mut take_profit_params = StrategyParameterMap::new();
-    take_profit_params.insert("percentage".to_string(), StrategyParamValue::Number(9.0));
+    take_profit_params.insert("percentage".to_string(), StrategyParamValue::Number(30.0));
 
     let take_handlers = vec![TakeHandlerSpec {
         id: "take_2516110301".to_string(),

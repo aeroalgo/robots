@@ -12,7 +12,7 @@ use crate::optimization::sds::StochasticDiffusionSearch;
 use crate::optimization::types::{
     EvaluatedStrategy, GeneticAlgorithmConfig, GeneticIndividual, Population,
 };
-use crate::strategy::executor::BacktestConfig;
+use crate::backtest::BacktestConfig;
 use crate::strategy::types::{ConditionOperator, PriceField, StrategyParameterMap};
 use rand::seq::SliceRandom;
 use rand::Rng;
