@@ -3,71 +3,50 @@ use std::collections::HashMap;
 use crate::indicators::types::ParameterSet;
 use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 
-use crate::indicators::types::{IndicatorParameter, ParameterRange, ParameterType};
-use crate::risk::auxiliary::AuxiliaryIndicatorSpec;
+use crate::risk::{normalize_indicator_params, AuxiliaryIndicatorSpec};
 use crate::risk::context::{StopEvaluationContext, StopValidationContext};
-use crate::risk::parameters::StopParameterPresets;
+use crate::risk::parameters::create_stop_percentage_parameter;
 use crate::risk::traits::{StopHandler, StopOutcome, StopValidationResult};
-use crate::risk::utils::{calculate_stop_exit_price, get_price_at_index, is_stop_triggered};
+use crate::risk::utils::{calculate_stop_exit_price, get_price_at_index, is_stop_triggered, validate_indicator_before_entry};
 
-pub struct IndicatorStopHandler {
+pub struct PercentTrailIndicatorStopHandler {
+    pub percentage: f64,
     pub indicator_name: String,
     pub indicator_params: HashMap<String, f64>,
-    pub offset_percent: f64,
-    pub trailing: bool,
     parameters: ParameterSet,
 }
 
-impl IndicatorStopHandler {
+impl PercentTrailIndicatorStopHandler {
     pub fn new(
+        percentage: f64,
         indicator_name: String,
         indicator_params: HashMap<String, f64>,
-        offset_percent: f64,
-        trailing: bool,
     ) -> Self {
         let mut params = ParameterSet::new();
-        let offset_range = StopParameterPresets::offset_percent();
-        params.add_parameter_unchecked(IndicatorParameter::new(
-            "offset_percent",
-            offset_percent as f32,
-            offset_range,
-            "Процент смещения от индикатора",
-            ParameterType::Coefficient,
+        params.add_parameter_unchecked(create_stop_percentage_parameter(
+            "percentage",
+            percentage as f32,
+            "Процент для trailing стопа",
         ));
         Self {
+            percentage,
             indicator_name,
             indicator_params,
-            offset_percent,
-            trailing,
             parameters: params,
         }
     }
 
-    pub fn auxiliary_alias(&self) -> String {
-        let mut params: Vec<_> = self.indicator_params.iter().collect();
+    fn auxiliary_alias(&self) -> String {
+        let indicator_params =
+            normalize_indicator_params(&self.indicator_name, &self.indicator_params);
+        let mut params: Vec<_> = indicator_params.iter().collect();
         params.sort_by_key(|(k, _)| k.as_str());
-
         let params_str: String = params
             .iter()
             .map(|(k, v)| format!("{}_{}", k, **v as u32))
             .collect::<Vec<_>>()
             .join("_");
-
-        format!(
-            "aux_stop_{}_{}",
-            self.indicator_name.to_uppercase(),
-            params_str
-        )
-    }
-
-    fn indicator_description(&self) -> String {
-        let params_str: String = self
-            .indicator_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!("{}({})", self.indicator_name, params_str)
+        format!("aux_stop_ind_{}_{}", self.indicator_name, params_str)
     }
 
     fn get_indicator_value(&self, ctx: &StopEvaluationContext<'_>) -> Option<f32> {
@@ -80,28 +59,18 @@ impl IndicatorStopHandler {
         ctx.timeframe_data.auxiliary_value_at(&aux_alias, ctx.index)
     }
 
-    fn calculate_stop_level(&self, indicator_value: f64, direction: &PositionDirection) -> f64 {
-        let offset = indicator_value * self.offset_percent;
-        match direction {
-            PositionDirection::Long => indicator_value + offset,
-            PositionDirection::Short => indicator_value - offset,
-            _ => indicator_value,
-        }
+    fn indicator_description(&self) -> String {
+        format!("{}", self.indicator_name)
     }
 }
 
-impl StopHandler for IndicatorStopHandler {
+impl StopHandler for PercentTrailIndicatorStopHandler {
     fn name(&self) -> &str {
-        "IndicatorStop"
+        "PercentTrailIndicatorStop"
     }
 
     fn parameters(&self) -> &ParameterSet {
         &self.parameters
-    }
-
-    fn compute_stop_level(&self, ctx: &StopEvaluationContext<'_>) -> Option<f64> {
-        let indicator_value = self.get_indicator_value(ctx)? as f64;
-        Some(self.calculate_stop_level(indicator_value, &ctx.position.direction))
     }
 
     fn validate_before_entry(
@@ -109,36 +78,21 @@ impl StopHandler for IndicatorStopHandler {
         ctx: &StopValidationContext<'_>,
     ) -> Option<StopValidationResult> {
         let indicator_value = self.get_indicator_value_for_validation(ctx)? as f64;
-        let stop_level = self.calculate_stop_level(indicator_value, &ctx.direction);
-
-        let is_valid = match ctx.direction {
-            PositionDirection::Long => ctx.current_price > stop_level,
-            PositionDirection::Short => ctx.current_price < stop_level,
-            _ => false,
-        };
-
         let indicator_desc = self.indicator_description();
-        let reason = if !is_valid {
-            match ctx.direction {
-                PositionDirection::Long => Some(format!(
-                    "Цена {} не выше уровня стопа {} ({} = {})",
-                    ctx.current_price, stop_level, indicator_desc, indicator_value
-                )),
-                PositionDirection::Short => Some(format!(
-                    "Цена {} не ниже уровня стопа {} ({} = {})",
-                    ctx.current_price, stop_level, indicator_desc, indicator_value
-                )),
-                _ => None,
-            }
-        } else {
-            None
+        Some(validate_indicator_before_entry(ctx, indicator_value, &indicator_desc))
+    }
+
+    fn compute_stop_level(&self, ctx: &StopEvaluationContext<'_>) -> Option<f64> {
+        let indicator_value = self.get_indicator_value(ctx)? as f64;
+        let ratio = self.percentage / 100.0;
+
+        let new_stop = match ctx.position.direction {
+            PositionDirection::Long => indicator_value * (1.0 - ratio),
+            PositionDirection::Short => indicator_value * (1.0 + ratio),
+            _ => return None,
         };
 
-        Some(StopValidationResult {
-            stop_level,
-            is_valid,
-            reason,
-        })
+        Some(new_stop)
     }
 
     fn evaluate(&self, ctx: &StopEvaluationContext<'_>) -> Option<StopOutcome> {
@@ -175,7 +129,7 @@ impl StopHandler for IndicatorStopHandler {
             let mut metadata = HashMap::new();
             metadata.insert("level".to_string(), current_stop.to_string());
             metadata.insert("triggered_price".to_string(), exit_price.to_string());
-            metadata.insert("indicator_name".to_string(), self.indicator_name.clone());
+            metadata.insert("percentage".to_string(), self.percentage.to_string());
 
             return Some(StopOutcome {
                 exit_price,
@@ -187,10 +141,21 @@ impl StopHandler for IndicatorStopHandler {
     }
 
     fn required_auxiliary_indicators(&self) -> Vec<AuxiliaryIndicatorSpec> {
+        let indicator_params =
+            normalize_indicator_params(&self.indicator_name, &self.indicator_params);
+        let mut params: Vec<_> = indicator_params.iter().collect();
+        params.sort_by_key(|(k, _)| k.as_str());
+        let params_str: String = params
+            .iter()
+            .map(|(k, v)| format!("{}_{}", k, **v as u32))
+            .collect::<Vec<_>>()
+            .join("_");
+        let alias = format!("aux_stop_ind_{}_{}", self.indicator_name, params_str);
+
         vec![AuxiliaryIndicatorSpec {
             indicator_name: self.indicator_name.clone(),
-            parameters: self.indicator_params.clone(),
-            alias: self.auxiliary_alias(),
+            parameters: indicator_params,
+            alias,
         }]
     }
 }

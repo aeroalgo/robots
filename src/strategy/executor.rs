@@ -8,6 +8,7 @@ use crate::condition::types::ConditionResultData;
 use crate::candles::aggregator::TimeFrameAggregator;
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
+use crate::di::ServiceContainer;
 use crate::indicators::formula::{FormulaDefinition, FormulaEvaluationContext};
 use crate::indicators::runtime::IndicatorRuntimeEngine;
 
@@ -15,8 +16,8 @@ use super::base::Strategy;
 use super::builder::StrategyBuilder;
 use super::context::{StrategyContext, TimeframeData};
 use super::types::{
-    IndicatorBindingSpec, IndicatorSourceSpec, StrategyDecision, StrategyDefinition, StrategyError,
-    StrategyParameterMap,
+    IndicatorBindingSpec, IndicatorSourceSpec, PriceField, StrategyDecision, StrategyDefinition,
+    StrategyError, StrategyParameterMap,
 };
 use crate::metrics::{BacktestAnalytics, BacktestReport};
 use crate::position::{ExecutionReport, PositionBook, PositionError, PositionManager};
@@ -72,9 +73,27 @@ struct SessionState {
 }
 
 impl BacktestExecutor {
+    /// Создать новый BacktestExecutor с прямым созданием зависимостей
+    ///
+    /// Этот метод создает зависимости напрямую (legacy подход).
+    /// Для лучшей тестируемости используйте `new_with_provider`.
     pub fn new(
         strategy: Box<dyn Strategy>,
         frames: HashMap<TimeFrame, QuoteFrame>,
+    ) -> Result<Self, StrategyExecutionError> {
+        Self::new_with_provider(strategy, frames, None)
+    }
+
+    /// Создать новый BacktestExecutor с использованием ServiceContainer
+    ///
+    /// Позволяет инжектировать зависимости через DI контейнер,
+    /// что упрощает тестирование и делает код более гибким.
+    ///
+    /// Если `container` равен `None`, зависимости создаются напрямую (legacy режим).
+    pub fn new_with_provider(
+        strategy: Box<dyn Strategy>,
+        frames: HashMap<TimeFrame, QuoteFrame>,
+        container: Option<Arc<ServiceContainer>>,
     ) -> Result<Self, StrategyExecutionError> {
         if frames.is_empty() {
             return Err(StrategyExecutionError::Feed(
@@ -223,12 +242,41 @@ impl BacktestExecutor {
 
         let context = feed.initialize_context_ordered(&timeframe_order);
         let config = BacktestConfig::default();
-        let position_manager = PositionManager::new(strategy.id().to_string()).with_capital(
-            config.initial_capital,
-            config.use_full_capital,
-            config.reinvest_profits,
-        );
-        let risk_manager = Self::build_risk_manager(&*strategy);
+
+        // Разрешаем зависимости через DI или создаем напрямую
+        let position_manager = if let Some(container) = &container {
+            // Пытаемся получить из DI контейнера
+            // Если сервис зарегистрирован, извлекаем его из Arc
+            container
+                .resolve::<PositionManager>()
+                .and_then(|pm_arc| Arc::try_unwrap(pm_arc).ok())
+                .unwrap_or_else(|| {
+                    // Fallback на прямое создание
+                    PositionManager::new(strategy.id().to_string()).with_capital(
+                        config.initial_capital,
+                        config.use_full_capital,
+                        config.reinvest_profits,
+                    )
+                })
+        } else {
+            // Legacy режим - прямое создание
+            PositionManager::new(strategy.id().to_string()).with_capital(
+                config.initial_capital,
+                config.use_full_capital,
+                config.reinvest_profits,
+            )
+        };
+
+        let risk_manager = if let Some(container) = &container {
+            // Пытаемся получить из DI контейнера
+            container
+                .resolve::<RiskManager>()
+                .and_then(|rm_arc| Arc::try_unwrap(rm_arc).ok())
+                .unwrap_or_else(|| Self::build_risk_manager(&*strategy))
+        } else {
+            // Legacy режим - прямое создание
+            Self::build_risk_manager(&*strategy)
+        };
         let cached_session_duration = feed.primary_timeframe.as_ref().and_then(|tf| tf.duration());
         let initial_capital = config.initial_capital;
         Ok(Self {
@@ -470,9 +518,43 @@ impl BacktestExecutor {
             let equity_changed = !decision.is_empty();
             let had_new_entries = !decision.entries.is_empty();
             if equity_changed {
+                // Валидация стоп-хендлеров перед открытием позиций
+                let mut filtered_entries = Vec::new();
+                for entry in &decision.entries {
+                    // Получаем текущую цену из контекста
+                    let entry_price = self
+                        .context
+                        .timeframe(&entry.timeframe)
+                        .ok()
+                        .and_then(|tf| {
+                            tf.price_series_slice(&PriceField::Close)
+                                .and_then(|series| series.get(tf.index()).copied())
+                                .map(|p| p as f64)
+                        })
+                        .unwrap_or(0.0);
+
+                    if entry_price > 0.0 {
+                        if let Some(_reason) = self.risk_manager.validate_before_entry(
+                            &self.context,
+                            &entry.direction,
+                            entry_price,
+                            &entry.timeframe,
+                            PriceField::Close,
+                        ) {
+                            // Пропускаем открытие позиции, если валидация не прошла
+                            continue;
+                        }
+                    }
+                    filtered_entries.push(entry.clone());
+                }
+
+                // Создаем новое решение только с валидными entry сигналами
+                let mut validated_decision = decision.clone();
+                validated_decision.entries = filtered_entries;
+
                 let mut report = self
                     .position_manager
-                    .process_decision(&mut self.context, &decision)
+                    .process_decision(&mut self.context, &validated_decision)
                     .map_err(StrategyExecutionError::Position)?;
 
                 for trade in &mut report.closed_trades {

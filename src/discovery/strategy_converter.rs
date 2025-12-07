@@ -1,18 +1,17 @@
 use chrono::Utc;
-use rand::Rng;
 use std::collections::{BTreeMap, HashMap};
 
 use crate::data_model::types::TimeFrame;
 use crate::discovery::config::StrategyDiscoveryConfig;
 use crate::discovery::engine::StrategyCandidate;
-use crate::discovery::types::{ConditionInfo, IndicatorInfo, NestedIndicator, StopHandlerInfo};
+use crate::discovery::types::{ConditionInfo, IndicatorInfo};
 use crate::optimization::condition_id::ConditionId;
 use crate::strategy::types::{
-    ConditionBindingSpec, ConditionDeclarativeSpec, ConditionInputSpec, ConditionOperandSpec,
-    ConditionOperator, DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec,
-    PositionDirection, RuleLogic, StopHandlerSpec, StrategyCategory, StrategyDefinition,
-    StrategyMetadata, StrategyParamValue, StrategyParameterMap, StrategyParameterSpec,
-    StrategyRuleSpec, StrategySignalType, TakeHandlerSpec,
+    ConditionBindingSpec, ConditionDeclarativeSpec, ConditionInputSpec, ConditionOperator,
+    DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec, PositionDirection, RuleLogic,
+    StopHandlerSpec, StrategyCategory, StrategyDefinition, StrategyMetadata, StrategyParamValue,
+    StrategyParameterMap, StrategyParameterSpec, StrategyRuleSpec, StrategySignalType,
+    TakeHandlerSpec,
 };
 
 pub struct StrategyConverter;
@@ -551,7 +550,55 @@ impl StrategyConverter {
                 description: Some(condition.name.clone()),
             };
 
-            let parameters = HashMap::new();
+            let mut parameters = HashMap::new();
+
+            if matches!(
+                condition.operator,
+                ConditionOperator::LowerPercent | ConditionOperator::GreaterPercent
+            ) {
+                let percent_param = condition
+                    .optimization_params
+                    .iter()
+                    .find(|p| p.name == "percent" || p.name == "percentage");
+
+                if let Some(_percent_param) = percent_param {
+                    let range =
+                        crate::condition::parameters::ConditionParameterPresets::percentage();
+                    let percent_value = ((range.min + range.max) / 2.0) as f32;
+                    parameters.insert("percent".to_string(), percent_value);
+                } else {
+                    return Err(StrategyConversionError::InvalidConditionFormat {
+                        condition_id: condition.id.clone(),
+                        reason: format!(
+                            "Condition {} requires 'percent' parameter in optimization_params",
+                            condition.name
+                        ),
+                    });
+                }
+            } else if matches!(
+                condition.operator,
+                ConditionOperator::RisingTrend | ConditionOperator::FallingTrend
+            ) {
+                let period_param = condition
+                    .optimization_params
+                    .iter()
+                    .find(|p| p.name == "period");
+
+                if let Some(_period_param) = period_param {
+                    let range =
+                        crate::condition::parameters::ConditionParameterPresets::trend_period();
+                    let period_value = ((range.min + range.max) / 2.0) as f32;
+                    parameters.insert("period".to_string(), period_value);
+                } else {
+                    return Err(StrategyConversionError::InvalidConditionFormat {
+                        condition_id: condition.id.clone(),
+                        reason: format!(
+                            "Condition {} requires 'period' parameter in optimization_params",
+                            condition.name
+                        ),
+                    });
+                }
+            }
 
             bindings.push(ConditionBindingSpec {
                 id: condition.id.clone(),
@@ -628,9 +675,9 @@ impl StrategyConverter {
                     .find(|p| p.name == "percent" || p.name == "percentage");
 
                 if let Some(_percent_param) = percent_param {
-                    // Используем constant_value из ConditionInfo для процента, если оно есть
-                    // Иначе используем значение по умолчанию 1.0%
-                    let percent_value = condition.constant_value.unwrap_or(1.0) as f32;
+                    let range =
+                        crate::condition::parameters::ConditionParameterPresets::percentage();
+                    let percent_value = ((range.min + range.max) / 2.0) as f32;
                     Ok(ConditionInputSpec::DualWithPercent {
                         primary: primary_source,
                         secondary: secondary_source,
@@ -696,9 +743,9 @@ impl StrategyConverter {
                     .find(|p| p.name == "percent" || p.name == "percentage");
 
                 if let Some(_percent_param) = percent_param {
-                    // Используем constant_value из ConditionInfo для процента, если оно есть
-                    // Иначе используем значение по умолчанию 1.0%
-                    let percent_value = condition.constant_value.unwrap_or(1.0) as f32;
+                    let range =
+                        crate::condition::parameters::ConditionParameterPresets::percentage();
+                    let percent_value = ((range.min + range.max) / 2.0) as f32;
                     Ok(ConditionInputSpec::DualWithPercent {
                         primary: primary_source,
                         secondary: secondary_source,
@@ -774,12 +821,22 @@ impl StrategyConverter {
         let mut take_handlers = Vec::new();
 
         for stop_handler in &candidate.stop_handlers {
-            let parameters = StrategyParameterMap::new();
+            // Нормализуем имя хендлера (убираем индикатор из имени для получения дефолтных параметров)
+            let (normalized_name_for_defaults, _) =
+                crate::risk::extract_indicator_from_handler_name(&stop_handler.handler_name);
+            // Получаем дефолтные параметры для стоп-хендлера (используем нормализованное имя)
+            let mut parameters = Self::get_default_stop_params(&normalized_name_for_defaults);
+
+            // Обрабатываем индикатор: извлекаем из handler_name и добавляем в parameters
+            let normalized_handler_name = crate::risk::process_stop_handler_indicator(
+                &stop_handler.handler_name,
+                &mut parameters,
+            );
 
             stop_handlers.push(StopHandlerSpec {
                 id: stop_handler.id.clone(),
                 name: stop_handler.name.clone(),
-                handler_name: stop_handler.handler_name.clone(),
+                handler_name: normalized_handler_name,
                 timeframe: base_timeframe.clone(),
                 price_field: crate::strategy::types::PriceField::Close,
                 parameters,
@@ -849,7 +906,55 @@ impl StrategyConverter {
                 description: Some(condition.name.clone()),
             };
 
-            let parameters = HashMap::new();
+            let mut parameters = HashMap::new();
+
+            if matches!(
+                condition.operator,
+                ConditionOperator::LowerPercent | ConditionOperator::GreaterPercent
+            ) {
+                let percent_param = condition
+                    .optimization_params
+                    .iter()
+                    .find(|p| p.name == "percent" || p.name == "percentage");
+
+                if let Some(_percent_param) = percent_param {
+                    let range =
+                        crate::condition::parameters::ConditionParameterPresets::percentage();
+                    let percent_value = ((range.min + range.max) / 2.0) as f32;
+                    parameters.insert("percent".to_string(), percent_value);
+                } else {
+                    return Err(StrategyConversionError::InvalidConditionFormat {
+                        condition_id: condition.id.clone(),
+                        reason: format!(
+                            "Exit condition {} requires 'percent' parameter in optimization_params",
+                            condition.name
+                        ),
+                    });
+                }
+            } else if matches!(
+                condition.operator,
+                ConditionOperator::RisingTrend | ConditionOperator::FallingTrend
+            ) {
+                let period_param = condition
+                    .optimization_params
+                    .iter()
+                    .find(|p| p.name == "period");
+
+                if let Some(_period_param) = period_param {
+                    let range =
+                        crate::condition::parameters::ConditionParameterPresets::trend_period();
+                    let period_value = ((range.min + range.max) / 2.0) as f32;
+                    parameters.insert("period".to_string(), period_value);
+                } else {
+                    return Err(StrategyConversionError::InvalidConditionFormat {
+                        condition_id: condition.id.clone(),
+                        reason: format!(
+                            "Exit condition {} requires 'period' parameter in optimization_params",
+                            condition.name
+                        ),
+                    });
+                }
+            }
 
             bindings.push(ConditionBindingSpec {
                 id: format!("exit_{}", condition.id),
@@ -920,10 +1025,19 @@ impl StrategyConverter {
             "PERCENTTRAILSTOP" | "PERCENTTRAILINGSTOP" | "PERCENT_TRAIL_STOP" | "PERCENT_TRAIL" => {
                 params.insert("percentage".to_string(), StrategyParamValue::Number(1.0));
             }
-            "INDICATORSTOP" | "INDICATOR_STOP" | "IND_STOP" => {
+            "ATRTRAILINDICATORSTOP" | "ATR_TRAIL_INDICATOR_STOP" | "ATR_TRAIL_IND" => {
+                params.insert("period".to_string(), StrategyParamValue::Number(14.0));
+                params.insert("coeff_atr".to_string(), StrategyParamValue::Number(5.0));
                 params.insert(
-                    "offset_percent".to_string(),
-                    StrategyParamValue::Number(0.0),
+                    "indicator_period".to_string(),
+                    StrategyParamValue::Number(20.0),
+                );
+            }
+            "PERCENTTRAILINDICATORSTOP" | "PERCENT_TRAIL_INDICATOR_STOP" | "PERCENT_TRAIL_IND" => {
+                params.insert("percentage".to_string(), StrategyParamValue::Number(1.0));
+                params.insert(
+                    "indicator_period".to_string(),
+                    StrategyParamValue::Number(20.0),
                 );
             }
             _ => {}

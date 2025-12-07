@@ -23,6 +23,11 @@ pub trait StopHandler: Send + Sync {
 
     fn parameters(&self) -> &ParameterSet;
 
+    /// Тип обработчика: "stop_loss" или "take_profit"
+    fn handler_type(&self) -> &str {
+        "stop_loss"
+    }
+
     fn evaluate(&self, ctx: &StopEvaluationContext<'_>) -> Option<StopOutcome>;
 
     fn validate_before_entry(
@@ -56,6 +61,11 @@ pub trait TakeHandler: Send + Sync {
     fn name(&self) -> &str;
 
     fn parameters(&self) -> &ParameterSet;
+
+    /// Тип обработчика: "stop_loss" или "take_profit"
+    fn handler_type(&self) -> &str {
+        "take_profit"
+    }
 
     fn evaluate(&self, ctx: &TakeEvaluationContext<'_>) -> Option<TakeOutcome>;
 }

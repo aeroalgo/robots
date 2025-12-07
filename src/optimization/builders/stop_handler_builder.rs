@@ -1,4 +1,4 @@
-use crate::discovery::types::{StopHandlerConfig, StopHandlerInfo};
+use crate::discovery::types::{IndicatorInfo, StopHandlerConfig, StopHandlerInfo};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::HashSet;
@@ -18,6 +18,7 @@ impl<'a> StopHandlerBuilder<'a> {
     pub fn select_stop_handler(
         &mut self,
         available: &[StopHandlerConfig],
+        available_indicators: &[IndicatorInfo],
     ) -> Option<StopHandlerInfo> {
         let excluded_stop_handlers: HashSet<&str> = self
             .config
@@ -39,13 +40,31 @@ impl<'a> StopHandlerBuilder<'a> {
 
         stop_loss_configs
             .choose(&mut *self.rng)
-            .map(|config| StopHandlerInfo {
-                id: format!("stop_{}", self.rng.gen::<u32>()),
-                name: config.handler_name.clone(),
-                handler_name: config.handler_name.clone(),
-                stop_type: config.stop_type.clone(),
-                optimization_params: Self::make_handler_params(config, available),
-                priority: config.priority,
+            .map(|config| {
+                let mut params = Self::make_handler_params(config, available);
+                let mut handler_name = config.handler_name.clone();
+                
+                // Для новых стопов с индикаторами выбираем случайный трендовый индикатор
+                if config.handler_name == "ATRTrailIndicatorStop"
+                    || config.handler_name == "PercentTrailIndicatorStop"
+                {
+                    if let Some(indicator_name) = Self::select_random_trend_indicator(
+                        available_indicators,
+                        &mut *self.rng,
+                    ) {
+                        // Сохраняем выбранный индикатор в name для последующего извлечения
+                        handler_name = format!("{}:{}", config.handler_name, indicator_name);
+                    }
+                }
+                
+                StopHandlerInfo {
+                    id: format!("stop_{}", self.rng.gen::<u32>()),
+                    name: handler_name.clone(),
+                    handler_name: handler_name,
+                    stop_type: config.stop_type.clone(),
+                    optimization_params: params,
+                    priority: config.priority,
+                }
             })
     }
 
@@ -90,5 +109,29 @@ impl<'a> StopHandlerBuilder<'a> {
         }
 
         params
+    }
+
+    /// Выбирает случайный трендовый индикатор из доступных
+    fn select_random_trend_indicator(
+        available_indicators: &[IndicatorInfo],
+        rng: &mut rand::rngs::ThreadRng,
+    ) -> Option<String> {
+        // Фильтруем только трендовые индикаторы
+        let trend_indicators: Vec<&IndicatorInfo> = available_indicators
+            .iter()
+            .filter(|ind| ind.indicator_type == "trend")
+            .collect();
+
+        if trend_indicators.is_empty() {
+            // Fallback: список популярных трендовых индикаторов
+            let default_trend_indicators = vec!["SMA", "EMA", "WMA", "AMA", "ZLEMA"];
+            default_trend_indicators
+                .choose(rng)
+                .map(|s| s.to_string())
+        } else {
+            trend_indicators
+                .choose(rng)
+                .map(|ind| ind.name.clone())
+        }
     }
 }

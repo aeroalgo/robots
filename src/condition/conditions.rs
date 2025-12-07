@@ -175,7 +175,15 @@ impl Condition for GreaterPercentCondition {
                 primary,
                 secondary,
                 percent,
-            } => (primary, secondary, percent.unwrap_or(0.0)),
+            } => {
+                // Для GreaterPercent параметр percent обязателен
+                let percent_value = percent.ok_or_else(|| {
+                    ConditionError::InvalidParameter(
+                        "GreaterPercent condition requires percent parameter".to_string(),
+                    )
+                })?;
+                (primary, secondary, percent_value)
+            }
             _ => unreachable!("валидация должна была отклонить неподдерживаемый тип входа"),
         };
 
@@ -301,7 +309,15 @@ impl Condition for LowerPercentCondition {
                 primary,
                 secondary,
                 percent,
-            } => (primary, secondary, percent.unwrap_or(0.0)),
+            } => {
+                // Для LowerPercent параметр percent обязателен
+                let percent_value = percent.ok_or_else(|| {
+                    ConditionError::InvalidParameter(
+                        "LowerPercent condition requires percent parameter".to_string(),
+                    )
+                })?;
+                (primary, secondary, percent_value)
+            }
             _ => unreachable!("валидация должна была отклонить неподдерживаемый тип входа"),
         };
 

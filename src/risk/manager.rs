@@ -8,7 +8,7 @@ use crate::strategy::types::{
     PositionDirection, PriceField, StopSignal, StopSignalKind, StrategySignal, StrategySignalType,
 };
 
-use super::context::StopEvaluationContext;
+use super::context::{StopEvaluationContext, StopValidationContext};
 use super::state::{PositionRiskState, RiskStateBook};
 use super::traits::{StopHandler, StopOutcome};
 use super::utils::{calculate_stop_exit_price, get_price_at_index, is_stop_triggered};
@@ -47,6 +47,57 @@ impl RiskManager {
 
     pub fn reset(&mut self) {
         self.state_book.clear();
+    }
+
+    /// Валидация стоп-хендлеров перед открытием позиции
+    /// Возвращает None если все валидации прошли успешно, иначе возвращает причину отказа
+    pub fn validate_before_entry(
+        &self,
+        context: &StrategyContext,
+        direction: &PositionDirection,
+        entry_price: f64,
+        timeframe: &TimeFrame,
+        price_field: PriceField,
+    ) -> Option<String> {
+        let timeframe_data = match context.timeframe(timeframe) {
+            Ok(data) => data,
+            Err(_) => return Some(format!("Timeframe {:?} not found in context", timeframe)),
+        };
+
+        let index = timeframe_data.index();
+        let current_price = entry_price;
+
+        let validation_ctx = StopValidationContext {
+            direction: direction.clone(),
+            entry_price,
+            timeframe_data,
+            price_field,
+            index,
+            current_price,
+        };
+
+        for handler_entry in &self.stop_handlers {
+            // Проверяем только стоп-хендлеры для соответствующего направления и таймфрейма
+            if handler_entry.timeframe != *timeframe {
+                continue;
+            }
+
+            if handler_entry.direction != *direction
+                && handler_entry.direction != PositionDirection::Both
+            {
+                continue;
+            }
+
+            if let Some(validation_result) =
+                handler_entry.handler.validate_before_entry(&validation_ctx)
+            {
+                if !validation_result.is_valid {
+                    return validation_result.reason;
+                }
+            }
+        }
+
+        None
     }
 
     pub fn on_position_opened(&mut self, position: &ActivePosition, context: &StrategyContext) {

@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
+use crate::di::ServiceContainer;
 use crate::metrics::{BacktestAnalytics, BacktestReport};
 use crate::position::{PositionBook, PositionManager};
 use crate::risk::RiskManager;
@@ -13,6 +14,7 @@ use crate::strategy::types::StrategyDecision;
 use super::{
     BacktestConfig, BacktestError, ConditionEvaluator, FeedManager, IndicatorEngine,
 };
+use crate::strategy::executor::BacktestConfig as ExecutorBacktestConfig;
 
 pub struct BacktestEngine {
     feed_manager: FeedManager,
@@ -84,14 +86,31 @@ impl BacktestEngine {
 
         let context = feed_manager.initialize_context_ordered(&timeframe_order);
 
-        let risk_manager = Self::build_risk_manager(strategy.as_ref());
-        let initial_capital = 10000.0;
+        let config = BacktestConfig::default();
+        let initial_capital = config.initial_capital;
+        
+        // Разрешаем зависимости через DI или создаем напрямую
+        let position_manager = if let Some(container) = &container {
+            container.resolve::<PositionManager>()
+                .and_then(|pm_arc| Arc::try_unwrap(pm_arc).ok())
+                .unwrap_or_else(|| PositionManager::new(initial_capital))
+        } else {
+            PositionManager::new(initial_capital)
+        };
+        
+        let risk_manager = if let Some(container) = &container {
+            container.resolve::<RiskManager>()
+                .and_then(|rm_arc| Arc::try_unwrap(rm_arc).ok())
+                .unwrap_or_else(|| Self::build_risk_manager(strategy.as_ref()))
+        } else {
+            Self::build_risk_manager(strategy.as_ref())
+        };
 
         Ok(Self {
             feed_manager,
             indicator_engine: IndicatorEngine::new(),
             condition_evaluator: ConditionEvaluator::new(),
-            position_manager: PositionManager::new(initial_capital),
+            position_manager,
             risk_manager,
             metrics_collector: BacktestAnalytics::new(),
             strategy,
@@ -101,7 +120,7 @@ impl BacktestEngine {
             cached_equity: None,
             last_equity_bar: 0,
             initial_capital,
-            config: BacktestConfig::default(),
+            config,
         })
     }
 

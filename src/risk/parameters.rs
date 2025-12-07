@@ -53,11 +53,7 @@ impl StopParameterPresets {
     }
 
     pub fn atr_coefficient() -> ParameterRange {
-        ParameterRange::new(2.0, 8.0, 0.5)
-    }
-
-    pub fn offset_percent() -> ParameterRange {
-        ParameterRange::new(-0.05, 0.05, 0.005)
+        ParameterRange::new(3.0, 8.0, 0.5)
     }
 
     pub fn get_range(handler_name: &str, param_name: &str) -> Option<ParameterRange> {
@@ -76,8 +72,11 @@ impl StopParameterPresets {
             "PERCENTTRAILSTOP" | "PERCENTTRAILINGSTOP" | "PERCENT_TRAIL_STOP" | "PERCENT_TRAIL" => {
                 Self::match_percentage_param(&param)
             }
-            "INDICATORSTOP" | "INDICATOR_STOP" | "IND_STOP" => {
-                Self::match_indicator_stop_param(&param)
+            "ATRTRAILINDICATORSTOP" | "ATR_TRAIL_INDICATOR_STOP" | "ATR_TRAIL_IND" => {
+                Self::match_atr_trail_indicator_param(&param)
+            }
+            "PERCENTTRAILINDICATORSTOP" | "PERCENT_TRAIL_INDICATOR_STOP" | "PERCENT_TRAIL_IND" => {
+                Self::match_percent_trail_indicator_param(&param)
             }
             _ => None,
         }
@@ -116,13 +115,23 @@ impl StopParameterPresets {
         }
     }
 
-    fn match_indicator_stop_param(param: &str) -> Option<ParameterRange> {
+    fn match_atr_trail_indicator_param(param: &str) -> Option<ParameterRange> {
         match param {
-            "period" => Some(ParameterPresets::standard_period()),
-            "coeff_atr" | "coeff" | "multiplier" => {
-                Some(ParameterPresets::get_multiplier_range(param))
+            "period" => Some(Self::trailing_period()),
+            "coeff_atr" | "coeff" | "atr_coeff" => Some(Self::atr_coefficient()),
+            "indicator_period" | "ind_period" => Some(ParameterPresets::standard_period()),
+            _ => None,
+        }
+    }
+
+    fn match_percent_trail_indicator_param(param: &str) -> Option<ParameterRange> {
+        match param {
+            "percentage" | "stop_loss" | "stop" | "value" | "pct" => {
+                Some(Self::stop_loss_percentage())
             }
-            "offset_percent" | "offset" | "offset_pct" => Some(Self::offset_percent()),
+            "indicator_period" | "ind_period" | "period" => {
+                Some(ParameterPresets::standard_period())
+            }
             _ => None,
         }
     }

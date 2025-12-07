@@ -55,7 +55,7 @@ impl ConditionCombinationGenerator {
                                         ),
                                         operator: operator.clone(),
                                         condition_type: "indicator_price".to_string(),
-                                        optimization_params: Vec::new(),
+                                        optimization_params: Self::create_optimization_params_for_operator(operator),
                                         constant_value: None,
                                         primary_indicator_alias: indicator.alias.clone(),
                                         secondary_indicator_alias: None,
@@ -81,7 +81,7 @@ impl ConditionCombinationGenerator {
                                 ),
                                 operator: operator.clone(),
                                 condition_type: "indicator_price".to_string(),
-                                optimization_params: Vec::new(),
+                                optimization_params: Self::create_optimization_params_for_operator(operator),
                                 constant_value: None,
                                 primary_indicator_alias: indicator.alias.clone(),
                                 secondary_indicator_alias: None,
@@ -147,7 +147,7 @@ impl ConditionCombinationGenerator {
                                         ),
                                         operator: operator.clone(),
                                         condition_type: "indicator_indicator".to_string(),
-                                        optimization_params: Vec::new(),
+                                        optimization_params: Self::create_optimization_params_for_operator(operator),
                                         constant_value: None,
                                         primary_indicator_alias: primary.alias.clone(),
                                         secondary_indicator_alias: Some(secondary.alias.clone()),
@@ -173,7 +173,7 @@ impl ConditionCombinationGenerator {
                                 ),
                                 operator: operator.clone(),
                                 condition_type: "indicator_indicator".to_string(),
-                                optimization_params: Vec::new(),
+                                optimization_params: Self::create_optimization_params_for_operator(operator),
                                 constant_value: None,
                                 primary_indicator_alias: primary.alias.clone(),
                                 secondary_indicator_alias: Some(secondary.alias.clone()),
@@ -363,11 +363,32 @@ impl ConditionCombinationGenerator {
         all_conditions
     }
 
+    /// Создает optimization_params для условия в зависимости от оператора
+    pub fn create_optimization_params_for_operator(operator: &ConditionOperator) -> Vec<ConditionParamInfo> {
+        match operator {
+            ConditionOperator::LowerPercent | ConditionOperator::GreaterPercent => {
+                vec![ConditionParamInfo {
+                    name: "percent".to_string(),
+                    optimizable: true,
+                    global_param_name: None,
+                }]
+            }
+            ConditionOperator::RisingTrend | ConditionOperator::FallingTrend => {
+                vec![ConditionParamInfo {
+                    name: "period".to_string(),
+                    optimizable: true,
+                    global_param_name: None,
+                }]
+            }
+            _ => Vec::new(),
+        }
+    }
+
     /// Проверяет, применим ли оператор к комбинации индикатор-цена
     fn is_valid_operator_for_indicator_price(operator: &ConditionOperator) -> bool {
         matches!(
             operator,
-            ConditionOperator::Above | ConditionOperator::Below
+            ConditionOperator::Above | ConditionOperator::Below | ConditionOperator::GreaterPercent | ConditionOperator::LowerPercent
         )
     }
 
@@ -375,7 +396,7 @@ impl ConditionCombinationGenerator {
     fn is_valid_operator_for_indicator_indicator(operator: &ConditionOperator) -> bool {
         matches!(
             operator,
-            ConditionOperator::Above | ConditionOperator::Below | ConditionOperator::Between
+            ConditionOperator::Above | ConditionOperator::Below | ConditionOperator::Between | ConditionOperator::GreaterPercent | ConditionOperator::LowerPercent
         )
     }
 

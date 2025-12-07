@@ -112,7 +112,7 @@ impl CandidateBuilder {
             &constraints,
         );
 
-        self.ensure_minimum_requirements(&mut candidate, &constraints, available_stop_handlers);
+        self.ensure_minimum_requirements(&mut candidate, &constraints, available_stop_handlers, available_indicators);
 
         candidate
     }
@@ -174,7 +174,7 @@ impl CandidateBuilder {
             if available_stop_handlers.is_empty() {
                 eprintln!("      ⚠️  ВНИМАНИЕ: Нет доступных stop handlers для добавления!");
             } else if let Some(stop) =
-                self.select_single_stop_handler_required(available_stop_handlers)
+                self.select_single_stop_handler_required(available_stop_handlers, available_indicators)
             {
                 candidate.stop_handlers.push(stop);
             } else {
@@ -620,6 +620,7 @@ impl CandidateBuilder {
     fn select_single_stop_handler_required(
         &mut self,
         available: &[StopHandlerConfig],
+        available_indicators: &[IndicatorInfo],
     ) -> Option<StopHandlerInfo> {
         let excluded_stop_handlers: std::collections::HashSet<&str> = self
             .config
@@ -641,14 +642,55 @@ impl CandidateBuilder {
 
         stop_loss_configs
             .choose(&mut self.rng)
-            .map(|config| StopHandlerInfo {
-                id: format!("stop_{}", self.rng.gen::<u32>()),
-                name: config.handler_name.clone(),
-                handler_name: config.handler_name.clone(),
-                stop_type: config.stop_type.clone(),
-                optimization_params: Self::make_handler_params(config, available),
-                priority: config.priority,
+            .map(|config| {
+                let mut handler_name = config.handler_name.clone();
+                
+                // Для новых стопов с индикаторами выбираем случайный трендовый индикатор
+                if config.handler_name == "ATRTrailIndicatorStop"
+                    || config.handler_name == "PercentTrailIndicatorStop"
+                {
+                    if let Some(indicator_name) = Self::select_random_trend_indicator(
+                        available_indicators,
+                        &mut self.rng,
+                    ) {
+                        // Сохраняем выбранный индикатор в name для последующего извлечения
+                        handler_name = format!("{}:{}", config.handler_name, indicator_name);
+                    }
+                }
+                
+                StopHandlerInfo {
+                    id: format!("stop_{}", self.rng.gen::<u32>()),
+                    name: handler_name.clone(),
+                    handler_name: handler_name,
+                    stop_type: config.stop_type.clone(),
+                    optimization_params: Self::make_handler_params(config, available),
+                    priority: config.priority,
+                }
             })
+    }
+
+    /// Выбирает случайный трендовый индикатор из доступных
+    fn select_random_trend_indicator(
+        available_indicators: &[IndicatorInfo],
+        rng: &mut rand::rngs::ThreadRng,
+    ) -> Option<String> {
+        // Фильтруем только трендовые индикаторы
+        let trend_indicators: Vec<&IndicatorInfo> = available_indicators
+            .iter()
+            .filter(|ind| ind.indicator_type == "trend")
+            .collect();
+
+        if trend_indicators.is_empty() {
+            // Fallback: список популярных трендовых индикаторов
+            let default_trend_indicators = vec!["SMA", "EMA", "WMA", "AMA", "ZLEMA"];
+            default_trend_indicators
+                .choose(rng)
+                .map(|s| s.to_string())
+        } else {
+            trend_indicators
+                .choose(rng)
+                .map(|ind| ind.name.clone())
+        }
     }
 
     fn build_condition_with_timeframe(
@@ -1374,8 +1416,23 @@ impl CandidateBuilder {
         };
 
         // Создаем optimization_params для volatility условий, процентных условий и трендовых условий
-        let (optimization_params, constant_value_for_percent) = if final_condition_type
-            == "indicator_constant"
+        // ВАЖНО: Для операторов LowerPercent и GreaterPercent ВСЕГДА создаем параметр percent,
+        // независимо от вероятности use_percent_condition
+        let (optimization_params, constant_value_for_percent) = if matches!(
+            operator,
+            ConditionOperator::LowerPercent | ConditionOperator::GreaterPercent
+        ) {
+            // Для LowerPercent и GreaterPercent ВСЕГДА создаем параметр percent
+            let percent_value = self.rng.gen_range(0.1..=5.0);
+            (
+                vec![crate::discovery::ConditionParamInfo {
+                    name: "percent".to_string(),
+                    optimizable: true,
+                    global_param_name: None,
+                }],
+                Some(percent_value),
+            )
+        } else if final_condition_type == "indicator_constant"
             && has_percent_of_price_threshold(&primary_indicator.name)
             && constant_value.is_some()
         {
@@ -1402,7 +1459,7 @@ impl CandidateBuilder {
             || final_condition_type == "indicator_indicator")
             && self.should_add(probabilities.use_percent_condition)
         {
-            // Добавляем параметр "percentage" для процентных условий
+            // Добавляем параметр "percentage" для процентных условий (только если use_percent_condition разрешено)
             let percent_value = self.rng.gen_range(0.1..=5.0);
             (
                 vec![crate::discovery::ConditionParamInfo {
@@ -1805,6 +1862,7 @@ impl CandidateBuilder {
         candidate: &mut CandidateElements,
         constraints: &ElementConstraints,
         available_stop_handlers: &[StopHandlerConfig],
+        available_indicators: &[IndicatorInfo],
     ) {
         while candidate.stop_handlers.len() < constraints.min_stop_handlers {
             if available_stop_handlers.is_empty() {
@@ -1812,7 +1870,7 @@ impl CandidateBuilder {
                 break;
             }
 
-            if let Some(stop) = self.select_single_stop_handler_required(available_stop_handlers) {
+            if let Some(stop) = self.select_single_stop_handler_required(available_stop_handlers, available_indicators) {
                 candidate.stop_handlers.push(stop);
             } else {
                 eprintln!(

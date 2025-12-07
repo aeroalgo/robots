@@ -1,33 +1,44 @@
 use std::collections::HashMap;
 
-use crate::indicators::types::ParameterRange;
 use crate::strategy::types::StrategyParamValue;
 
-use super::auxiliary::normalize_indicator_params;
 use super::errors::{StopHandlerError, TakeHandlerError};
-use super::parameters::StopParameterPresets;
+use super::parameter_extractor::{
+    extract_indicator_params_with_aliases, extract_number, extract_number_required,
+    extract_percentage, extract_string_required, has_parameter, normalize_indicator_params,
+    ParameterExtractionError,
+};
 use super::stops::{
-    ATRTrailStopHandler, HILOTrailingStopHandler, IndicatorStopHandler, PercentTrailingStopHandler,
-    StopLossPctHandler,
+    ATRTrailIndicatorStopHandler, ATRTrailStopHandler, HILOTrailingStopHandler,
+    PercentTrailIndicatorStopHandler, PercentTrailingStopHandler, StopLossPctHandler,
 };
 use super::takes::TakeProfitPctHandler;
 use super::traits::{StopHandler, TakeHandler};
-use super::utils::{
-    extract_bool, extract_number, extract_percentage, extract_string, ExtractError,
-};
 
-impl From<ExtractError> for StopHandlerError {
-    fn from(e: ExtractError) -> Self {
+impl From<ParameterExtractionError> for StopHandlerError {
+    fn from(e: ParameterExtractionError) -> Self {
         match e {
-            ExtractError::InvalidParameter(s) => StopHandlerError::InvalidParameter(s),
+            ParameterExtractionError::InvalidParameter(s) => StopHandlerError::InvalidParameter(s),
+            ParameterExtractionError::RequiredParameterMissing(s) => {
+                StopHandlerError::InvalidParameter(format!("required parameter missing: {}", s))
+            }
+            ParameterExtractionError::TypeMismatch(s) => {
+                StopHandlerError::InvalidParameter(format!("type mismatch: {}", s))
+            }
         }
     }
 }
 
-impl From<ExtractError> for TakeHandlerError {
-    fn from(e: ExtractError) -> Self {
+impl From<ParameterExtractionError> for TakeHandlerError {
+    fn from(e: ParameterExtractionError) -> Self {
         match e {
-            ExtractError::InvalidParameter(s) => TakeHandlerError::InvalidParameter(s),
+            ParameterExtractionError::InvalidParameter(s) => TakeHandlerError::InvalidParameter(s),
+            ParameterExtractionError::RequiredParameterMissing(s) => {
+                TakeHandlerError::InvalidParameter(format!("required parameter missing: {}", s))
+            }
+            ParameterExtractionError::TypeMismatch(s) => {
+                TakeHandlerError::InvalidParameter(format!("type mismatch: {}", s))
+            }
         }
     }
 }
@@ -85,43 +96,90 @@ impl StopHandlerFactory {
                 )?;
                 Ok(Box::new(PercentTrailingStopHandler::new(percentage)))
             }
-            "INDICATORSTOP" | "INDICATOR_STOP" | "IND_STOP" => {
-                let indicator_name = extract_string(parameters, &["indicator_name", "indicator"])?
-                    .unwrap_or_else(|| "SMA".to_string())
-                    .to_uppercase();
+            "ATRTRAILINDICATORSTOP" | "ATR_TRAIL_INDICATOR_STOP" | "ATR_TRAIL_IND" => {
+                if !parameters.keys().any(|k| k.eq_ignore_ascii_case("period")) {
+                    return Err(StopHandlerError::InvalidParameter(
+                        "period parameter is required for ATRTrailIndicatorStop".to_string(),
+                    ));
+                }
+                if !parameters.keys().any(|k| {
+                    k.eq_ignore_ascii_case("coeff_atr")
+                        || k.eq_ignore_ascii_case("coeff")
+                        || k.eq_ignore_ascii_case("atr_coeff")
+                }) {
+                    return Err(StopHandlerError::InvalidParameter(
+                        "coeff_atr parameter is required for ATRTrailIndicatorStop".to_string(),
+                    ));
+                }
+                let indicator_name = extract_string_required(
+                    parameters,
+                    &["indicator_name", "indicator"],
+                    "indicator_name",
+                )?
+                .to_uppercase();
 
                 let reserved_keys = [
                     "indicator_name",
                     "indicator",
-                    "offset_percent",
-                    "offset",
-                    "offset_pct",
-                    "trailing",
-                    "trail",
+                    "period",
+                    "coeff_atr",
+                    "coeff",
+                    "atr_coeff",
                 ];
-                let mut indicator_params: HashMap<String, f64> = HashMap::new();
 
-                for (key, value) in parameters {
-                    let key_lower = key.to_lowercase();
-                    if !reserved_keys.iter().any(|&r| key_lower == r) {
-                        if let Some(num) = value.as_f64() {
-                            indicator_params.insert(key_lower, num);
-                        }
-                    }
-                }
+                // Извлекаем параметры индикатора с поддержкой alias (indicator_*, ind_*)
+                // Функция автоматически обрабатывает префиксы и удаляет их
+                let indicator_params =
+                    extract_indicator_params_with_aliases(parameters, &reserved_keys);
 
                 let indicator_params =
                     normalize_indicator_params(&indicator_name, &indicator_params);
+                let period = extract_number(parameters, &["period"], 14.0)?;
+                let coeff_atr =
+                    extract_number(parameters, &["coeff_atr", "coeff", "atr_coeff"], 5.0)?;
 
-                let offset_percent =
-                    extract_number(parameters, &["offset_percent", "offset", "offset_pct"], 0.0)?;
-                let trailing = extract_bool(parameters, &["trailing", "trail"], true);
-
-                Ok(Box::new(IndicatorStopHandler::new(
+                Ok(Box::new(ATRTrailIndicatorStopHandler::new(
+                    period,
+                    coeff_atr,
                     indicator_name,
                     indicator_params,
-                    offset_percent,
-                    trailing,
+                )))
+            }
+            "PERCENTTRAILINDICATORSTOP" | "PERCENT_TRAIL_INDICATOR_STOP" | "PERCENT_TRAIL_IND" => {
+                let indicator_name = extract_string_required(
+                    parameters,
+                    &["indicator_name", "indicator"],
+                    "indicator_name",
+                )?
+                .to_uppercase();
+
+                let reserved_keys = [
+                    "indicator_name",
+                    "indicator",
+                    "percentage",
+                    "stop_loss",
+                    "stop",
+                    "value",
+                    "pct",
+                ];
+
+                // Извлекаем параметры индикатора с поддержкой alias (indicator_*, ind_*)
+                // Функция автоматически обрабатывает префиксы и удаляет их
+                let indicator_params =
+                    extract_indicator_params_with_aliases(parameters, &reserved_keys);
+
+                let indicator_params =
+                    normalize_indicator_params(&indicator_name, &indicator_params);
+                let percentage = extract_percentage(
+                    parameters,
+                    &["percentage", "stop_loss", "stop", "value", "pct"],
+                    1.0,
+                )?;
+
+                Ok(Box::new(PercentTrailIndicatorStopHandler::new(
+                    percentage,
+                    indicator_name,
+                    indicator_params,
                 )))
             }
             other => Err(StopHandlerError::UnknownHandler(other.to_string())),
@@ -150,10 +208,5 @@ impl TakeHandlerFactory {
     }
 }
 
-pub fn get_stop_optimization_range(handler_name: &str, param_name: &str) -> Option<ParameterRange> {
-    StopParameterPresets::get_range(handler_name, param_name)
-}
-
-pub fn get_take_optimization_range(handler_name: &str, param_name: &str) -> Option<ParameterRange> {
-    StopParameterPresets::get_range(handler_name, param_name)
-}
+// Функции get_stop_optimization_range и get_take_optimization_range перенесены в registry.rs
+// для использования нового подхода с автоматическим сбором информации из обработчиков

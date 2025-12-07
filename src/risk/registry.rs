@@ -1,8 +1,13 @@
 use crate::discovery::types::StopHandlerConfig;
 use crate::indicators::types::ParameterRange;
-use crate::risk::factory::{get_stop_optimization_range, get_take_optimization_range};
-use std::sync::OnceLock;
-use tokio::sync::RwLock;
+use crate::risk::factory::StopHandlerFactory;
+use crate::risk::stops::{
+    ATRTrailStopHandler, HILOTrailingStopHandler, PercentTrailingStopHandler, StopLossPctHandler,
+};
+use crate::risk::takes::TakeProfitPctHandler;
+use crate::risk::traits::{StopHandler, TakeHandler};
+use std::collections::HashMap;
+use std::sync::{OnceLock, RwLock};
 
 pub struct StopHandlerRegistry {
     handlers: Vec<HandlerInfo>,
@@ -26,91 +31,114 @@ impl StopHandlerRegistry {
     }
 
     fn register_all_handlers(&mut self) {
-        if let Some(range) = get_stop_optimization_range("StopLossPct", "percentage") {
-            println!("      [StopHandlerRegistry] Зарегистрирован StopLossPct (диапазон: {:.1}-{:.1}, шаг: {:.2})", 
-                     range.start, range.end, range.step);
+        // Регистрируем Stop Handlers
+        self.register_stop_handler(Box::new(StopLossPctHandler::new(5.0)));
+        self.register_stop_handler(Box::new(ATRTrailStopHandler::new(14.0, 5.0)));
+        self.register_stop_handler(Box::new(HILOTrailingStopHandler::new(14.0)));
+        self.register_stop_handler(Box::new(PercentTrailingStopHandler::new(1.0)));
+
+        // ATRTrailIndicatorStop требует indicator_name, создаем с дефолтным
+        let mut atr_trail_ind_params = HashMap::new();
+        atr_trail_ind_params.insert(
+            "indicator_name".to_string(),
+            crate::strategy::types::StrategyParamValue::Text("SMA".to_string()),
+        );
+        atr_trail_ind_params.insert(
+            "period".to_string(),
+            crate::strategy::types::StrategyParamValue::Number(14.0),
+        );
+        atr_trail_ind_params.insert(
+            "coeff_atr".to_string(),
+            crate::strategy::types::StrategyParamValue::Number(5.0),
+        );
+        atr_trail_ind_params.insert(
+            "indicator_period".to_string(),
+            crate::strategy::types::StrategyParamValue::Number(20.0),
+        );
+        if let Ok(handler) =
+            StopHandlerFactory::create("ATRTrailIndicatorStop", &atr_trail_ind_params)
+        {
+            self.register_stop_handler(handler);
+        }
+
+        // PercentTrailIndicatorStop требует indicator_name
+        let mut percent_trail_ind_params = HashMap::new();
+        percent_trail_ind_params.insert(
+            "indicator_name".to_string(),
+            crate::strategy::types::StrategyParamValue::Text("SMA".to_string()),
+        );
+        percent_trail_ind_params.insert(
+            "percentage".to_string(),
+            crate::strategy::types::StrategyParamValue::Number(1.0),
+        );
+        percent_trail_ind_params.insert(
+            "indicator_period".to_string(),
+            crate::strategy::types::StrategyParamValue::Number(20.0),
+        );
+        if let Ok(handler) =
+            StopHandlerFactory::create("PercentTrailIndicatorStop", &percent_trail_ind_params)
+        {
+            self.register_stop_handler(handler);
+        }
+
+        // Регистрируем Take Handlers
+        self.register_take_handler(Box::new(TakeProfitPctHandler::new(10.0)));
+    }
+
+    /// Автоматически регистрирует стоп-обработчик, извлекая информацию из его ParameterSet
+    fn register_stop_handler(&mut self, handler: Box<dyn StopHandler>) {
+        let handler_name = handler.name().to_string();
+        let handler_type = handler.handler_type().to_string();
+        let optimization_ranges = handler.parameters().get_optimization_ranges();
+        let ranges_count = optimization_ranges.len();
+
+        for (param_name, range) in optimization_ranges {
+            println!(
+                "      [StopHandlerRegistry] Зарегистрирован {} (параметр {}: {:.1}-{:.1}, шаг: {:.2})",
+                handler_name, param_name, range.start, range.end, range.step
+            );
             self.handlers.push(HandlerInfo {
-                handler_name: "StopLossPct".to_string(),
-                stop_type: "stop_loss".to_string(),
-                parameter_name: "percentage".to_string(),
+                handler_name: handler_name.clone(),
+                stop_type: handler_type.clone(),
+                parameter_name: param_name,
                 optimization_range: range,
                 priority: 100,
             });
-        } else {
+        }
+
+        if ranges_count == 0 {
             eprintln!(
-                "      [StopHandlerRegistry] ОШИБКА: Не удалось зарегистрировать StopLossPct"
+                "      [StopHandlerRegistry] ПРЕДУПРЕЖДЕНИЕ: {} не имеет параметров для оптимизации",
+                handler_name
             );
         }
+    }
 
-        if let Some(range) = get_take_optimization_range("TakeProfitPct", "percentage") {
-            println!("      [StopHandlerRegistry] Зарегистрирован TakeProfitPct (диапазон: {:.1}-{:.1}, шаг: {:.2})", 
-                     range.start, range.end, range.step);
-            self.handlers.push(HandlerInfo {
-                handler_name: "TakeProfitPct".to_string(),
-                stop_type: "take_profit".to_string(),
-                parameter_name: "percentage".to_string(),
-                optimization_range: range,
-                priority: 100,
-            });
-        } else {
-            eprintln!(
-                "      [StopHandlerRegistry] ОШИБКА: Не удалось зарегистрировать TakeProfitPct"
+    /// Автоматически регистрирует тейк-обработчик, извлекая информацию из его ParameterSet
+    fn register_take_handler(&mut self, handler: Box<dyn TakeHandler>) {
+        let handler_name = handler.name().to_string();
+        let handler_type = handler.handler_type().to_string();
+        let optimization_ranges = handler.parameters().get_optimization_ranges();
+        let ranges_count = optimization_ranges.len();
+
+        for (param_name, range) in optimization_ranges {
+            println!(
+                "      [StopHandlerRegistry] Зарегистрирован {} (параметр {}: {:.1}-{:.1}, шаг: {:.2})",
+                handler_name, param_name, range.start, range.end, range.step
             );
-        }
-
-        if let Some(range) = get_stop_optimization_range("ATRTrailStop", "period") {
-            println!("      [StopHandlerRegistry] Зарегистрирован ATRTrailStop (диапазон period: {:.1}-{:.1}, шаг: {:.2})", 
-                     range.start, range.end, range.step);
             self.handlers.push(HandlerInfo {
-                handler_name: "ATRTrailStop".to_string(),
-                stop_type: "stop_loss".to_string(),
-                parameter_name: "period".to_string(),
+                handler_name: handler_name.clone(),
+                stop_type: handler_type.clone(),
+                parameter_name: param_name,
                 optimization_range: range,
                 priority: 100,
             });
         }
 
-        if let Some(range) = get_stop_optimization_range("ATRTrailStop", "coeff_atr") {
-            println!("      [StopHandlerRegistry] Зарегистрирован ATRTrailStop (диапазон coeff_atr: {:.1}-{:.1}, шаг: {:.2})", 
-                     range.start, range.end, range.step);
-            self.handlers.push(HandlerInfo {
-                handler_name: "ATRTrailStop".to_string(),
-                stop_type: "stop_loss".to_string(),
-                parameter_name: "coeff_atr".to_string(),
-                optimization_range: range,
-                priority: 100,
-            });
-        }
-
-        if let Some(range) = get_stop_optimization_range("HILOTrailingStop", "period") {
-            println!("      [StopHandlerRegistry] Зарегистрирован HILOTrailingStop (диапазон period: {:.1}-{:.1}, шаг: {:.2})", 
-                     range.start, range.end, range.step);
-            self.handlers.push(HandlerInfo {
-                handler_name: "HILOTrailingStop".to_string(),
-                stop_type: "stop_loss".to_string(),
-                parameter_name: "period".to_string(),
-                optimization_range: range,
-                priority: 100,
-            });
-        } else {
+        if ranges_count == 0 {
             eprintln!(
-                "      [StopHandlerRegistry] ОШИБКА: Не удалось зарегистрировать HILOTrailingStop"
-            );
-        }
-
-        if let Some(range) = get_stop_optimization_range("PercentTrailingStop", "percentage") {
-            println!("      [StopHandlerRegistry] Зарегистрирован PercentTrailingStop (диапазон: {:.1}-{:.1}, шаг: {:.2})", 
-                     range.start, range.end, range.step);
-            self.handlers.push(HandlerInfo {
-                handler_name: "PercentTrailingStop".to_string(),
-                stop_type: "stop_loss".to_string(),
-                parameter_name: "percentage".to_string(),
-                optimization_range: range,
-                priority: 100,
-            });
-        } else {
-            eprintln!(
-                "      [StopHandlerRegistry] ОШИБКА: Не удалось зарегистрировать PercentTrailingStop"
+                "      [StopHandlerRegistry] ПРЕДУПРЕЖДЕНИЕ: {} не имеет параметров для оптимизации",
+                handler_name
             );
         }
     }
@@ -158,10 +186,40 @@ impl StopHandlerRegistry {
             .filter(|config| config.stop_type == "take_profit")
             .collect()
     }
+
+    /// Получить диапазон оптимизации для параметра обработчика
+    pub fn get_parameter_range(
+        &self,
+        handler_name: &str,
+        param_name: &str,
+    ) -> Option<ParameterRange> {
+        self.handlers
+            .iter()
+            .find(|h| {
+                h.handler_name.eq_ignore_ascii_case(handler_name)
+                    && h.parameter_name.eq_ignore_ascii_case(param_name)
+            })
+            .map(|h| h.optimization_range.clone())
+    }
 }
 
 pub static GLOBAL_REGISTRY: OnceLock<RwLock<StopHandlerRegistry>> = OnceLock::new();
 
 pub fn get_global_registry() -> &'static RwLock<StopHandlerRegistry> {
     GLOBAL_REGISTRY.get_or_init(|| RwLock::new(StopHandlerRegistry::new()))
+}
+
+/// Получить диапазон оптимизации для параметра стоп-обработчика (синхронная обертка)
+pub fn get_stop_optimization_range(handler_name: &str, param_name: &str) -> Option<ParameterRange> {
+    let registry = GLOBAL_REGISTRY.get_or_init(|| RwLock::new(StopHandlerRegistry::new()));
+    // Используем обычное чтение для синхронного доступа (std::sync::RwLock)
+    registry
+        .read()
+        .ok()?
+        .get_parameter_range(handler_name, param_name)
+}
+
+/// Получить диапазон оптимизации для параметра тейк-обработчика (синхронная обертка)
+pub fn get_take_optimization_range(handler_name: &str, param_name: &str) -> Option<ParameterRange> {
+    get_stop_optimization_range(handler_name, param_name)
 }

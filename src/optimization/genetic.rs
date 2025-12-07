@@ -878,7 +878,11 @@ impl GeneticAlgorithmV3 {
                 if let Some(new_operator) =
                     Self::get_safe_flipped_operator(&candidate.conditions, idx)
                 {
-                    candidate.conditions[idx].operator = new_operator;
+                    candidate.conditions[idx].operator = new_operator.clone();
+                    Self::update_optimization_params_for_operator(
+                        &mut candidate.conditions[idx],
+                        &new_operator,
+                    );
                 }
             } else {
                 if !available_indicators.is_empty() && !candidate.indicators.is_empty() {
@@ -925,7 +929,11 @@ impl GeneticAlgorithmV3 {
                 if let Some(new_operator) =
                     Self::get_safe_flipped_operator(&candidate.exit_conditions, idx)
                 {
-                    candidate.exit_conditions[idx].operator = new_operator;
+                    candidate.exit_conditions[idx].operator = new_operator.clone();
+                    Self::update_optimization_params_for_operator(
+                        &mut candidate.exit_conditions[idx],
+                        &new_operator,
+                    );
                 }
             } else {
                 if !available_indicators.is_empty() && !candidate.indicators.is_empty() {
@@ -1368,5 +1376,13 @@ impl GeneticAlgorithmV3 {
             take_handler_names,
             timeframe_strings
         )
+    }
+
+    fn update_optimization_params_for_operator(
+        condition: &mut crate::discovery::ConditionInfo,
+        operator: &ConditionOperator,
+    ) {
+        condition.optimization_params =
+            crate::discovery::condition::ConditionCombinationGenerator::create_optimization_params_for_operator(operator);
     }
 }

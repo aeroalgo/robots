@@ -781,6 +781,21 @@ impl StrategyBuilder {
                         continue;
                     };
                     applied_params.insert(param_name.to_string(), param_value);
+                    
+                    if param_name == "percent" {
+                        if let ConditionInputSpec::DualWithPercent {
+                            primary,
+                            secondary,
+                            ..
+                        } = &mut binding.input
+                        {
+                            binding.input = ConditionInputSpec::DualWithPercent {
+                                primary: primary.clone(),
+                                secondary: secondary.clone(),
+                                percent: param_value,
+                            };
+                        }
+                    }
                 }
             }
             binding.parameters = applied_params;
@@ -840,7 +855,10 @@ impl StrategyBuilder {
             println!("{:#?}", final_definition);
         }
 
-        let strategy = DynamicStrategy::new(
+        // Обновляем stop_handler_specs с примененными параметрами из final_definition
+        let stop_handler_specs = final_definition.stop_handlers.clone();
+
+        let mut strategy = DynamicStrategy::new(
             final_definition.metadata.clone(),
             final_definition.clone(),
             indicator_bindings,
@@ -853,6 +871,8 @@ impl StrategyBuilder {
             parameters,
             auxiliary_specs,
         );
+        // Обновляем stop_handler_specs с примененными параметрами
+        strategy.stop_handler_specs = stop_handler_specs;
         Ok(strategy)
     }
 

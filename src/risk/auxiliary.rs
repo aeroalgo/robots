@@ -44,49 +44,9 @@ impl AuxiliaryIndicatorSpec {
     }
 }
 
-pub fn get_default_indicator_params(indicator_name: &str) -> HashMap<String, f64> {
-    use crate::indicators::registry::IndicatorRegistry;
-
-    let registry = IndicatorRegistry::new();
-    if let Some(indicator) = registry.get_indicator(indicator_name) {
-        indicator
-            .parameters()
-            .get_current_values()
-            .into_iter()
-            .map(|(k, v)| (k, v as f64))
-            .collect()
-    } else {
-        let mut params = HashMap::new();
-        params.insert("period".to_string(), 20.0);
-        params
-    }
-}
-
-pub fn fill_missing_indicator_params(
-    indicator_name: &str,
-    existing_params: &mut HashMap<String, f64>,
-) {
-    let defaults = get_default_indicator_params(indicator_name);
-    for (key, default_value) in defaults {
-        existing_params.entry(key).or_insert(default_value);
-    }
-}
-
-pub fn normalize_indicator_params(
-    indicator_name: &str,
-    existing_params: &HashMap<String, f64>,
-) -> HashMap<String, f64> {
-    let defaults = get_default_indicator_params(indicator_name);
-
-    let mut result = HashMap::new();
-
-    for (key, default_value) in &defaults {
-        let value = existing_params.get(key).copied().unwrap_or(*default_value);
-        result.insert(key.clone(), value);
-    }
-
-    result
-}
+// Функции get_default_indicator_params, normalize_indicator_params, fill_missing_indicator_params
+// перенесены в parameter_extractor.rs для устранения дублирования
+// Используйте: crate::risk::get_default_indicator_params, etc.
 
 pub fn collect_required_auxiliary_indicators(
     handlers: &[Box<dyn super::traits::StopHandler>],
@@ -142,6 +102,9 @@ pub fn compute_auxiliary_indicators(
     Ok(results)
 }
 
+// Функция extract_indicator_params_with_aliases перенесена в parameter_extractor.rs
+// Используйте: crate::risk::extract_indicator_params_with_aliases
+
 pub fn get_auxiliary_specs_from_handler_spec(
     handler_name: &str,
     parameters: &HashMap<String, StrategyParamValue>,
@@ -166,7 +129,13 @@ pub fn get_auxiliary_specs_from_handler_spec(
                 AuxiliaryIndicatorSpec::maxfor(period),
             ]
         }
-        "INDICATORSTOP" | "INDICATOR_STOP" | "IND_STOP" => {
+        "ATRTRAILINDICATORSTOP" | "ATR_TRAIL_INDICATOR_STOP" | "ATR_TRAIL_IND" => {
+            let period = parameters
+                .iter()
+                .find(|(k, _)| k.to_lowercase() == "period")
+                .and_then(|(_, v)| v.as_f64())
+                .unwrap_or(14.0) as u32;
+
             let indicator_name = parameters
                 .iter()
                 .find(|(k, _)| {
@@ -174,31 +143,22 @@ pub fn get_auxiliary_specs_from_handler_spec(
                     k_lower == "indicator_name" || k_lower == "indicator"
                 })
                 .and_then(|(_, v)| v.as_str().map(|s| s.to_string()))
-                .unwrap_or_else(|| "SMA".to_string())
+                .expect("indicator_name is required for ATRTrailIndicatorStop - this should be set by process_stop_handler_indicator")
                 .to_uppercase();
 
             let reserved_keys = [
                 "indicator_name",
                 "indicator",
-                "offset_percent",
-                "offset",
-                "offset_pct",
-                "trailing",
-                "trail",
+                "period",
+                "coeff_atr",
+                "coeff",
+                "atr_coeff",
             ];
-            let mut indicator_params: HashMap<String, f64> = HashMap::new();
+            
+            // Извлекаем параметры индикатора с поддержкой alias (indicator_*, ind_*)
+            let indicator_params = crate::risk::extract_indicator_params_with_aliases(parameters, &reserved_keys);
 
-            for (key, value) in parameters {
-                let key_lower = key.to_lowercase();
-                if !reserved_keys.iter().any(|&r| key_lower == r) {
-                    if let Some(num) = value.as_f64() {
-                        indicator_params.insert(key_lower, num);
-                    }
-                }
-            }
-
-            let indicator_params = normalize_indicator_params(&indicator_name, &indicator_params);
-
+            let indicator_params = crate::risk::normalize_indicator_params(&indicator_name, &indicator_params);
             let mut params: Vec<_> = indicator_params.iter().collect();
             params.sort_by_key(|(k, _)| k.as_str());
             let params_str: String = params
@@ -206,7 +166,50 @@ pub fn get_auxiliary_specs_from_handler_spec(
                 .map(|(k, v)| format!("{}_{}", k, **v as u32))
                 .collect::<Vec<_>>()
                 .join("_");
-            let alias = format!("aux_stop_{}_{}", indicator_name, params_str);
+            let alias = format!("aux_stop_ind_{}_{}", indicator_name, params_str);
+
+            vec![
+                AuxiliaryIndicatorSpec::atr(period),
+                AuxiliaryIndicatorSpec {
+                    indicator_name,
+                    parameters: indicator_params,
+                    alias,
+                },
+            ]
+        }
+        "PERCENTTRAILINDICATORSTOP" | "PERCENT_TRAIL_INDICATOR_STOP" | "PERCENT_TRAIL_IND" => {
+            let indicator_name = parameters
+                .iter()
+                .find(|(k, _)| {
+                    let k_lower = k.to_lowercase();
+                    k_lower == "indicator_name" || k_lower == "indicator"
+                })
+                .and_then(|(_, v)| v.as_str().map(|s| s.to_string()))
+                .expect("indicator_name is required for PercentTrailIndicatorStop - this should be set by process_stop_handler_indicator")
+                .to_uppercase();
+
+            let reserved_keys = [
+                "indicator_name",
+                "indicator",
+                "percentage",
+                "stop_loss",
+                "stop",
+                "value",
+                "pct",
+            ];
+            
+            // Извлекаем параметры индикатора с поддержкой alias (indicator_*, ind_*)
+            let indicator_params = crate::risk::extract_indicator_params_with_aliases(parameters, &reserved_keys);
+
+            let indicator_params = crate::risk::normalize_indicator_params(&indicator_name, &indicator_params);
+            let mut params: Vec<_> = indicator_params.iter().collect();
+            params.sort_by_key(|(k, _)| k.as_str());
+            let params_str: String = params
+                .iter()
+                .map(|(k, v)| format!("{}_{}", k, **v as u32))
+                .collect::<Vec<_>>()
+                .join("_");
+            let alias = format!("aux_stop_ind_{}_{}", indicator_name, params_str);
 
             vec![AuxiliaryIndicatorSpec {
                 indicator_name,
