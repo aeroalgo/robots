@@ -3,11 +3,14 @@ use std::collections::HashMap;
 use crate::indicators::types::ParameterSet;
 use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 
-use crate::risk::{normalize_indicator_params, AuxiliaryIndicatorSpec};
 use crate::risk::context::{StopEvaluationContext, StopValidationContext};
 use crate::risk::parameters::create_stop_percentage_parameter;
 use crate::risk::traits::{StopHandler, StopOutcome, StopValidationResult};
-use crate::risk::utils::{calculate_stop_exit_price, get_price_at_index, is_stop_triggered, validate_indicator_before_entry};
+use crate::risk::utils::{
+    calculate_stop_exit_price, get_price_at_index, is_stop_triggered,
+    validate_indicator_before_entry,
+};
+use crate::risk::{normalize_indicator_params, AuxiliaryIndicatorSpec};
 
 pub struct PercentTrailIndicatorStopHandler {
     pub percentage: f64,
@@ -79,7 +82,11 @@ impl StopHandler for PercentTrailIndicatorStopHandler {
     ) -> Option<StopValidationResult> {
         let indicator_value = self.get_indicator_value_for_validation(ctx)? as f64;
         let indicator_desc = self.indicator_description();
-        Some(validate_indicator_before_entry(ctx, indicator_value, &indicator_desc))
+        Some(validate_indicator_before_entry(
+            ctx,
+            indicator_value,
+            &indicator_desc,
+        ))
     }
 
     fn compute_stop_level(&self, ctx: &StopEvaluationContext<'_>) -> Option<f64> {

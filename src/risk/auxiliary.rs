@@ -5,6 +5,26 @@ use crate::strategy::types::StrategyParamValue;
 
 use super::errors::StopHandlerError;
 
+/// Универсальная функция для получения спецификаций вспомогательных индикаторов
+///
+/// Использует `StopHandlerFactory` для создания временного обработчика и получения
+/// спецификаций через метод `required_auxiliary_indicators()`. Это позволяет
+/// автоматически работать с любыми новыми обработчиками без необходимости
+/// добавления специального кода.
+pub fn get_auxiliary_specs_from_handler_spec_universal(
+    handler_name: &str,
+    parameters: &HashMap<String, StrategyParamValue>,
+) -> Result<Vec<AuxiliaryIndicatorSpec>, StopHandlerError> {
+    use super::factory::StopHandlerFactory;
+
+    // Создаем временный обработчик для получения спецификаций
+    // Это универсальный подход - работает для всех обработчиков автоматически
+    let handler = StopHandlerFactory::create(handler_name, parameters)?;
+
+    // Получаем спецификации через метод обработчика
+    Ok(handler.required_auxiliary_indicators())
+}
+
 #[derive(Clone, Debug)]
 pub struct AuxiliaryIndicatorSpec {
     pub indicator_name: String,
@@ -105,131 +125,33 @@ pub fn compute_auxiliary_indicators(
 // Функция extract_indicator_params_with_aliases перенесена в parameter_extractor.rs
 // Используйте: crate::risk::extract_indicator_params_with_aliases
 
+// Устаревшие функции удалены - теперь используется универсальный подход через
+// get_auxiliary_specs_from_handler_spec_universal(), который автоматически работает
+// с любыми обработчиками через StopHandlerFactory и метод required_auxiliary_indicators()
+
+/// Получает спецификации вспомогательных индикаторов из параметров обработчика
+///
+/// Универсальная функция, которая автоматически работает с любыми обработчиками
+/// через создание временного экземпляра и вызов `required_auxiliary_indicators()`.
+///
+/// Для новых обработчиков достаточно реализовать метод `required_auxiliary_indicators()`
+/// в trait `StopHandler` - никакого дополнительного кода не требуется.
 pub fn get_auxiliary_specs_from_handler_spec(
     handler_name: &str,
     parameters: &HashMap<String, StrategyParamValue>,
-) -> Vec<AuxiliaryIndicatorSpec> {
-    match handler_name.to_ascii_uppercase().as_str() {
-        "ATRTRAILSTOP" | "ATR_TRAIL_STOP" | "ATR_TRAIL" => {
-            let period = parameters
-                .iter()
-                .find(|(k, _)| k.to_lowercase() == "period")
-                .and_then(|(_, v)| v.as_f64())
-                .unwrap_or(14.0) as u32;
-            vec![AuxiliaryIndicatorSpec::atr(period)]
-        }
-        "HILOTRAILSTOP" | "HILOTRAILINGSTOP" | "HILO_TRAIL_STOP" | "HILO_TRAIL" => {
-            let period = parameters
-                .iter()
-                .find(|(k, _)| k.to_lowercase() == "period")
-                .and_then(|(_, v)| v.as_f64())
-                .unwrap_or(14.0) as u32;
-            vec![
-                AuxiliaryIndicatorSpec::minfor(period),
-                AuxiliaryIndicatorSpec::maxfor(period),
-            ]
-        }
-        "ATRTRAILINDICATORSTOP" | "ATR_TRAIL_INDICATOR_STOP" | "ATR_TRAIL_IND" => {
-            let period = parameters
-                .iter()
-                .find(|(k, _)| k.to_lowercase() == "period")
-                .and_then(|(_, v)| v.as_f64())
-                .unwrap_or(14.0) as u32;
-
-            let indicator_name = parameters
-                .iter()
-                .find(|(k, _)| {
-                    let k_lower = k.to_lowercase();
-                    k_lower == "indicator_name" || k_lower == "indicator"
-                })
-                .and_then(|(_, v)| v.as_str().map(|s| s.to_string()))
-                .expect("indicator_name is required for ATRTrailIndicatorStop - this should be set by process_stop_handler_indicator")
-                .to_uppercase();
-
-            let reserved_keys = [
-                "indicator_name",
-                "indicator",
-                "period",
-                "coeff_atr",
-                "coeff",
-                "atr_coeff",
-            ];
-            
-            // Извлекаем параметры индикатора с поддержкой alias (indicator_*, ind_*)
-            let indicator_params = crate::risk::extract_indicator_params_with_aliases(parameters, &reserved_keys);
-
-            let indicator_params = crate::risk::normalize_indicator_params(&indicator_name, &indicator_params);
-            let mut params: Vec<_> = indicator_params.iter().collect();
-            params.sort_by_key(|(k, _)| k.as_str());
-            let params_str: String = params
-                .iter()
-                .map(|(k, v)| format!("{}_{}", k, **v as u32))
-                .collect::<Vec<_>>()
-                .join("_");
-            let alias = format!("aux_stop_ind_{}_{}", indicator_name, params_str);
-
-            vec![
-                AuxiliaryIndicatorSpec::atr(period),
-                AuxiliaryIndicatorSpec {
-                    indicator_name,
-                    parameters: indicator_params,
-                    alias,
-                },
-            ]
-        }
-        "PERCENTTRAILINDICATORSTOP" | "PERCENT_TRAIL_INDICATOR_STOP" | "PERCENT_TRAIL_IND" => {
-            let indicator_name = parameters
-                .iter()
-                .find(|(k, _)| {
-                    let k_lower = k.to_lowercase();
-                    k_lower == "indicator_name" || k_lower == "indicator"
-                })
-                .and_then(|(_, v)| v.as_str().map(|s| s.to_string()))
-                .expect("indicator_name is required for PercentTrailIndicatorStop - this should be set by process_stop_handler_indicator")
-                .to_uppercase();
-
-            let reserved_keys = [
-                "indicator_name",
-                "indicator",
-                "percentage",
-                "stop_loss",
-                "stop",
-                "value",
-                "pct",
-            ];
-            
-            // Извлекаем параметры индикатора с поддержкой alias (indicator_*, ind_*)
-            let indicator_params = crate::risk::extract_indicator_params_with_aliases(parameters, &reserved_keys);
-
-            let indicator_params = crate::risk::normalize_indicator_params(&indicator_name, &indicator_params);
-            let mut params: Vec<_> = indicator_params.iter().collect();
-            params.sort_by_key(|(k, _)| k.as_str());
-            let params_str: String = params
-                .iter()
-                .map(|(k, v)| format!("{}_{}", k, **v as u32))
-                .collect::<Vec<_>>()
-                .join("_");
-            let alias = format!("aux_stop_ind_{}_{}", indicator_name, params_str);
-
-            vec![AuxiliaryIndicatorSpec {
-                indicator_name,
-                parameters: indicator_params,
-                alias,
-            }]
-        }
-        _ => vec![],
-    }
+) -> Result<Vec<AuxiliaryIndicatorSpec>, StopHandlerError> {
+    get_auxiliary_specs_from_handler_spec_universal(handler_name, parameters)
 }
 
 pub fn collect_auxiliary_specs_from_stop_handlers(
     stop_handlers: &[crate::strategy::types::StopHandlerSpec],
-) -> Vec<AuxiliaryIndicatorSpec> {
+) -> Result<Vec<AuxiliaryIndicatorSpec>, StopHandlerError> {
     let mut specs = Vec::new();
     let mut seen_aliases = std::collections::HashSet::new();
 
     for handler in stop_handlers {
         for spec in
-            get_auxiliary_specs_from_handler_spec(&handler.handler_name, &handler.parameters)
+            get_auxiliary_specs_from_handler_spec(&handler.handler_name, &handler.parameters)?
         {
             if !seen_aliases.contains(&spec.alias) {
                 seen_aliases.insert(spec.alias.clone());
@@ -238,5 +160,5 @@ pub fn collect_auxiliary_specs_from_stop_handlers(
         }
     }
 
-    specs
+    Ok(specs)
 }

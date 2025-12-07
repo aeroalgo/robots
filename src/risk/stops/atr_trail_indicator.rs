@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use crate::indicators::types::ParameterSet;
 use crate::strategy::types::{PositionDirection, PriceField, StopSignalKind};
 
-use crate::risk::{normalize_indicator_params, AuxiliaryIndicatorSpec};
 use crate::risk::context::{StopEvaluationContext, StopValidationContext};
 use crate::risk::parameters::{create_atr_coefficient_parameter, create_stop_period_parameter};
 use crate::risk::traits::{StopHandler, StopOutcome, StopValidationResult};
@@ -11,6 +10,7 @@ use crate::risk::utils::{
     calculate_stop_exit_price, get_price_at_index, is_stop_triggered,
     validate_indicator_before_entry,
 };
+use crate::risk::{normalize_indicator_params, AuxiliaryIndicatorSpec};
 
 pub struct ATRTrailIndicatorStopHandler {
     pub period: f64,

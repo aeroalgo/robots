@@ -701,6 +701,7 @@ impl StrategyBuilder {
             // Собираем auxiliary specs с учетом примененных параметров
             for spec in
                 get_auxiliary_specs_from_handler_spec(&handler.handler_name, &handler_params)
+                    .map_err(|e| map_stop_error(&handler.handler_name, e))?
             {
                 if !seen_auxiliary_aliases.contains(&spec.alias) {
                     seen_auxiliary_aliases.insert(spec.alias.clone());
@@ -781,12 +782,10 @@ impl StrategyBuilder {
                         continue;
                     };
                     applied_params.insert(param_name.to_string(), param_value);
-                    
+
                     if param_name == "percent" {
                         if let ConditionInputSpec::DualWithPercent {
-                            primary,
-                            secondary,
-                            ..
+                            primary, secondary, ..
                         } = &mut binding.input
                         {
                             binding.input = ConditionInputSpec::DualWithPercent {
