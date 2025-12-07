@@ -7,14 +7,14 @@ impl TimeFrameGenerator {
     /// Генерирует комбинации таймфреймов на основе базового таймфрейма
     /// Генерирует таймфреймы кратные базовому до max_timeframe_minutes
     /// Возвращает все возможные комбинации от 1 до count таймфреймов
-    pub fn generate_combinations(base: TimeFrame, count: usize, max_timeframe_minutes: u32) -> Vec<Vec<TimeFrame>> {
+    pub fn generate_combinations(
+        base: TimeFrame,
+        count: usize,
+        max_timeframe_minutes: u32,
+    ) -> Vec<Vec<TimeFrame>> {
         let base_minutes = Self::timeframe_to_minutes(&base);
 
         if base_minutes == 0 || base_minutes > max_timeframe_minutes {
-            println!(
-                "         [TimeFrameGenerator] Предупреждение: базовый таймфрейм {} минут вне допустимого диапазона (1-{} минут)",
-                base_minutes, max_timeframe_minutes
-            );
             return vec![vec![base.clone()]];
         }
 
@@ -31,30 +31,11 @@ impl TimeFrameGenerator {
             multiplier += 1;
         }
 
-        println!(
-            "         [TimeFrameGenerator] Создано таймфреймов: {} (от {} до {} минут), генерируем комбинации длиной от 1 до {}",
-            timeframes.len(),
-            base_minutes,
-            timeframes.last().map(|tf| Self::timeframe_to_minutes(tf)).unwrap_or(base_minutes),
-            count
-        );
-
-        // Генерируем все возможные комбинации разной длины (от 1 до count)
         let mut result = Vec::new();
         for combo_len in 1..=count.min(timeframes.len()) {
             let combinations = Self::combinations(timeframes.clone(), combo_len);
-            println!(
-                "         [TimeFrameGenerator] Комбинаций длины {}: {}",
-                combo_len,
-                combinations.len()
-            );
             result.extend(combinations);
         }
-        
-        println!(
-            "         [TimeFrameGenerator] Всего комбинаций таймфреймов: {}",
-            result.len()
-        );
         result
     }
 
@@ -94,4 +75,3 @@ impl TimeFrameGenerator {
         result
     }
 }
-

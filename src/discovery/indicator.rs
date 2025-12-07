@@ -19,7 +19,7 @@ impl IndicatorCombinationGenerator {
         include_stops: bool,
     ) -> Vec<Vec<IndicatorInfo>> {
         let mut result = Vec::new();
-        let stop_params = if include_stops { 2 } else { 0 }; // стоп-лосс и тейк-профит
+        let stop_params = if include_stops { 2 } else { 0 };
 
         // Генерируем комбинации разной длины
         for combo_len in 1..=available_indicators.len() {
@@ -34,7 +34,6 @@ impl IndicatorCombinationGenerator {
         result
     }
 
-    /// Генерирует комбинации индикаторов заданной длины
     fn generate_combinations_of_length(
         indicators: &[IndicatorInfo],
         length: usize,
@@ -49,7 +48,8 @@ impl IndicatorCombinationGenerator {
 
         let mut result = Vec::new();
         for i in 0..=indicators.len() - length {
-            let first = indicators[i].clone();
+            let first = &indicators[i];
+            let first_params_count = first.parameters.iter().filter(|p| p.optimizable).count();
             let rest_combinations =
                 Self::generate_combinations_of_length(&indicators[i + 1..], length - 1, max_params);
 
@@ -58,7 +58,7 @@ impl IndicatorCombinationGenerator {
                     .iter()
                     .map(|ind| ind.parameters.iter().filter(|p| p.optimizable).count())
                     .sum::<usize>()
-                    + first.parameters.iter().filter(|p| p.optimizable).count();
+                    + first_params_count;
 
                 if total_params <= max_params {
                     combo.insert(0, first.clone());
@@ -124,46 +124,26 @@ impl IndicatorCombinationGenerator {
         let stop_params = 2;
         let params_for_indicators = max_params.saturating_sub(stop_params);
         let avg_params_per_indicator = 2;
-        let max_indicators_in_combo = (params_for_indicators / avg_params_per_indicator).max(1).min(4);
-        println!(
-            "         [generate_nested_combinations] Базовых индикаторов: {}, Генерируем комбинации до {} индикаторов в комбинации (max_params={}, резерв для стопов/тейков={}, остается для индикаторов={}, среднее параметров на индикатор={})",
-            base_indicators.len(),
-            max_indicators_in_combo,
-            max_params,
-            stop_params,
-            params_for_indicators,
-            avg_params_per_indicator
-        );
-        
-        let mut total_base_combinations = 0;
-        for combo_len in 1..=base_indicators.len().min(max_indicators_in_combo).min(max_params) {
-            println!(
-                "         [generate_nested_combinations] Генерация комбинаций длины {} из {} индикаторов...",
-                combo_len,
-                base_indicators.len()
-            );
-            let base_combinations = Self::generate_combinations_of_length(
-                &base_indicators
-                    .iter()
-                    .map(|&ind| (*ind).clone())
-                    .collect::<Vec<_>>(),
-                combo_len,
-                max_params,
-            );
-            println!(
-                "         [generate_nested_combinations] Сгенерировано комбинаций длины {}: {}",
-                combo_len,
-                base_combinations.len()
-            );
-            total_base_combinations += base_combinations.len();
+        let max_indicators_in_combo = (params_for_indicators / avg_params_per_indicator)
+            .max(1)
+            .min(4);
+
+        let base_indicators_vec: Vec<IndicatorInfo> =
+            base_indicators.iter().map(|&ind| (*ind).clone()).collect();
+
+        for combo_len in 1..=base_indicators_vec
+            .len()
+            .min(max_indicators_in_combo)
+            .min(max_params)
+        {
+            let base_combinations =
+                Self::generate_combinations_of_length(&base_indicators_vec, combo_len, max_params);
 
             for base_combo in base_combinations {
-                // Для каждой комбинации базовых индикаторов генерируем вложенные
                 let base_params: usize = base_combo
                     .iter()
                     .map(|ind| ind.parameters.iter().filter(|p| p.optimizable).count())
                     .sum();
-
                 let remaining_params = max_params.saturating_sub(base_params);
 
                 // Генерируем вложенные индикаторы с учетом глубины
@@ -184,11 +164,6 @@ impl IndicatorCombinationGenerator {
                 }
             }
         }
-        
-        println!(
-            "         [generate_nested_combinations] Всего базовых комбинаций: {}",
-            total_base_combinations
-        );
 
         result
     }
@@ -224,7 +199,6 @@ impl IndicatorCombinationGenerator {
             return vec![vec![]];
         }
 
-        // Генерируем комбинации вложенных индикаторов
         for nested_indicator in nested_capable {
             let nested_params: usize = nested_indicator
                 .parameters
@@ -236,7 +210,6 @@ impl IndicatorCombinationGenerator {
                 continue;
             }
 
-            // Генерируем вложенные индикаторы для каждого доступного источника
             for source_alias in &available_sources {
                 let nested = NestedIndicator {
                     indicator: (*nested_indicator).clone(),
@@ -246,18 +219,13 @@ impl IndicatorCombinationGenerator {
 
                 let new_remaining = remaining_params.saturating_sub(nested_params);
 
-                // Рекурсивно генерируем следующие уровни вложенности
-                // (если текущий вложенный индикатор может быть источником для других)
                 let deeper_nested = if nested_indicator.can_use_indicator_input
                     && current_depth < max_depth
                     && new_remaining > 0
                 {
-                    // Создаем расширенный список базовых индикаторов, включая текущий вложенный
-                    // как потенциальный источник для следующих уровней
                     let mut extended_base = base_indicators.to_vec();
                     extended_base.push((*nested_indicator).clone());
 
-                    // Рекурсивно генерируем более глубокие уровни
                     Self::generate_nested_for_base(
                         &extended_base,
                         nested_capable,
@@ -269,13 +237,11 @@ impl IndicatorCombinationGenerator {
                     vec![vec![]]
                 };
 
-                // Комбинируем текущий вложенный индикатор с более глубокими уровнями
                 for mut deeper_combo in deeper_nested {
                     deeper_combo.insert(0, nested.clone());
                     result.push(deeper_combo);
                 }
 
-                // Также добавляем только текущий вложенный индикатор без более глубоких уровней
                 result.push(vec![nested]);
             }
         }

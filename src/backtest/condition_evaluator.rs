@@ -47,15 +47,9 @@ impl ConditionEvaluator {
             let mut results: Vec<(usize, Arc<ConditionResultData>)> = Vec::new();
 
             for &condition_idx in &condition_indices {
-                let condition = strategy
-                    .conditions()
-                    .get(condition_idx)
-                    .ok_or_else(|| {
-                        BacktestError::Feed(format!(
-                            "condition at index {} not found",
-                            condition_idx
-                        ))
-                    })?;
+                let condition = strategy.conditions().get(condition_idx).ok_or_else(|| {
+                    BacktestError::Feed(format!("condition at index {} not found", condition_idx))
+                })?;
 
                 {
                     let data = context

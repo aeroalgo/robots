@@ -46,6 +46,44 @@ impl From<ParameterExtractionError> for TakeHandlerError {
 pub struct StopHandlerFactory;
 
 impl StopHandlerFactory {
+    pub fn get_default_parameters(handler_name: &str) -> HashMap<String, StrategyParamValue> {
+        let mut params = HashMap::new();
+        let normalized_name = handler_name.to_ascii_uppercase();
+
+        match normalized_name.as_str() {
+            "STOPLOSSPCT" | "STOP_LOSS_PCT" | "STOPLOSS_PCT" => {
+                params.insert("percentage".to_string(), StrategyParamValue::Number(0.2));
+            }
+            "ATRTRAILSTOP" | "ATR_TRAIL_STOP" | "ATR_TRAIL" => {
+                params.insert("period".to_string(), StrategyParamValue::Number(14.0));
+                params.insert("coeff_atr".to_string(), StrategyParamValue::Number(5.0));
+            }
+            "HILOTRAILSTOP" | "HILOTRAILINGSTOP" | "HILO_TRAIL_STOP" | "HILO_TRAIL" => {
+                params.insert("period".to_string(), StrategyParamValue::Number(14.0));
+            }
+            "PERCENTTRAILSTOP" | "PERCENTTRAILINGSTOP" | "PERCENT_TRAIL_STOP" | "PERCENT_TRAIL" => {
+                params.insert("percentage".to_string(), StrategyParamValue::Number(1.0));
+            }
+            "ATRTRAILINDICATORSTOP" | "ATR_TRAIL_INDICATOR_STOP" | "ATR_TRAIL_IND" => {
+                params.insert("period".to_string(), StrategyParamValue::Number(14.0));
+                params.insert("coeff_atr".to_string(), StrategyParamValue::Number(5.0));
+                params.insert(
+                    "indicator_name".to_string(),
+                    StrategyParamValue::Text("SMA".to_string()),
+                );
+            }
+            "PERCENTTRAILINDICATORSTOP" | "PERCENT_TRAIL_INDICATOR_STOP" | "PERCENT_TRAIL_IND" => {
+                params.insert(
+                    "indicator_name".to_string(),
+                    StrategyParamValue::Text("SMA".to_string()),
+                );
+            }
+            _ => {}
+        }
+
+        params
+    }
+
     pub fn create(
         handler_name: &str,
         parameters: &HashMap<String, StrategyParamValue>,
@@ -190,6 +228,20 @@ impl StopHandlerFactory {
 pub struct TakeHandlerFactory;
 
 impl TakeHandlerFactory {
+    pub fn get_default_parameters(handler_name: &str) -> HashMap<String, StrategyParamValue> {
+        let mut params = HashMap::new();
+        let normalized_name = handler_name.to_ascii_uppercase();
+
+        match normalized_name.as_str() {
+            "TAKEPROFITPCT" | "TAKE_PROFIT_PCT" => {
+                params.insert("percentage".to_string(), StrategyParamValue::Number(0.4));
+            }
+            _ => {}
+        }
+
+        params
+    }
+
     pub fn create(
         handler_name: &str,
         parameters: &HashMap<String, StrategyParamValue>,

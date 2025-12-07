@@ -80,4 +80,3 @@ impl SessionManager {
         self.cached_duration = duration;
     }
 }
-

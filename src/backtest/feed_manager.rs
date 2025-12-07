@@ -104,14 +104,14 @@ impl FeedManager {
 
                 let aligned = self.cached_aligned_timestamps.get(tf).copied();
                 let needs_update = aligned.is_none()
-                    || Self::align_timestamp_millis_to_timeframe(current_timestamp, tf)
-                        != aligned;
+                    || Self::align_timestamp_millis_to_timeframe(current_timestamp, tf) != aligned;
 
                 if needs_update {
                     if let Some(new_aligned) =
                         Self::align_timestamp_millis_to_timeframe(current_timestamp, tf)
                     {
-                        self.cached_aligned_timestamps.insert(tf.clone(), new_aligned);
+                        self.cached_aligned_timestamps
+                            .insert(tf.clone(), new_aligned);
                     }
                 }
 
