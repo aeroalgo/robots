@@ -102,6 +102,7 @@ impl<'a> StopHandlerBuilder<'a> {
                     params.push(crate::discovery::ConditionParamInfo {
                         name: cfg.parameter_name.clone(),
                         optimizable: true,
+                        mutatable: true,
                         global_param_name: cfg.global_param_name.clone(),
                     });
                 }

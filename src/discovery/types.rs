@@ -25,6 +25,8 @@ pub struct IndicatorParamInfo {
     pub param_type: ParameterType,
     /// Можно ли оптимизировать этот параметр
     pub optimizable: bool,
+    /// Можно ли мутировать этот параметр
+    pub mutatable: bool,
     /// Имя глобального параметра для этого параметра (если есть)
     /// Например, "period" для параметра "period" индикатора SMA
     pub global_param_name: Option<String>,
@@ -102,6 +104,8 @@ impl ConditionInfo {
 pub struct ConditionParamInfo {
     pub name: String,
     pub optimizable: bool,
+    /// Можно ли мутировать этот параметр
+    pub mutatable: bool,
     /// Имя глобального параметра для этого параметра (если есть)
     pub global_param_name: Option<String>,
 }

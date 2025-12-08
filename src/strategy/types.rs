@@ -71,6 +71,125 @@ pub struct StrategyParameterSpec {
     pub step: Option<f64>,
     pub discrete_values: Option<Vec<StrategyParamValue>>,
     pub optimize: bool,
+    pub mutatable: bool,
+    pub parameter_kind: ParameterKind,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ParameterKind {
+    Numeric,
+    Discrete,
+    IndicatorName {
+        category: String,
+    },
+    ConditionOperator {
+        compatible_operators: Vec<ConditionOperator>,
+    },
+    IndicatorParameter {
+        indicator_name_ref: String,
+    },
+}
+
+impl Default for ParameterKind {
+    fn default() -> Self {
+        ParameterKind::Numeric
+    }
+}
+
+impl StrategyParameterSpec {
+    pub fn new_numeric(
+        name: String,
+        description: Option<String>,
+        default_value: StrategyParamValue,
+        min: Option<f64>,
+        max: Option<f64>,
+        step: Option<f64>,
+        optimize: bool,
+        mutatable: bool,
+    ) -> Self {
+        Self {
+            name,
+            description,
+            default_value,
+            min,
+            max,
+            step,
+            discrete_values: None,
+            optimize,
+            mutatable,
+            parameter_kind: ParameterKind::Numeric,
+        }
+    }
+
+    pub fn new_discrete(
+        name: String,
+        description: Option<String>,
+        default_value: StrategyParamValue,
+        discrete_values: Vec<StrategyParamValue>,
+        optimize: bool,
+        mutatable: bool,
+    ) -> Self {
+        Self {
+            name,
+            description,
+            default_value,
+            min: None,
+            max: None,
+            step: None,
+            discrete_values: Some(discrete_values),
+            optimize,
+            mutatable,
+            parameter_kind: ParameterKind::Discrete,
+        }
+    }
+
+    pub fn new_indicator_name(
+        name: String,
+        description: Option<String>,
+        default_value: StrategyParamValue,
+        category: String,
+        discrete_values: Vec<StrategyParamValue>,
+        optimize: bool,
+        mutatable: bool,
+    ) -> Self {
+        Self {
+            name,
+            description,
+            default_value,
+            min: None,
+            max: None,
+            step: None,
+            discrete_values: Some(discrete_values),
+            optimize,
+            mutatable,
+            parameter_kind: ParameterKind::IndicatorName { category },
+        }
+    }
+
+    pub fn new_indicator_parameter(
+        name: String,
+        description: Option<String>,
+        default_value: StrategyParamValue,
+        indicator_name_ref: String,
+        min: Option<f64>,
+        max: Option<f64>,
+        step: Option<f64>,
+        optimize: bool,
+        mutatable: bool,
+    ) -> Self {
+        Self {
+            name,
+            description,
+            default_value,
+            min,
+            max,
+            step,
+            discrete_values: None,
+            optimize,
+            mutatable,
+            parameter_kind: ParameterKind::IndicatorParameter { indicator_name_ref },
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

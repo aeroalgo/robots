@@ -86,38 +86,38 @@ fn sinewma_rising_trend_definition() -> StrategyDefinition {
     let take_handlers = vec![];
 
     let mut parameters = Vec::new();
-    parameters.push(StrategyParameterSpec {
-        name: "sinewma_period".to_string(),
-        description: Some("period parameter for SINEWMA".to_string()),
-        default_value: StrategyParamValue::Integer(105),
-        min: Some(10.0),
-        max: Some(200.0),
-        step: Some(10.0),
-        discrete_values: None,
-        optimize: true,
-    });
-    parameters.push(StrategyParameterSpec {
-        name: "entry_sinewma::risingtrend_2442449988_period".to_string(),
-        description: Some(
+    parameters.push(StrategyParameterSpec::new_numeric(
+        "sinewma_period".to_string(),
+        Some("period parameter for SINEWMA".to_string()),
+        StrategyParamValue::Integer(105),
+        Some(10.0),
+        Some(200.0),
+        Some(10.0),
+        true,
+        true,
+    ));
+    parameters.push(StrategyParameterSpec::new_numeric(
+        "entry_sinewma::risingtrend_2442449988_period".to_string(),
+        Some(
             "period parameter for entry condition SINEWMA RisingTrend (period: 4)".to_string(),
         ),
-        default_value: StrategyParamValue::Number(4.0),
-        min: Some(2.0),
-        max: Some(4.0),
-        step: Some(1.0),
-        discrete_values: None,
-        optimize: true,
-    });
-    parameters.push(StrategyParameterSpec {
-        name: "stop_2525818392_period".to_string(),
-        description: Some("period parameter for stop handler HILOTrailingStop".to_string()),
-        default_value: StrategyParamValue::Number(80.0),
-        min: Some(10.0),
-        max: Some(150.0),
-        step: Some(10.0),
-        discrete_values: None,
-        optimize: true,
-    });
+        StrategyParamValue::Number(4.0),
+        Some(2.0),
+        Some(4.0),
+        Some(1.0),
+        true,
+        true,
+    ));
+    parameters.push(StrategyParameterSpec::new_numeric(
+        "stop_2525818392_period".to_string(),
+        Some("period parameter for stop handler HILOTrailingStop".to_string()),
+        StrategyParamValue::Number(80.0),
+        Some(10.0),
+        Some(150.0),
+        Some(10.0),
+        true,
+        true,
+    ));
 
     let mut defaults = StrategyParameterMap::new();
     // defaults.insert(
@@ -229,48 +229,48 @@ fn amma_rising_trend_definition() -> StrategyDefinition {
     let take_handlers = vec![];
 
     let mut parameters = Vec::new();
-    parameters.push(StrategyParameterSpec {
-        name: "amma_period".to_string(),
-        description: Some("period parameter for AMMA".to_string()),
-        default_value: StrategyParamValue::Integer(105),
-        min: Some(10.0),
-        max: Some(200.0),
-        step: Some(10.0),
-        discrete_values: None,
-        optimize: true,
-    });
-    parameters.push(StrategyParameterSpec {
-        name: "entry_amma::risingtrend_3325280133_period".to_string(),
-        description: Some(
+    parameters.push(StrategyParameterSpec::new_numeric(
+        "amma_period".to_string(),
+        Some("period parameter for AMMA".to_string()),
+        StrategyParamValue::Integer(105),
+        Some(10.0),
+        Some(200.0),
+        Some(10.0),
+        true,
+        true,
+    ));
+    parameters.push(StrategyParameterSpec::new_numeric(
+        "entry_amma::risingtrend_3325280133_period".to_string(),
+        Some(
             "period parameter for entry condition AMMA RisingTrend (period: 2)".to_string(),
         ),
-        default_value: StrategyParamValue::Number(3.0),
-        min: Some(2.0),
-        max: Some(4.0),
-        step: Some(1.0),
-        discrete_values: None,
-        optimize: true,
-    });
-    parameters.push(StrategyParameterSpec {
-        name: "stop_2503316804_coeff_atr".to_string(),
-        description: Some("coeff_atr parameter for stop handler ATRTrailStop".to_string()),
-        default_value: StrategyParamValue::Number(5.0),
-        min: Some(2.0),
-        max: Some(8.0),
-        step: Some(0.5),
-        discrete_values: None,
-        optimize: true,
-    });
-    parameters.push(StrategyParameterSpec {
-        name: "stop_2503316804_period".to_string(),
-        description: Some("period parameter for stop handler ATRTrailStop".to_string()),
-        default_value: StrategyParamValue::Number(14.0),
-        min: Some(10.0),
-        max: Some(150.0),
-        step: Some(10.0),
-        discrete_values: None,
-        optimize: true,
-    });
+        StrategyParamValue::Number(3.0),
+        Some(2.0),
+        Some(4.0),
+        Some(1.0),
+        true,
+        true,
+    ));
+    parameters.push(StrategyParameterSpec::new_numeric(
+        "stop_2503316804_coeff_atr".to_string(),
+        Some("coeff_atr parameter for stop handler ATRTrailStop".to_string()),
+        StrategyParamValue::Number(5.0),
+        Some(2.0),
+        Some(8.0),
+        Some(0.5),
+        true,
+        true,
+    ));
+    parameters.push(StrategyParameterSpec::new_numeric(
+        "stop_2503316804_period".to_string(),
+        Some("period parameter for stop handler ATRTrailStop".to_string()),
+        StrategyParamValue::Number(14.0),
+        Some(10.0),
+        Some(150.0),
+        Some(10.0),
+        true,
+        true,
+    ));
 
     let mut defaults = StrategyParameterMap::new();
 
@@ -384,58 +384,58 @@ fn vtrand_falling_trend_definition() -> StrategyDefinition {
     }];
 
     let mut parameters = Vec::new();
-    parameters.push(StrategyParameterSpec {
-        name: "vtrand_period".to_string(),
-        description: Some("period parameter for VTRAND".to_string()),
-        default_value: StrategyParamValue::Integer(105),
-        min: Some(10.0),
-        max: Some(200.0),
-        step: Some(10.0),
-        discrete_values: None,
-        optimize: true,
-    });
-    parameters.push(StrategyParameterSpec {
-        name: "entry_vtrand::fallingtrend_608425930_period".to_string(),
-        description: Some(
+    parameters.push(StrategyParameterSpec::new_numeric(
+        "vtrand_period".to_string(),
+        Some("period parameter for VTRAND".to_string()),
+        StrategyParamValue::Integer(105),
+        Some(10.0),
+        Some(200.0),
+        Some(10.0),
+        true,
+        true,
+    ));
+    parameters.push(StrategyParameterSpec::new_numeric(
+        "entry_vtrand::fallingtrend_608425930_period".to_string(),
+        Some(
             "period parameter for entry condition VTRAND FallingTrend (period: 3)".to_string(),
         ),
-        default_value: StrategyParamValue::Number(3.0),
-        min: Some(2.0),
-        max: Some(4.0),
-        step: Some(1.0),
-        discrete_values: None,
-        optimize: true,
-    });
-    parameters.push(StrategyParameterSpec {
-        name: "stop_734731176_period".to_string(),
-        description: Some("period parameter for stop handler ATRTrailStop".to_string()),
-        default_value: StrategyParamValue::Number(14.0),
-        min: Some(10.0),
-        max: Some(150.0),
-        step: Some(10.0),
-        discrete_values: None,
-        optimize: true,
-    });
-    parameters.push(StrategyParameterSpec {
-        name: "stop_734731176_coeff_atr".to_string(),
-        description: Some("coeff_atr parameter for stop handler ATRTrailStop".to_string()),
-        default_value: StrategyParamValue::Number(5.0),
-        min: Some(2.0),
-        max: Some(8.0),
-        step: Some(0.5),
-        discrete_values: None,
-        optimize: true,
-    });
-    parameters.push(StrategyParameterSpec {
-        name: "take_2516110301_percentage".to_string(),
-        description: Some("percentage parameter for take handler TakeProfitPct".to_string()),
-        default_value: StrategyParamValue::Number(9.0),
-        min: Some(4.0),
-        max: Some(20.0),
-        step: Some(1.0),
-        discrete_values: None,
-        optimize: true,
-    });
+        StrategyParamValue::Number(3.0),
+        Some(2.0),
+        Some(4.0),
+        Some(1.0),
+        true,
+        true,
+    ));
+    parameters.push(StrategyParameterSpec::new_numeric(
+        "stop_734731176_period".to_string(),
+        Some("period parameter for stop handler ATRTrailStop".to_string()),
+        StrategyParamValue::Number(14.0),
+        Some(10.0),
+        Some(150.0),
+        Some(10.0),
+        true,
+        true,
+    ));
+    parameters.push(StrategyParameterSpec::new_numeric(
+        "stop_734731176_coeff_atr".to_string(),
+        Some("coeff_atr parameter for stop handler ATRTrailStop".to_string()),
+        StrategyParamValue::Number(5.0),
+        Some(2.0),
+        Some(8.0),
+        Some(0.5),
+        true,
+        true,
+    ));
+    parameters.push(StrategyParameterSpec::new_numeric(
+        "take_2516110301_percentage".to_string(),
+        Some("percentage parameter for take handler TakeProfitPct".to_string()),
+        StrategyParamValue::Number(9.0),
+        Some(4.0),
+        Some(20.0),
+        Some(1.0),
+        true,
+        true,
+    ));
 
     let mut defaults = StrategyParameterMap::new();
 

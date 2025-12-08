@@ -580,9 +580,78 @@ impl InitialPopulationGenerator {
             }
         }
 
+        use crate::risk::utils::stop_handler_requires_indicator;
+        use crate::indicators::registry::IndicatorRegistry;
+        use crate::indicators::types::IndicatorCategory;
+        
         for stop_handler in &candidate.stop_handlers {
+            let requires_indicator = stop_handler_requires_indicator(&stop_handler.handler_name);
+            
+            if requires_indicator {
+                let category = if stop_handler.handler_name.to_uppercase().contains("TRAIL") 
+                    || stop_handler.handler_name.to_uppercase().contains("ATR") {
+                    "trend"
+                } else {
+                    "trend"
+                };
+                
+                let registry = IndicatorRegistry::new();
+                let category_enum = match category {
+                    "trend" => IndicatorCategory::Trend,
+                    "oscillator" => IndicatorCategory::Oscillator,
+                    "volatility" => IndicatorCategory::Volatility,
+                    "volume" => IndicatorCategory::Volume,
+                    _ => IndicatorCategory::Trend,
+                };
+                
+                let indicators = registry.get_indicators_by_category(&category_enum);
+                let indicator_names: Vec<String> = indicators
+                    .iter()
+                    .map(|ind| ind.name().to_string())
+                    .collect();
+                
+                if !indicator_names.is_empty() {
+                    let selected_indicator = indicator_names[rng.gen_range(0..indicator_names.len())].clone();
+                    
+                    let indicator_name_key = ConditionId::stop_handler_parameter_name(
+                        &stop_handler.id,
+                        "indicator_name",
+                    );
+                    params.insert(
+                        indicator_name_key,
+                        StrategyParamValue::Text(selected_indicator.clone()),
+                    );
+                    
+                    let indicator_period_key = ConditionId::stop_handler_parameter_name(
+                        &stop_handler.id,
+                        "indicator_period",
+                    );
+                    
+                    use crate::indicators::parameters::ParameterPresets;
+                    use crate::indicators::types::ParameterType;
+                    if let Some(range) = ParameterPresets::get_optimization_range(
+                        &selected_indicator,
+                        "period",
+                        &ParameterType::Period,
+                    ) {
+                        let steps = ((range.end - range.start) / range.step) as usize;
+                        let step_index = rng.gen_range(0..=steps);
+                        let value = range.start + (step_index as f32 * range.step);
+                        params.insert(
+                            indicator_period_key,
+                            StrategyParamValue::Number(value as f64),
+                        );
+                    } else {
+                        params.insert(
+                            indicator_period_key,
+                            StrategyParamValue::Number(20.0),
+                        );
+                    }
+                }
+            }
+            
             for param in &stop_handler.optimization_params {
-                if param.optimizable {
+                if param.optimizable && param.name != "indicator_name" && param.name != "indicator_period" {
                     if let Some(range) =
                         get_stop_optimization_range(&stop_handler.handler_name, &param.name)
                     {
@@ -1115,7 +1184,9 @@ impl InitialPopulationGenerator {
 
     /// Отбор особей с поддержанием разнообразия стратегий (round-robin)
     /// Группирует особи по стратегиям, сортирует каждую группу по fitness,
-    /// затем по очереди выбирает по одной особи от каждой стратегии
+    /// затем по очереди выбирает по одной особи от каждой стратегии.
+    /// После round-robin отбора финальный список сортируется по fitness (от лучшего к худшему),
+    /// чтобы гарантировать, что лучшие стратегии попадут в начальную популяцию.
     fn select_with_diversity(
         individuals: Vec<GeneticIndividual>,
         target_size: usize,
@@ -1149,6 +1220,21 @@ impl InitialPopulationGenerator {
                     .partial_cmp(&fitness_a)
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
+        }
+
+        let total_individuals_before_selection: usize =
+            strategy_groups.values().map(|g| g.len()).sum();
+        if total_individuals_before_selection > 0 {
+            let best_fitness_before_selection = strategy_groups
+                .values()
+                .flat_map(|g| g.first().map(|ind| ind.strategy.fitness.unwrap_or(0.0)))
+                .fold(0.0f64, |a, b| a.max(b));
+            println!(
+                "   [Отбор] Перед round-robin: {} особей в {} группах, лучший fitness в группах: {:.4}",
+                total_individuals_before_selection,
+                strategy_groups.len(),
+                best_fitness_before_selection
+            );
         }
 
         // Round-robin отбор: по очереди берем по одной особи от каждой стратегии
@@ -1190,6 +1276,38 @@ impl InitialPopulationGenerator {
             selected.len(),
             strategy_groups.len()
         );
+
+        if !selected.is_empty() {
+            let best_in_selected = selected
+                .iter()
+                .map(|ind| ind.strategy.fitness.unwrap_or(0.0))
+                .fold(0.0f64, |a, b| a.max(b));
+            let worst_in_selected = selected
+                .iter()
+                .map(|ind| ind.strategy.fitness.unwrap_or(0.0))
+                .fold(f64::INFINITY, |a, b| a.min(b));
+            println!(
+                "   [Отбор] Fitness диапазон до сортировки: {:.4} - {:.4}",
+                worst_in_selected, best_in_selected
+            );
+        }
+
+        selected.sort_by(|a, b| {
+            let fitness_a = a.strategy.fitness.unwrap_or(0.0);
+            let fitness_b = b.strategy.fitness.unwrap_or(0.0);
+            fitness_b
+                .partial_cmp(&fitness_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        if !selected.is_empty() {
+            let best_after_sort = selected[0].strategy.fitness.unwrap_or(0.0);
+            let worst_after_sort = selected[selected.len() - 1].strategy.fitness.unwrap_or(0.0);
+            println!(
+                "   [Отбор] После сортировки: лучший fitness = {:.4}, худший = {:.4}",
+                best_after_sort, worst_after_sort
+            );
+        }
 
         selected
     }

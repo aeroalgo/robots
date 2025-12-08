@@ -22,6 +22,7 @@ impl ConditionCombinationGenerator {
                 vec![ConditionParamInfo {
                     name: "percent".to_string(),
                     optimizable: true,
+                    mutatable: true,
                     global_param_name: None,
                 }]
             }
@@ -29,6 +30,7 @@ impl ConditionCombinationGenerator {
                 vec![ConditionParamInfo {
                     name: "period".to_string(),
                     optimizable: true,
+                    mutatable: true,
                     global_param_name: None,
                 }]
             }

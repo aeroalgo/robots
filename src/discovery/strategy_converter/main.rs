@@ -449,6 +449,7 @@ mod tests {
                 optimization_params: vec![ConditionParamInfo {
                     name: "period".to_string(),
                     optimizable: true,
+                    mutatable: true,
                     global_param_name: None,
                 }],
             }],
@@ -502,6 +503,7 @@ mod tests {
                 optimization_params: vec![ConditionParamInfo {
                     name: "period".to_string(),
                     optimizable: true,
+                    mutatable: true,
                     global_param_name: None,
                 }],
             }],

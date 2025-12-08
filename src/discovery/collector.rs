@@ -57,6 +57,7 @@ impl IndicatorInfoCollector {
                         name: name.clone(),
                         param_type,
                         optimizable,
+                        mutatable: optimizable,
                         global_param_name: Self::infer_global_param_name(name),
                     }
                 })

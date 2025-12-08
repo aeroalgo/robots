@@ -28,27 +28,24 @@ impl ATR {
         Ok(Self { parameters: params })
     }
 
-    fn true_range_simple(&self, data: &[f32], period: usize, bar_num: usize) -> Vec<f32> {
-        let mut true_ranges = Vec::new();
-
+    fn true_range_simple(&self, data: &[f32], period: usize, bar_num: usize) -> f32 {
         if period == 0 {
-            return true_ranges;
+            return 0.0;
         }
 
         let available = bar_num + 1;
         let window = available.min(period);
         let start = bar_num + 1 - window;
 
+        let mut sum = 0.0;
         for i in start..=bar_num {
             if i > 0 {
                 let true_range = (data[i] - data[i - 1]).abs();
-                true_ranges.push(true_range);
-            } else {
-                true_ranges.push(0.0);
+                sum += true_range;
             }
         }
 
-        true_ranges
+        sum / window.max(1) as f32
     }
 
     fn true_range_ohlc(&self, data: &OHLCData, j: usize) -> f32 {
@@ -94,13 +91,11 @@ impl Indicator for ATR {
         let Some(period) = adjust_period(period, len) else {
             return Ok(Vec::new());
         };
-        let mut atr_values = vec![0.0; len];
+        let mut atr_values = Vec::with_capacity(len);
 
         for i in 0..len {
-            let true_ranges = self.true_range_simple(data, period, i);
-            let window_len = true_ranges.len().max(1) as f32;
-            let atr = unsafe_ops::sum_f32_fast(&true_ranges) / window_len;
-            atr_values[i] = atr;
+            let atr = self.true_range_simple(data, period, i);
+            atr_values.push(atr);
         }
 
         Ok(atr_values)
@@ -120,15 +115,15 @@ impl Indicator for ATR {
 
         let start_index = period.saturating_sub(1);
         for i in start_index..len {
-            let mut true_ranges = Vec::new();
-
             let start = i + 1 - period;
+            let mut sum = 0.0;
+
             for j in start..=i {
                 let true_range = self.true_range_ohlc(data, j);
-                true_ranges.push(true_range);
+                sum += true_range;
             }
 
-            let atr = unsafe_ops::sum_f32_fast(&true_ranges) / period as f32;
+            let atr = sum / period as f32;
             atr_values.push(atr);
         }
 

@@ -344,6 +344,7 @@ impl<'a> ConditionBuilder<'a> {
                     vec![crate::discovery::ConditionParamInfo {
                         name: "percentage".to_string(),
                         optimizable: true,
+                        mutatable: true,
                         global_param_name: None,
                     }],
                     Some(percent),
@@ -468,6 +469,7 @@ impl<'a> ConditionBuilder<'a> {
                     vec![crate::discovery::ConditionParamInfo {
                         name: "percentage".to_string(),
                         optimizable: true,
+                        mutatable: true,
                         global_param_name: None,
                     }],
                 )
@@ -491,6 +493,7 @@ impl<'a> ConditionBuilder<'a> {
                             vec![crate::discovery::ConditionParamInfo {
                                 name: "percentage".to_string(),
                                 optimizable: true,
+                                mutatable: true,
                                 global_param_name: None,
                             }],
                             Some(percent_value),
@@ -971,12 +974,14 @@ impl<'a> ConditionBuilder<'a> {
             vec![crate::discovery::ConditionParamInfo {
                 name: "percentage".to_string(),
                 optimizable: true,
+                mutatable: true,
                 global_param_name: None,
             }]
         } else {
             vec![crate::discovery::ConditionParamInfo {
                 name: "threshold".to_string(),
                 optimizable: true,
+                mutatable: true,
                 global_param_name: None,
             }]
         };
@@ -1020,6 +1025,7 @@ impl<'a> ConditionBuilder<'a> {
         let opt_params = vec![crate::discovery::ConditionParamInfo {
             name: "period".to_string(),
             optimizable: true,
+            mutatable: true,
             global_param_name: None,
         }];
 
@@ -1079,6 +1085,7 @@ impl<'a> ConditionBuilder<'a> {
                         vec![crate::discovery::ConditionParamInfo {
                             name: "percentage".to_string(),
                             optimizable: true,
+                            mutatable: true,
                             global_param_name: None,
                         }],
                         Some(percent),
@@ -1123,6 +1130,7 @@ impl<'a> ConditionBuilder<'a> {
                     vec![crate::discovery::ConditionParamInfo {
                         name: "percentage".to_string(),
                         optimizable: true,
+                        mutatable: true,
                         global_param_name: None,
                     }],
                     Some(percent),

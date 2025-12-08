@@ -52,9 +52,11 @@ async fn run() -> Result<()> {
 
     let start = parse_date("2020-01-01");
     let end = parse_date("2025-10-01");
+    let bar_count: Option<u32> = Some(1000);
 
     let candles: Vec<_> = connector
         .get_ohlcv_typed(&symbol, &timeframe, start, end, None)
+        // .get_ohlcv_typed(&symbol, &timeframe, start, end, bar_count)
         .await
         .context("Не удалось получить свечи из ClickHouse")?;
 
@@ -108,34 +110,34 @@ async fn run() -> Result<()> {
         .with_config(config.clone());
 
     // Проверка диапазонов параметров
-    #[cfg(feature = "profiling")]
-    let _guard = {
-        std::fs::create_dir_all("profiling").ok();
-        ProfilerGuard::new(100).expect("Failed to start profiler")
-    };
+    // #[cfg(feature = "profiling")]
+    // let _guard = {
+    //     std::fs::create_dir_all("profiling").ok();
+    //     ProfilerGuard::new(100).expect("Failed to start profiler")
+    // };
     let start_time = std::time::Instant::now();
     let report = executor.run().map_err(anyhow::Error::new)?;
     let elapsed = start_time.elapsed();
-    #[cfg(feature = "profiling")]
-    {
-        if let Ok(report) = _guard.report().build() {
-            let file_path = "profiling/flamegraph-pprof.svg";
-            std::fs::remove_file(file_path).ok();
-            match std::fs::File::create(file_path) {
-                Ok(file) => {
-                    if let Err(e) = report.flamegraph(file) {
-                        eprintln!("⚠️  Ошибка при записи flamegraph: {}", e);
-                    } else {
-                        println!("\n✅ Профиль сохранен в {}", file_path);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("⚠️  Ошибка при создании файла {}: {}", file_path, e);
-                    eprintln!("   Проверьте права доступа к папке profiling/");
-                }
-            }
-        }
-    }
+    // #[cfg(feature = "profiling")]
+    // {
+    //     if let Ok(report) = _guard.report().build() {
+    //         let file_path = "profiling/flamegraph-pprof.svg";
+    //         std::fs::remove_file(file_path).ok();
+    //         match std::fs::File::create(file_path) {
+    //             Ok(file) => {
+    //                 if let Err(e) = report.flamegraph(file) {
+    //                     eprintln!("⚠️  Ошибка при записи flamegraph: {}", e);
+    //                 } else {
+    //                     println!("\n✅ Профиль сохранен в {}", file_path);
+    //                 }
+    //             }
+    //             Err(e) => {
+    //                 eprintln!("⚠️  Ошибка при создании файла {}: {}", file_path, e);
+    //                 eprintln!("   Проверьте права доступа к папке profiling/");
+    //             }
+    //         }
+    //     }
+    // }
 
     println!("\n=== ВРЕМЯ ВЫПОЛНЕНИЯ БЭКТЕСТА ===");
     println!(
@@ -298,6 +300,13 @@ async fn run_genetic_optimization(
 
     let mut initial_populations = Vec::with_capacity(config.islands_count);
 
+    #[cfg(feature = "profiling")]
+    let _guard = {
+        std::fs::create_dir_all("profiling").ok();
+        ProfilerGuard::new(100).expect("Failed to start profiler")
+    };
+    let start_time = std::time::Instant::now();
+
     for island_id in 0..config.islands_count {
         println!("\n🏝️  Генерация популяции для острова {}...", island_id);
         let mut population = generator.generate(None).await?;
@@ -308,6 +317,39 @@ async fn run_genetic_optimization(
             population.individuals.len()
         );
         initial_populations.push(population);
+
+        if island_id == 0 {
+            println!("\n⏹️  Остановка после первого острова для профилирования");
+            let elapsed = start_time.elapsed();
+            #[cfg(feature = "profiling")]
+            {
+                if let Ok(report) = _guard.report().build() {
+                    let file_path = "profiling/flamegraph-optimization-pprof.svg";
+                    std::fs::remove_file(file_path).ok();
+                    match std::fs::File::create(file_path) {
+                        Ok(file) => {
+                            if let Err(e) = report.flamegraph(file) {
+                                eprintln!("⚠️  Ошибка при записи flamegraph: {}", e);
+                            } else {
+                                println!("\n✅ Профиль оптимизации сохранен в {}", file_path);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("⚠️  Ошибка при создании файла {}: {}", file_path, e);
+                            eprintln!("   Проверьте права доступа к папке profiling/");
+                        }
+                    }
+                }
+            }
+            println!("\n=== ВРЕМЯ ВЫПОЛНЕНИЯ ОПТИМИЗАЦИИ ===");
+            println!(
+                "Время выполнения: {:.2} секунд ({:.2} миллисекунд)",
+                elapsed.as_secs_f64(),
+                elapsed.as_millis() as f64
+            );
+            println!("\n⏹️  Оптимизация остановлена после первого острова");
+            return Ok(());
+        }
     }
 
     let total_individuals: usize = initial_populations
@@ -338,7 +380,7 @@ async fn run_genetic_optimization(
 
     println!("\n🚀 Запуск эволюции...\n");
 
-    for generation in 0..config.max_generations {
+    'evolution: for generation in 0..config.max_generations {
         println!("═══════════════════════════════════════════════════════");
         println!("Поколение {}/{}", generation + 1, config.max_generations);
         println!("═══════════════════════════════════════════════════════");
@@ -411,6 +453,35 @@ async fn run_genetic_optimization(
 
         println!();
     }
+
+    let elapsed = start_time.elapsed();
+    #[cfg(feature = "profiling")]
+    {
+        if let Ok(report) = _guard.report().build() {
+            let file_path = "profiling/flamegraph-optimization-pprof.svg";
+            std::fs::remove_file(file_path).ok();
+            match std::fs::File::create(file_path) {
+                Ok(file) => {
+                    if let Err(e) = report.flamegraph(file) {
+                        eprintln!("⚠️  Ошибка при записи flamegraph: {}", e);
+                    } else {
+                        println!("\n✅ Профиль оптимизации сохранен в {}", file_path);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("⚠️  Ошибка при создании файла {}: {}", file_path, e);
+                    eprintln!("   Проверьте права доступа к папке profiling/");
+                }
+            }
+        }
+    }
+
+    println!("\n=== ВРЕМЯ ВЫПОЛНЕНИЯ ОПТИМИЗАЦИИ ===");
+    println!(
+        "Время выполнения: {:.2} секунд ({:.2} миллисекунд)",
+        elapsed.as_secs_f64(),
+        elapsed.as_millis() as f64
+    );
 
     println!("═══════════════════════════════════════════════════════");
     println!("✅ Эволюция завершена!");

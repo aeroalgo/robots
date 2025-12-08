@@ -104,12 +104,10 @@ impl Indicator for TPBF {
         let Some(period) = adjust_period(period, len) else {
             return Ok(Vec::new());
         };
-        let median_prices = data
-            .high
-            .iter()
-            .zip(&data.low)
-            .map(|(&h, &l)| (h + l) / 2.0)
-            .collect::<Vec<_>>();
+        let mut median_prices = Vec::with_capacity(len);
+        for i in 0..len {
+            median_prices.push((data.high[i] + data.low[i]) / 2.0);
+        }
         Ok(Self::filter(&median_prices, period))
     }
 
@@ -148,8 +146,3 @@ impl TrendIndicator for TPBF {
         default_trend_direction(values)
     }
 }
-
-
-
-
-

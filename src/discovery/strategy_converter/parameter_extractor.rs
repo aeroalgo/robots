@@ -68,22 +68,22 @@ impl ParameterExtractor {
 
                     let description_prefix = if is_nested { "nested" } else { "" };
 
-                    params.push(StrategyParameterSpec {
-                        name: param_name,
-                        description: Some(format!(
+                    params.push(StrategyParameterSpec::new_numeric(
+                        param_name,
+                        Some(format!(
                             "{} parameter for {} {}",
                             param.name, description_prefix, indicator.name
                         )),
-                        default_value: Self::param_value_to_strategy_param_from_enum(
+                        Self::param_value_to_strategy_param_from_enum(
                             &param.param_type,
                             default_val,
                         ),
-                        min: min_val,
-                        max: max_val,
-                        step: step_val,
-                        discrete_values: None,
-                        optimize: true,
-                    });
+                        min_val,
+                        max_val,
+                        step_val,
+                        param.optimizable,
+                        param.mutatable,
+                    ));
                 }
             }
         }
@@ -119,21 +119,19 @@ impl ParameterExtractor {
                     let (default_val, min_val, max_val, step_val) =
                         Self::get_condition_param_range(&param.name);
 
-                    params.push(StrategyParameterSpec {
-                        name: param_name,
-                        description: Some(format!(
+                    params.push(StrategyParameterSpec::new_numeric(
+                        param_name,
+                        Some(format!(
                             "{} parameter for {} condition {}",
                             param.name, prefix, condition.name
                         )),
-                        default_value: crate::strategy::types::StrategyParamValue::Number(
-                            default_val,
-                        ),
-                        min: min_val,
-                        max: max_val,
-                        step: step_val,
-                        discrete_values: None,
-                        optimize: true,
-                    });
+                        crate::strategy::types::StrategyParamValue::Number(default_val),
+                        min_val,
+                        max_val,
+                        step_val,
+                        param.optimizable,
+                        param.mutatable,
+                    ));
                 }
             }
         }
@@ -166,9 +164,64 @@ impl ParameterExtractor {
     fn extract_stop_handler_parameters(
         stop_handlers: &[StopHandlerInfo],
     ) -> Vec<StrategyParameterSpec> {
+        use crate::risk::utils::stop_handler_requires_indicator;
+
         let mut params = Vec::new();
 
         for stop_handler in stop_handlers {
+            let requires_indicator = stop_handler_requires_indicator(&stop_handler.handler_name);
+
+            if requires_indicator {
+                let category =
+                    Self::determine_indicator_category_for_stop(&stop_handler.handler_name);
+                let compatible_indicators = Self::get_compatible_indicators(&category);
+
+                let indicator_name_key =
+                    ConditionId::stop_handler_parameter_name(&stop_handler.id, "indicator_name");
+
+                let default_indicator = compatible_indicators
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "SMA".to_string());
+
+                let discrete_values: Vec<crate::strategy::types::StrategyParamValue> =
+                    compatible_indicators
+                        .iter()
+                        .map(|ind| crate::strategy::types::StrategyParamValue::Text(ind.clone()))
+                        .collect();
+
+                params.push(StrategyParameterSpec::new_indicator_name(
+                    indicator_name_key.clone(),
+                    Some(format!(
+                        "indicator_name parameter for stop handler {}",
+                        stop_handler.name
+                    )),
+                    crate::strategy::types::StrategyParamValue::Text(default_indicator),
+                    category,
+                    discrete_values,
+                    true,
+                    true,
+                ));
+
+                let indicator_period_key =
+                    ConditionId::stop_handler_parameter_name(&stop_handler.id, "indicator_period");
+
+                params.push(StrategyParameterSpec::new_indicator_parameter(
+                    indicator_period_key,
+                    Some(format!(
+                        "indicator_period parameter for stop handler {}",
+                        stop_handler.name
+                    )),
+                    crate::strategy::types::StrategyParamValue::Number(20.0),
+                    indicator_name_key,
+                    Some(10.0),
+                    Some(200.0),
+                    Some(10.0),
+                    true,
+                    true,
+                ));
+            }
+
             let temp_params = Self::get_default_stop_params(&stop_handler.handler_name);
             if let Ok(temp_handler) = crate::risk::factory::StopHandlerFactory::create(
                 &stop_handler.handler_name,
@@ -176,24 +229,26 @@ impl ParameterExtractor {
             ) {
                 let handler_params = temp_handler.parameters();
                 for (param_name, param_value) in handler_params.get_current_values() {
+                    if param_name == "indicator_name" || param_name == "indicator_period" {
+                        continue;
+                    }
+
                     if let Some(param_info) = handler_params.get_parameter(&param_name) {
                         let param_key =
                             ConditionId::stop_handler_parameter_name(&stop_handler.id, &param_name);
-                        params.push(StrategyParameterSpec {
-                            name: param_key,
-                            description: Some(format!(
+                        params.push(StrategyParameterSpec::new_numeric(
+                            param_key,
+                            Some(format!(
                                 "{} parameter for stop handler {}",
                                 param_name, stop_handler.name
                             )),
-                            default_value: crate::strategy::types::StrategyParamValue::Number(
-                                param_value as f64,
-                            ),
-                            min: Some(param_info.range.start as f64),
-                            max: Some(param_info.range.end as f64),
-                            step: Some(param_info.range.step as f64),
-                            discrete_values: None,
-                            optimize: true,
-                        });
+                            crate::strategy::types::StrategyParamValue::Number(param_value as f64),
+                            Some(param_info.range.start as f64),
+                            Some(param_info.range.end as f64),
+                            Some(param_info.range.step as f64),
+                            true,
+                            true,
+                        ));
                     }
                 }
             } else {
@@ -212,6 +267,36 @@ impl ParameterExtractor {
         params
     }
 
+    fn determine_indicator_category_for_stop(handler_name: &str) -> String {
+        let name_upper = handler_name.to_uppercase();
+        if name_upper.contains("TRAIL") || name_upper.contains("ATR") {
+            "trend".to_string()
+        } else {
+            "trend".to_string()
+        }
+    }
+
+    fn get_compatible_indicators(category: &str) -> Vec<String> {
+        use crate::indicators::registry::IndicatorRegistry;
+        use crate::indicators::types::IndicatorCategory;
+
+        let registry = IndicatorRegistry::new();
+
+        let category_enum = match category {
+            "trend" => IndicatorCategory::Trend,
+            "oscillator" => IndicatorCategory::Oscillator,
+            "volatility" => IndicatorCategory::Volatility,
+            "volume" => IndicatorCategory::Volume,
+            _ => IndicatorCategory::Trend,
+        };
+
+        let indicators = registry.get_indicators_by_category(&category_enum);
+        indicators
+            .iter()
+            .map(|ind| ind.name().to_string())
+            .collect()
+    }
+
     fn extract_take_handler_parameters(
         take_handlers: &[StopHandlerInfo],
     ) -> Vec<StrategyParameterSpec> {
@@ -228,21 +313,19 @@ impl ParameterExtractor {
                     if let Some(param_info) = handler_params.get_parameter(&param_name) {
                         let param_key =
                             ConditionId::take_handler_parameter_name(&take_handler.id, &param_name);
-                        params.push(StrategyParameterSpec {
-                            name: param_key,
-                            description: Some(format!(
+                        params.push(StrategyParameterSpec::new_numeric(
+                            param_key,
+                            Some(format!(
                                 "{} parameter for take handler {}",
                                 param_name, take_handler.name
                             )),
-                            default_value: crate::strategy::types::StrategyParamValue::Number(
-                                param_value as f64,
-                            ),
-                            min: Some(param_info.range.start as f64),
-                            max: Some(param_info.range.end as f64),
-                            step: Some(param_info.range.step as f64),
-                            discrete_values: None,
-                            optimize: true,
-                        });
+                            crate::strategy::types::StrategyParamValue::Number(param_value as f64),
+                            Some(param_info.range.start as f64),
+                            Some(param_info.range.end as f64),
+                            Some(param_info.range.step as f64),
+                            true,
+                            true,
+                        ));
                     }
                 }
             } else {
@@ -288,19 +371,19 @@ impl ParameterExtractor {
             ConditionId::take_handler_parameter_name(&handler.id, param_name)
         };
 
-        vec![StrategyParameterSpec {
-            name: param_id,
-            description: Some(format!(
+        vec![StrategyParameterSpec::new_numeric(
+            param_id,
+            Some(format!(
                 "{} parameter for {} handler {}",
                 param_name, handler_type, handler.name
             )),
-            default_value: crate::strategy::types::StrategyParamValue::Number(default_val),
-            min: min_val,
-            max: max_val,
-            step: step_val,
-            discrete_values: None,
-            optimize: true,
-        }]
+            crate::strategy::types::StrategyParamValue::Number(default_val),
+            min_val,
+            max_val,
+            step_val,
+            true,
+            true,
+        )]
     }
 
     fn param_value_to_strategy_param_from_enum(

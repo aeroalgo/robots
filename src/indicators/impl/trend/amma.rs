@@ -1,10 +1,10 @@
+use crate::data_model::vector_ops::unsafe_ops;
 use crate::indicators::{
     base::{
         Indicator, IndicatorBuildRules, IndicatorCompareConfig, NestingConfig, PriceCompareConfig,
         SimpleIndicator, ThresholdType, TrendDirection, TrendIndicator,
     },
-    impl_::common::default_trend_direction,
-    impl_::trend::SMA,
+    impl_::common::{adjust_period, default_trend_direction},
     parameters::create_period_parameter,
     types::{IndicatorCategory, IndicatorError, IndicatorType, OHLCData, ParameterSet},
 };
@@ -52,9 +52,9 @@ impl Indicator for AMMA {
     fn calculate_simple(&self, data: &[f32]) -> Result<Vec<f32>, IndicatorError> {
         let period = self.parameters.get_value("period").unwrap() as usize;
         let len = data.len();
-        if len == 0 {
+        let Some(period) = adjust_period(period, len) else {
             return Ok(Vec::new());
-        }
+        };
 
         let window_double = (period.saturating_mul(2)).max(1).min(len);
         let mut amma_values = Vec::with_capacity(len);
@@ -68,12 +68,15 @@ impl Indicator for AMMA {
             let start = i + 1 - current_window;
             let slice = &data[start..=i];
 
-            let sma1 = SMA::new_unchecked(period as f32).calculate_simple(slice)?;
-            let sma2 =
-                SMA::new_unchecked((period.saturating_mul(2)) as f32).calculate_simple(slice)?;
+            let sma1_window = period.min(slice.len());
+            let sma1_start = slice.len().saturating_sub(sma1_window);
+            let sma1_sum = unsafe_ops::sum_f32_fast(&slice[sma1_start..]);
+            let sma1_value = sma1_sum / sma1_window as f32;
 
-            let sma1_value = *sma1.last().unwrap_or(&0.0);
-            let sma2_value = *sma2.last().unwrap_or(&0.0);
+            let sma2_window = (period.saturating_mul(2)).min(slice.len());
+            let sma2_start = slice.len().saturating_sub(sma2_window);
+            let sma2_sum = unsafe_ops::sum_f32_fast(&slice[sma2_start..]);
+            let sma2_value = sma2_sum / sma2_window as f32;
 
             let amma = (sma1_value + sma2_value) / 2.0;
             amma_values.push(amma);

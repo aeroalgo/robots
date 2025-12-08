@@ -44,6 +44,7 @@ impl CandidateBuilder {
                     params.push(crate::discovery::ConditionParamInfo {
                         name: cfg.parameter_name.clone(),
                         optimizable: true,
+                        mutatable: true,
                         global_param_name: cfg.global_param_name.clone(),
                     });
                 }
@@ -850,6 +851,7 @@ impl CandidateBuilder {
                 optimization_params: vec![crate::discovery::ConditionParamInfo {
                     name: "period".to_string(),
                     optimizable: true,
+                    mutatable: true,
                     global_param_name: None,
                 }],
                 constant_value: Some(period as f64),
@@ -932,6 +934,7 @@ impl CandidateBuilder {
                     vec![crate::discovery::ConditionParamInfo {
                         name: "percentage".to_string(),
                         optimizable: true,
+                        mutatable: true,
                         global_param_name: None,
                     }],
                 )
@@ -955,6 +958,7 @@ impl CandidateBuilder {
                             vec![crate::discovery::ConditionParamInfo {
                                 name: "percentage".to_string(),
                                 optimizable: true,
+                                mutatable: true,
                                 global_param_name: None,
                             }],
                             Some(percent_value),
@@ -1428,6 +1432,7 @@ impl CandidateBuilder {
                 vec![crate::discovery::ConditionParamInfo {
                     name: "percent".to_string(),
                     optimizable: true,
+                    mutatable: true,
                     global_param_name: None,
                 }],
                 Some(percent_value),
@@ -1440,6 +1445,7 @@ impl CandidateBuilder {
                 vec![crate::discovery::ConditionParamInfo {
                     name: "percentage".to_string(),
                     optimizable: true,
+                    mutatable: true,
                     global_param_name: None,
                 }],
                 constant_value,
@@ -1451,6 +1457,7 @@ impl CandidateBuilder {
                 vec![crate::discovery::ConditionParamInfo {
                     name: "period".to_string(),
                     optimizable: true,
+                    mutatable: true,
                     global_param_name: None,
                 }],
                 trend_period, // Передаём значение периода через constant_value
@@ -1465,6 +1472,7 @@ impl CandidateBuilder {
                 vec![crate::discovery::ConditionParamInfo {
                     name: "percentage".to_string(),
                     optimizable: true,
+                    mutatable: true,
                     global_param_name: None,
                 }],
                 Some(percent_value),

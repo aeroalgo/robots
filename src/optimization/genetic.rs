@@ -1,3 +1,4 @@
+use crate::backtest::BacktestConfig;
 use crate::condition::ConditionParameterPresets;
 use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
@@ -12,7 +13,6 @@ use crate::optimization::sds::StochasticDiffusionSearch;
 use crate::optimization::types::{
     EvaluatedStrategy, GeneticAlgorithmConfig, GeneticIndividual, Population,
 };
-use crate::backtest::BacktestConfig;
 use crate::strategy::types::{ConditionOperator, PriceField, StrategyParameterMap};
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -136,10 +136,19 @@ impl GeneticAlgorithmV3 {
                     &self.stop_handler_configs,
                 );
 
+                use crate::discovery::strategy_converter::ParameterExtractor;
+                let parameter_specs1 = ParameterExtractor::extract_all(&child1_candidate);
+                let parameter_specs2 = ParameterExtractor::extract_all(&child2_candidate);
+                
                 self.population_manager
-                    .mutate(&mut child1_params, &child1_candidate, &self.config);
+                    .sync_parameters_with_structure(&mut child1_params, &child1_candidate, &parameter_specs1);
                 self.population_manager
-                    .mutate(&mut child2_params, &child2_candidate, &self.config);
+                    .sync_parameters_with_structure(&mut child2_params, &child2_candidate, &parameter_specs2);
+                
+                self.population_manager
+                    .mutate(&mut child1_params, &child1_candidate, &self.config, &parameter_specs1);
+                self.population_manager
+                    .mutate(&mut child2_params, &child2_candidate, &self.config, &parameter_specs2);
 
                 evaluated_count += 1;
                 let progress = (evaluated_count as f64 / lambda as f64) * 100.0;
@@ -1235,7 +1244,9 @@ impl GeneticAlgorithmV3 {
 
     /// Отбор особей с поддержанием разнообразия стратегий (round-robin)
     /// Группирует особи по стратегиям, сортирует каждую группу по fitness,
-    /// затем по очереди выбирает по одной особи от каждой стратегии
+    /// затем по очереди выбирает по одной особи от каждой стратегии.
+    /// После round-robin отбора финальный список сортируется по fitness (от лучшего к худшему),
+    /// чтобы гарантировать, что лучшие стратегии попадут в популяцию.
     fn select_with_diversity(
         individuals: Vec<GeneticIndividual>,
         target_size: usize,
@@ -1310,6 +1321,14 @@ impl GeneticAlgorithmV3 {
             selected.len(),
             strategy_groups.len()
         );
+
+        selected.sort_by(|a, b| {
+            let fitness_a = a.strategy.fitness.unwrap_or(0.0);
+            let fitness_b = b.strategy.fitness.unwrap_or(0.0);
+            fitness_b
+                .partial_cmp(&fitness_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         selected
     }

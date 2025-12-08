@@ -100,11 +100,20 @@ impl Indicator for VTRAND {
 
 impl TrendIndicator for VTRAND {
     fn get_trend_direction(&self, data: &[f32]) -> Result<TrendDirection, IndicatorError> {
+        let len = data.len();
+        let mut open = Vec::with_capacity(len);
+        let mut high = Vec::with_capacity(len);
+        let mut low = Vec::with_capacity(len);
+        let mut close = Vec::with_capacity(len);
+        open.extend_from_slice(data);
+        high.extend_from_slice(data);
+        low.extend_from_slice(data);
+        close.extend_from_slice(data);
         let ohlc = OHLCData {
-            open: data.to_vec(),
-            high: data.to_vec(),
-            low: data.to_vec(),
-            close: data.to_vec(),
+            open,
+            high,
+            low,
+            close,
             volume: None,
             timestamp: None,
         };
