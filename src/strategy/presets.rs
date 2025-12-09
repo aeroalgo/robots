@@ -98,9 +98,7 @@ fn sinewma_rising_trend_definition() -> StrategyDefinition {
     ));
     parameters.push(StrategyParameterSpec::new_numeric(
         "entry_sinewma::risingtrend_2442449988_period".to_string(),
-        Some(
-            "period parameter for entry condition SINEWMA RisingTrend (period: 4)".to_string(),
-        ),
+        Some("period parameter for entry condition SINEWMA RisingTrend (period: 4)".to_string()),
         StrategyParamValue::Number(4.0),
         Some(2.0),
         Some(4.0),
@@ -241,9 +239,7 @@ fn amma_rising_trend_definition() -> StrategyDefinition {
     ));
     parameters.push(StrategyParameterSpec::new_numeric(
         "entry_amma::risingtrend_3325280133_period".to_string(),
-        Some(
-            "period parameter for entry condition AMMA RisingTrend (period: 2)".to_string(),
-        ),
+        Some("period parameter for entry condition AMMA RisingTrend (period: 2)".to_string()),
         StrategyParamValue::Number(3.0),
         Some(2.0),
         Some(4.0),
@@ -396,9 +392,7 @@ fn vtrand_falling_trend_definition() -> StrategyDefinition {
     ));
     parameters.push(StrategyParameterSpec::new_numeric(
         "entry_vtrand::fallingtrend_608425930_period".to_string(),
-        Some(
-            "period parameter for entry condition VTRAND FallingTrend (period: 3)".to_string(),
-        ),
+        Some("period parameter for entry condition VTRAND FallingTrend (period: 3)".to_string()),
         StrategyParamValue::Number(3.0),
         Some(2.0),
         Some(4.0),

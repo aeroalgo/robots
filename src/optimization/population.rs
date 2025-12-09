@@ -128,20 +128,21 @@ impl PopulationManager {
         parameter_specs: &[crate::strategy::types::StrategyParameterSpec],
     ) {
         use crate::strategy::types::{ParameterKind, StrategyParameterSpec};
-        
+
         let mut rng = rand::thread_rng();
         let keys: Vec<String> = parameters.keys().cloned().collect();
 
         for key in keys {
             if rng.gen::<f64>() < self.config.mutation_rate {
-                let spec = parameter_specs.iter().find(|s| s.name == key);
-                
-                if let Some(spec) = spec {
-                    if !spec.mutatable {
-                        continue;
-                    }
-                    
-                    let indicator_name_for_param = if let ParameterKind::IndicatorParameter { indicator_name_ref } = &spec.parameter_kind {
+                let spec = match parameter_specs.iter().find(|s| s.name == key) {
+                    Some(s) if s.mutatable => s,
+                    _ => continue,
+                };
+
+                let indicator_name_for_param =
+                    if let ParameterKind::IndicatorParameter { indicator_name_ref } =
+                        &spec.parameter_kind
+                    {
                         parameters
                             .get(indicator_name_ref)
                             .and_then(|v| v.as_str())
@@ -150,63 +151,68 @@ impl PopulationManager {
                     } else {
                         String::new()
                     };
-                    
-                    if let Some(param_value) = parameters.get_mut(&key) {
-                        match &spec.parameter_kind {
-                            ParameterKind::Numeric => {
-                                if let (Some(min), Some(max), Some(step)) = (spec.min, spec.max, spec.step) {
-                                    let range = crate::indicators::types::ParameterRange {
-                                        start: min as f32,
-                                        end: max as f32,
-                                        step: step as f32,
-                                        current: param_value.as_f64().unwrap_or(min) as f32,
-                                    };
-                                    Self::mutate_parameter_with_range(
-                                        param_value,
-                                        &range,
-                                        mutation_config.param_mutation_min_percent,
-                                        mutation_config.param_mutation_max_percent,
-                                    );
-                                }
+
+                if let Some(param_value) = parameters.get_mut(&key) {
+                    match &spec.parameter_kind {
+                        ParameterKind::Numeric => {
+                            if let (Some(min), Some(max), Some(step)) =
+                                (spec.min, spec.max, spec.step)
+                            {
+                                let range = crate::indicators::types::ParameterRange {
+                                    start: min as f32,
+                                    end: max as f32,
+                                    step: step as f32,
+                                    current: param_value.as_f64().unwrap_or(min) as f32,
+                                };
+                                Self::mutate_parameter_with_range(
+                                    param_value,
+                                    &range,
+                                    mutation_config.param_mutation_min_percent,
+                                    mutation_config.param_mutation_max_percent,
+                                );
                             }
-                            ParameterKind::Discrete => {
-                                if let Some(discrete_values) = &spec.discrete_values {
-                                    Self::mutate_discrete_parameter(param_value, discrete_values);
-                                }
+                        }
+                        ParameterKind::Discrete => {
+                            if let Some(discrete_values) = &spec.discrete_values {
+                                Self::mutate_discrete_parameter(param_value, discrete_values);
                             }
-                            ParameterKind::IndicatorName { category } => {
-                                let old_indicator_name = param_value.as_str().map(|s| s.to_string());
-                                Self::mutate_indicator_name(param_value, category);
-                                let new_indicator_name = param_value.as_str().map(|s| s.to_string());
-                                
-                                if old_indicator_name != new_indicator_name {
-                                    Self::update_related_indicator_parameters(
-                                        parameters,
-                                        &key,
-                                        &new_indicator_name.unwrap_or_default(),
-                                        parameter_specs,
-                                        candidate,
-                                    );
-                                }
+                        }
+                        ParameterKind::IndicatorName { category } => {
+                            let old_indicator_name = param_value.as_str().map(|s| s.to_string());
+                            Self::mutate_indicator_name(param_value, category);
+                            let new_indicator_name = param_value.as_str().map(|s| s.to_string());
+
+                            if old_indicator_name != new_indicator_name {
+                                Self::update_related_indicator_parameters(
+                                    parameters,
+                                    &key,
+                                    &new_indicator_name.unwrap_or_default(),
+                                    parameter_specs,
+                                    candidate,
+                                );
                             }
-                            ParameterKind::ConditionOperator { compatible_operators } => {
-                                Self::mutate_operator(param_value, compatible_operators);
-                            }
-                            ParameterKind::IndicatorParameter { .. } => {
-                                if let (Some(min), Some(max), Some(step)) = (spec.min, spec.max, spec.step) {
-                                    let range = crate::indicators::types::ParameterRange {
-                                        start: min as f32,
-                                        end: max as f32,
-                                        step: step as f32,
-                                        current: param_value.as_f64().unwrap_or(min) as f32,
-                                    };
-                                    Self::mutate_parameter_with_range(
-                                        param_value,
-                                        &range,
-                                        mutation_config.param_mutation_min_percent,
-                                        mutation_config.param_mutation_max_percent,
-                                    );
-                                }
+                        }
+                        ParameterKind::ConditionOperator {
+                            compatible_operators,
+                        } => {
+                            Self::mutate_operator(param_value, compatible_operators);
+                        }
+                        ParameterKind::IndicatorParameter { .. } => {
+                            if let (Some(min), Some(max), Some(step)) =
+                                (spec.min, spec.max, spec.step)
+                            {
+                                let range = crate::indicators::types::ParameterRange {
+                                    start: min as f32,
+                                    end: max as f32,
+                                    step: step as f32,
+                                    current: param_value.as_f64().unwrap_or(min) as f32,
+                                };
+                                Self::mutate_parameter_with_range(
+                                    param_value,
+                                    &range,
+                                    mutation_config.param_mutation_min_percent,
+                                    mutation_config.param_mutation_max_percent,
+                                );
                             }
                         }
                     }
@@ -235,7 +241,6 @@ impl PopulationManager {
 
         None
     }
-
 
     fn mutate_parameter_with_range(
         value: &mut crate::strategy::types::StrategyParamValue,
@@ -305,7 +310,6 @@ impl PopulationManager {
         }
     }
 
-
     fn mutate_discrete_parameter(
         value: &mut crate::strategy::types::StrategyParamValue,
         discrete_values: &[crate::strategy::types::StrategyParamValue],
@@ -313,12 +317,9 @@ impl PopulationManager {
         if discrete_values.is_empty() {
             return;
         }
-        
-        let current_idx = discrete_values
-            .iter()
-            .position(|v| v == value)
-            .unwrap_or(0);
-        
+
+        let current_idx = discrete_values.iter().position(|v| v == value).unwrap_or(0);
+
         let mut rng = rand::thread_rng();
         let new_idx = if discrete_values.len() > 1 {
             let mut new_idx = rng.gen_range(0..discrete_values.len());
@@ -329,7 +330,7 @@ impl PopulationManager {
         } else {
             0
         };
-        
+
         *value = discrete_values[new_idx].clone();
     }
 
@@ -339,9 +340,9 @@ impl PopulationManager {
     ) {
         use crate::indicators::registry::IndicatorRegistry;
         use crate::indicators::types::IndicatorCategory;
-        
+
         let registry = IndicatorRegistry::new();
-        
+
         let category_enum = match category {
             "trend" => IndicatorCategory::Trend,
             "oscillator" => IndicatorCategory::Oscillator,
@@ -349,23 +350,23 @@ impl PopulationManager {
             "volume" => IndicatorCategory::Volume,
             _ => IndicatorCategory::Trend,
         };
-        
+
         let indicators = registry.get_indicators_by_category(&category_enum);
         let indicator_names: Vec<String> = indicators
             .iter()
             .map(|ind| ind.name().to_string())
             .collect();
-        
+
         if indicator_names.is_empty() {
             return;
         }
-        
+
         let current_name = value.as_str().unwrap_or("");
         let current_idx = indicator_names
             .iter()
             .position(|name| name == current_name)
             .unwrap_or(0);
-        
+
         let mut rng = rand::thread_rng();
         let new_idx = if indicator_names.len() > 1 {
             let mut new_idx = rng.gen_range(0..indicator_names.len());
@@ -376,10 +377,8 @@ impl PopulationManager {
         } else {
             0
         };
-        
-        *value = crate::strategy::types::StrategyParamValue::Text(
-            indicator_names[new_idx].clone()
-        );
+
+        *value = crate::strategy::types::StrategyParamValue::Text(indicator_names[new_idx].clone());
     }
 
     fn mutate_operator(
@@ -387,11 +386,11 @@ impl PopulationManager {
         compatible_operators: &[crate::strategy::types::ConditionOperator],
     ) {
         use crate::strategy::types::{ConditionOperator, StrategyParamValue};
-        
+
         if compatible_operators.is_empty() {
             return;
         }
-        
+
         let current_op = if let StrategyParamValue::Text(op_str) = value {
             match op_str.as_str() {
                 "above" => Some(ConditionOperator::Above),
@@ -406,11 +405,11 @@ impl PopulationManager {
         } else {
             None
         };
-        
+
         let current_idx = current_op
             .and_then(|op| compatible_operators.iter().position(|o| o == &op))
             .unwrap_or(0);
-        
+
         let mut rng = rand::thread_rng();
         let new_idx = if compatible_operators.len() > 1 {
             let mut new_idx = rng.gen_range(0..compatible_operators.len());
@@ -421,11 +420,10 @@ impl PopulationManager {
         } else {
             0
         };
-        
+
         let new_op = &compatible_operators[new_idx];
         *value = StrategyParamValue::Text(new_op.as_str().to_string());
     }
-
 
     fn update_related_indicator_parameters(
         parameters: &mut StrategyParameterMap,
@@ -434,15 +432,19 @@ impl PopulationManager {
         parameter_specs: &[crate::strategy::types::StrategyParameterSpec],
         candidate: &StrategyCandidate,
     ) {
-        use crate::strategy::types::ParameterKind;
         use crate::indicators::parameters::ParameterPresets;
         use crate::indicators::types::ParameterType;
-        
+        use crate::strategy::types::ParameterKind;
+
         for spec in parameter_specs {
             if let ParameterKind::IndicatorParameter { indicator_name_ref } = &spec.parameter_kind {
                 if indicator_name_ref == indicator_name_param_key {
                     if let Some(param_value) = parameters.get_mut(&spec.name) {
-                        if let Some(indicator) = candidate.indicators.iter().find(|i| i.name == new_indicator_name) {
+                        if let Some(indicator) = candidate
+                            .indicators
+                            .iter()
+                            .find(|i| i.name == new_indicator_name)
+                        {
                             for param in &indicator.parameters {
                                 if param.name == "period" && param.optimizable {
                                     if let Some(range) = ParameterPresets::get_optimization_range(
@@ -451,10 +453,15 @@ impl PopulationManager {
                                         &ParameterType::Period,
                                     ) {
                                         let mut rng = rand::thread_rng();
-                                        let steps = ((range.end - range.start) / range.step) as usize;
+                                        let steps =
+                                            ((range.end - range.start) / range.step) as usize;
                                         let step_index = rng.gen_range(0..=steps);
-                                        let new_value = range.start + (step_index as f32 * range.step);
-                                        *param_value = crate::strategy::types::StrategyParamValue::Number(new_value as f64);
+                                        let new_value =
+                                            range.start + (step_index as f32 * range.step);
+                                        *param_value =
+                                            crate::strategy::types::StrategyParamValue::Number(
+                                                new_value as f64,
+                                            );
                                     }
                                     break;
                                 }
@@ -472,25 +479,26 @@ impl PopulationManager {
         candidate: &StrategyCandidate,
         parameter_specs: &[crate::strategy::types::StrategyParameterSpec],
     ) {
-        use crate::strategy::types::ParameterKind;
-        use crate::optimization::condition_id::ConditionId;
+        use crate::condition::parameters::ConditionParameterPresets;
         use crate::indicators::parameters::ParameterPresets;
         use crate::indicators::types::ParameterType;
-        use crate::condition::parameters::ConditionParameterPresets;
+        use crate::optimization::condition_id::ConditionId;
+        use crate::strategy::types::ParameterKind;
         use crate::strategy::types::StrategyParamValue;
         use rand::Rng;
-        
+
         let mut rng = rand::thread_rng();
-        
+
         for spec in parameter_specs {
             if !spec.optimize || !spec.mutatable {
                 continue;
             }
-            
+
             match &spec.parameter_kind {
                 ParameterKind::Numeric => {
                     if parameters.get(&spec.name).is_none() {
-                        if let (Some(min), Some(max), Some(step)) = (spec.min, spec.max, spec.step) {
+                        if let (Some(min), Some(max), Some(step)) = (spec.min, spec.max, spec.step)
+                        {
                             let steps = ((max - min) / step) as usize;
                             let step_index = rng.gen_range(0..=steps);
                             let value = min + (step_index as f64 * step);
@@ -503,24 +511,35 @@ impl PopulationManager {
                 ParameterKind::IndicatorParameter { indicator_name_ref } => {
                     if let Some(indicator_name_value) = parameters.get(indicator_name_ref) {
                         if let Some(indicator_name) = indicator_name_value.as_str() {
-                            if let Some(indicator) = candidate.indicators.iter().find(|i| i.name == indicator_name) {
+                            if let Some(indicator) = candidate
+                                .indicators
+                                .iter()
+                                .find(|i| i.name == indicator_name)
+                            {
                                 for param in &indicator.parameters {
                                     if param.name == "period" && param.optimizable {
                                         if parameters.get(&spec.name).is_none() {
-                                            if let Some(range) = ParameterPresets::get_optimization_range(
-                                                indicator_name,
-                                                "period",
-                                                &ParameterType::Period,
-                                            ) {
-                                                let steps = ((range.end - range.start) / range.step) as usize;
+                                            if let Some(range) =
+                                                ParameterPresets::get_optimization_range(
+                                                    indicator_name,
+                                                    "period",
+                                                    &ParameterType::Period,
+                                                )
+                                            {
+                                                let steps = ((range.end - range.start) / range.step)
+                                                    as usize;
                                                 let step_index = rng.gen_range(0..=steps);
-                                                let value = range.start + (step_index as f32 * range.step);
+                                                let value =
+                                                    range.start + (step_index as f32 * range.step);
                                                 parameters.insert(
                                                     spec.name.clone(),
                                                     StrategyParamValue::Number(value as f64),
                                                 );
                                             } else {
-                                                parameters.insert(spec.name.clone(), spec.default_value.clone());
+                                                parameters.insert(
+                                                    spec.name.clone(),
+                                                    spec.default_value.clone(),
+                                                );
                                             }
                                         }
                                         break;
@@ -531,18 +550,26 @@ impl PopulationManager {
                     }
                 }
                 ParameterKind::ConditionOperator { .. } => {
-                    for condition in candidate.conditions.iter().chain(candidate.exit_conditions.iter()) {
+                    for condition in candidate
+                        .conditions
+                        .iter()
+                        .chain(candidate.exit_conditions.iter())
+                    {
                         let param_name = if condition.id.starts_with("exit_") {
                             ConditionId::parameter_name(&condition.id, "period")
                         } else {
                             ConditionId::parameter_name(&condition.id, "period")
                         };
-                        
+
                         if spec.name == param_name || spec.name.contains(&condition.id) {
                             for param in &condition.optimization_params {
                                 if param.optimizable && parameters.get(&spec.name).is_none() {
                                     let condition_name = condition.operator.factory_name();
-                                    if let Some(range) = ConditionParameterPresets::get_range_for_condition(condition_name) {
+                                    if let Some(range) =
+                                        ConditionParameterPresets::get_range_for_condition(
+                                            condition_name,
+                                        )
+                                    {
                                         let steps = ((range.max - range.min) / range.step) as usize;
                                         let step_index = rng.gen_range(0..=steps);
                                         let value = range.min + (step_index as f32 * range.step);
@@ -551,7 +578,8 @@ impl PopulationManager {
                                             StrategyParamValue::Number(value as f64),
                                         );
                                     } else {
-                                        parameters.insert(spec.name.clone(), spec.default_value.clone());
+                                        parameters
+                                            .insert(spec.name.clone(), spec.default_value.clone());
                                     }
                                 }
                             }
@@ -565,15 +593,13 @@ impl PopulationManager {
                 }
             }
         }
-        
+
         let keys_to_remove: Vec<String> = parameters
             .keys()
-            .filter(|key| {
-                !parameter_specs.iter().any(|spec| &spec.name == *key)
-            })
+            .filter(|key| !parameter_specs.iter().any(|spec| &spec.name == *key))
             .cloned()
             .collect();
-        
+
         for key in keys_to_remove {
             parameters.remove(&key);
         }

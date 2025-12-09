@@ -139,16 +139,30 @@ impl GeneticAlgorithmV3 {
                 use crate::discovery::strategy_converter::ParameterExtractor;
                 let parameter_specs1 = ParameterExtractor::extract_all(&child1_candidate);
                 let parameter_specs2 = ParameterExtractor::extract_all(&child2_candidate);
-                
-                self.population_manager
-                    .sync_parameters_with_structure(&mut child1_params, &child1_candidate, &parameter_specs1);
-                self.population_manager
-                    .sync_parameters_with_structure(&mut child2_params, &child2_candidate, &parameter_specs2);
-                
-                self.population_manager
-                    .mutate(&mut child1_params, &child1_candidate, &self.config, &parameter_specs1);
-                self.population_manager
-                    .mutate(&mut child2_params, &child2_candidate, &self.config, &parameter_specs2);
+
+                self.population_manager.sync_parameters_with_structure(
+                    &mut child1_params,
+                    &child1_candidate,
+                    &parameter_specs1,
+                );
+                self.population_manager.sync_parameters_with_structure(
+                    &mut child2_params,
+                    &child2_candidate,
+                    &parameter_specs2,
+                );
+
+                self.population_manager.mutate(
+                    &mut child1_params,
+                    &child1_candidate,
+                    &self.config,
+                    &parameter_specs1,
+                );
+                self.population_manager.mutate(
+                    &mut child2_params,
+                    &child2_candidate,
+                    &self.config,
+                    &parameter_specs2,
+                );
 
                 evaluated_count += 1;
                 let progress = (evaluated_count as f64 / lambda as f64) * 100.0;

@@ -113,7 +113,12 @@ impl CandidateBuilder {
             &constraints,
         );
 
-        self.ensure_minimum_requirements(&mut candidate, &constraints, available_stop_handlers, available_indicators);
+        self.ensure_minimum_requirements(
+            &mut candidate,
+            &constraints,
+            available_stop_handlers,
+            available_indicators,
+        );
 
         candidate
     }
@@ -174,8 +179,8 @@ impl CandidateBuilder {
         if candidate.stop_handlers.is_empty() && constraints.min_stop_handlers > 0 {
             if available_stop_handlers.is_empty() {
                 eprintln!("      ⚠️  ВНИМАНИЕ: Нет доступных stop handlers для добавления!");
-            } else if let Some(stop) =
-                self.select_single_stop_handler_required(available_stop_handlers, available_indicators)
+            } else if let Some(stop) = self
+                .select_single_stop_handler_required(available_stop_handlers, available_indicators)
             {
                 candidate.stop_handlers.push(stop);
             } else {
@@ -641,33 +646,30 @@ impl CandidateBuilder {
             return None;
         }
 
-        stop_loss_configs
-            .choose(&mut self.rng)
-            .map(|config| {
-                let mut handler_name = config.handler_name.clone();
-                
-                // Для новых стопов с индикаторами выбираем случайный трендовый индикатор
-                if config.handler_name == "ATRTrailIndicatorStop"
-                    || config.handler_name == "PercentTrailIndicatorStop"
+        stop_loss_configs.choose(&mut self.rng).map(|config| {
+            let mut handler_name = config.handler_name.clone();
+
+            // Для новых стопов с индикаторами выбираем случайный трендовый индикатор
+            if config.handler_name == "ATRTrailIndicatorStop"
+                || config.handler_name == "PercentTrailIndicatorStop"
+            {
+                if let Some(indicator_name) =
+                    Self::select_random_trend_indicator(available_indicators, &mut self.rng)
                 {
-                    if let Some(indicator_name) = Self::select_random_trend_indicator(
-                        available_indicators,
-                        &mut self.rng,
-                    ) {
-                        // Сохраняем выбранный индикатор в name для последующего извлечения
-                        handler_name = format!("{}:{}", config.handler_name, indicator_name);
-                    }
+                    // Сохраняем выбранный индикатор в name для последующего извлечения
+                    handler_name = format!("{}:{}", config.handler_name, indicator_name);
                 }
-                
-                StopHandlerInfo {
-                    id: format!("stop_{}", self.rng.gen::<u32>()),
-                    name: handler_name.clone(),
-                    handler_name: handler_name,
-                    stop_type: config.stop_type.clone(),
-                    optimization_params: Self::make_handler_params(config, available),
-                    priority: config.priority,
-                }
-            })
+            }
+
+            StopHandlerInfo {
+                id: format!("stop_{}", self.rng.gen::<u32>()),
+                name: handler_name.clone(),
+                handler_name: handler_name,
+                stop_type: config.stop_type.clone(),
+                optimization_params: Self::make_handler_params(config, available),
+                priority: config.priority,
+            }
+        })
     }
 
     /// Выбирает случайный трендовый индикатор из доступных
@@ -684,13 +686,9 @@ impl CandidateBuilder {
         if trend_indicators.is_empty() {
             // Fallback: список популярных трендовых индикаторов
             let default_trend_indicators = vec!["SMA", "EMA", "WMA", "AMA", "ZLEMA"];
-            default_trend_indicators
-                .choose(rng)
-                .map(|s| s.to_string())
+            default_trend_indicators.choose(rng).map(|s| s.to_string())
         } else {
-            trend_indicators
-                .choose(rng)
-                .map(|ind| ind.name.clone())
+            trend_indicators.choose(rng).map(|ind| ind.name.clone())
         }
     }
 
@@ -1878,7 +1876,9 @@ impl CandidateBuilder {
                 break;
             }
 
-            if let Some(stop) = self.select_single_stop_handler_required(available_stop_handlers, available_indicators) {
+            if let Some(stop) = self
+                .select_single_stop_handler_required(available_stop_handlers, available_indicators)
+            {
                 candidate.stop_handlers.push(stop);
             } else {
                 eprintln!(

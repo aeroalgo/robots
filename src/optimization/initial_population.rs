@@ -580,21 +580,22 @@ impl InitialPopulationGenerator {
             }
         }
 
-        use crate::risk::utils::stop_handler_requires_indicator;
         use crate::indicators::registry::IndicatorRegistry;
         use crate::indicators::types::IndicatorCategory;
-        
+        use crate::risk::utils::stop_handler_requires_indicator;
+
         for stop_handler in &candidate.stop_handlers {
             let requires_indicator = stop_handler_requires_indicator(&stop_handler.handler_name);
-            
+
             if requires_indicator {
-                let category = if stop_handler.handler_name.to_uppercase().contains("TRAIL") 
-                    || stop_handler.handler_name.to_uppercase().contains("ATR") {
+                let category = if stop_handler.handler_name.to_uppercase().contains("TRAIL")
+                    || stop_handler.handler_name.to_uppercase().contains("ATR")
+                {
                     "trend"
                 } else {
                     "trend"
                 };
-                
+
                 let registry = IndicatorRegistry::new();
                 let category_enum = match category {
                     "trend" => IndicatorCategory::Trend,
@@ -603,16 +604,17 @@ impl InitialPopulationGenerator {
                     "volume" => IndicatorCategory::Volume,
                     _ => IndicatorCategory::Trend,
                 };
-                
+
                 let indicators = registry.get_indicators_by_category(&category_enum);
                 let indicator_names: Vec<String> = indicators
                     .iter()
                     .map(|ind| ind.name().to_string())
                     .collect();
-                
+
                 if !indicator_names.is_empty() {
-                    let selected_indicator = indicator_names[rng.gen_range(0..indicator_names.len())].clone();
-                    
+                    let selected_indicator =
+                        indicator_names[rng.gen_range(0..indicator_names.len())].clone();
+
                     let indicator_name_key = ConditionId::stop_handler_parameter_name(
                         &stop_handler.id,
                         "indicator_name",
@@ -621,12 +623,12 @@ impl InitialPopulationGenerator {
                         indicator_name_key,
                         StrategyParamValue::Text(selected_indicator.clone()),
                     );
-                    
+
                     let indicator_period_key = ConditionId::stop_handler_parameter_name(
                         &stop_handler.id,
                         "indicator_period",
                     );
-                    
+
                     use crate::indicators::parameters::ParameterPresets;
                     use crate::indicators::types::ParameterType;
                     if let Some(range) = ParameterPresets::get_optimization_range(
@@ -642,16 +644,16 @@ impl InitialPopulationGenerator {
                             StrategyParamValue::Number(value as f64),
                         );
                     } else {
-                        params.insert(
-                            indicator_period_key,
-                            StrategyParamValue::Number(20.0),
-                        );
+                        params.insert(indicator_period_key, StrategyParamValue::Number(20.0));
                     }
                 }
             }
-            
+
             for param in &stop_handler.optimization_params {
-                if param.optimizable && param.name != "indicator_name" && param.name != "indicator_period" {
+                if param.optimizable
+                    && param.name != "indicator_name"
+                    && param.name != "indicator_period"
+                {
                     if let Some(range) =
                         get_stop_optimization_range(&stop_handler.handler_name, &param.name)
                     {
