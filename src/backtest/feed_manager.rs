@@ -124,9 +124,13 @@ impl FeedManager {
                     .higher_timeframe_timestamps
                     .entry(tf.clone())
                     .or_insert_with(|| {
-                        (0..frame.len())
-                            .filter_map(|i| frame.get(i).map(|b| b.timestamp_millis()))
-                            .collect()
+                        let mut vec = Vec::with_capacity(frame.len());
+                        for i in 0..frame.len() {
+                            if let Some(bar) = frame.get(i) {
+                                vec.push(bar.timestamp_millis());
+                            }
+                        }
+                        vec
                     });
 
                 let aligned_ts = self.cached_aligned_timestamps.get(tf).copied();

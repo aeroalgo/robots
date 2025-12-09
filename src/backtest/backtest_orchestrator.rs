@@ -161,7 +161,10 @@ impl BacktestOrchestrator {
 
                 buffers.filtered_entries.push(entry.clone());
             }
-            validated_decision.entries = buffers.filtered_entries.clone();
+            std::mem::swap(
+                &mut validated_decision.entries,
+                &mut buffers.filtered_entries,
+            );
         }
 
         let mut report = position_manager

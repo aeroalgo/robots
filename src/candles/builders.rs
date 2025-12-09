@@ -13,6 +13,36 @@ pub trait BarBuilder {
     ) -> Result<QuoteFrame, BarBuilderError>;
 }
 
+struct BarBuilderHelpers;
+
+impl BarBuilderHelpers {
+    fn create_quote(
+        symbol: &Symbol,
+        timeframe: &TimeFrame,
+        timestamp: chrono::DateTime<chrono::Utc>,
+        open: Price,
+        high: Price,
+        low: Price,
+        close: Price,
+        volume: Volume,
+    ) -> Quote {
+        Quote::from_parts(
+            symbol.clone(),
+            timeframe.clone(),
+            timestamp,
+            open,
+            high,
+            low,
+            close,
+            volume,
+        )
+    }
+
+    fn update_high_low(bar_high: Price, bar_low: Price, quote_high: Price, quote_low: Price) -> (Price, Price) {
+        (bar_high.max(quote_high), bar_low.min(quote_low))
+    }
+}
+
 pub struct RangeBarBuilder {
     range_size: u32,
     symbol: Symbol,
@@ -34,8 +64,21 @@ impl BarBuilder for RangeBarBuilder {
         &mut self,
         source_frame: &QuoteFrame,
     ) -> Result<QuoteFrame, BarBuilderError> {
-        let symbol = self.symbol.clone();
-        let timeframe = self.target_timeframe.clone();
+        if source_frame.is_empty() {
+            return Ok(QuoteFrame::new(
+                self.symbol.clone(),
+                self.target_timeframe.clone(),
+            ));
+        }
+
+        if self.range_size == 0 {
+            return Err(BarBuilderError::UnsupportedBarType(
+                "Range size must be greater than 0".to_string(),
+            ));
+        }
+
+        let symbol = &self.symbol;
+        let timeframe = &self.target_timeframe;
         let mut result = QuoteFrame::new(symbol.clone(), timeframe.clone());
         let range_size = self.range_size as Price;
 
@@ -48,31 +91,31 @@ impl BarBuilder for RangeBarBuilder {
             }
 
             let bar = current_bar.as_mut().unwrap();
-            let high = bar.high().max(quote.high());
-            let low = bar.low().min(quote.low());
+            let (high, low) = BarBuilderHelpers::update_high_low(bar.high(), bar.low(), quote.high(), quote.low());
             let range = high - low;
 
             if range >= range_size {
-                let new_bar = Quote::from_parts(
-                    symbol.clone(),
-                    timeframe.clone(),
+                let close_price = if quote.close() > bar.open() {
+                    bar.open() + range_size
+                } else {
+                    bar.open() - range_size
+                };
+                let new_bar = BarBuilderHelpers::create_quote(
+                    symbol,
+                    timeframe,
                     quote.timestamp(),
                     bar.open(),
                     high,
                     low,
-                    if quote.close() > bar.open() {
-                        bar.open() + range_size
-                    } else {
-                        bar.open() - range_size
-                    },
+                    close_price,
                     bar.volume() + quote.volume(),
                 );
                 result.push(new_bar)?;
                 current_bar = Some(quote.clone());
             } else {
-                *bar = Quote::from_parts(
-                    symbol.clone(),
-                    timeframe.clone(),
+                *bar = BarBuilderHelpers::create_quote(
+                    symbol,
+                    timeframe,
                     bar.timestamp(),
                     bar.open(),
                     high,
@@ -112,8 +155,21 @@ impl BarBuilder for VolumeBarBuilder {
         &mut self,
         source_frame: &QuoteFrame,
     ) -> Result<QuoteFrame, BarBuilderError> {
-        let symbol = self.symbol.clone();
-        let timeframe = self.target_timeframe.clone();
+        if source_frame.is_empty() {
+            return Ok(QuoteFrame::new(
+                self.symbol.clone(),
+                self.target_timeframe.clone(),
+            ));
+        }
+
+        if self.volume_size == 0 {
+            return Err(BarBuilderError::UnsupportedBarType(
+                "Volume size must be greater than 0".to_string(),
+            ));
+        }
+
+        let symbol = &self.symbol;
+        let timeframe = &self.target_timeframe;
         let mut result = QuoteFrame::new(symbol.clone(), timeframe.clone());
         let volume_size = self.volume_size as Volume;
 
@@ -130,13 +186,12 @@ impl BarBuilder for VolumeBarBuilder {
             let bar = current_bar.as_mut().unwrap();
             accumulated_volume += quote.volume();
 
-            let high = bar.high().max(quote.high());
-            let low = bar.low().min(quote.low());
+            let (high, low) = BarBuilderHelpers::update_high_low(bar.high(), bar.low(), quote.high(), quote.low());
 
             if accumulated_volume >= volume_size {
-                let new_bar = Quote::from_parts(
-                    symbol.clone(),
-                    timeframe.clone(),
+                let new_bar = BarBuilderHelpers::create_quote(
+                    symbol,
+                    timeframe,
                     quote.timestamp(),
                     bar.open(),
                     high,
@@ -148,9 +203,9 @@ impl BarBuilder for VolumeBarBuilder {
                 current_bar = Some(quote.clone());
                 accumulated_volume = quote.volume();
             } else {
-                *bar = Quote::from_parts(
-                    symbol.clone(),
-                    timeframe.clone(),
+                *bar = BarBuilderHelpers::create_quote(
+                    symbol,
+                    timeframe,
                     bar.timestamp(),
                     bar.open(),
                     high,
@@ -190,8 +245,21 @@ impl BarBuilder for VolatilityBarBuilder {
         &mut self,
         source_frame: &QuoteFrame,
     ) -> Result<QuoteFrame, BarBuilderError> {
-        let symbol = self.symbol.clone();
-        let timeframe = self.target_timeframe.clone();
+        if source_frame.is_empty() {
+            return Ok(QuoteFrame::new(
+                self.symbol.clone(),
+                self.target_timeframe.clone(),
+            ));
+        }
+
+        if self.volatility_threshold == 0 {
+            return Err(BarBuilderError::UnsupportedBarType(
+                "Volatility threshold must be greater than 0".to_string(),
+            ));
+        }
+
+        let symbol = &self.symbol;
+        let timeframe = &self.target_timeframe;
         let mut result = QuoteFrame::new(symbol.clone(), timeframe.clone());
         let threshold = self.volatility_threshold as Price;
 
@@ -207,13 +275,12 @@ impl BarBuilder for VolatilityBarBuilder {
 
             let bar = current_bar.as_mut().unwrap();
             let true_range = quote.true_range(previous_close);
-            let high = bar.high().max(quote.high());
-            let low = bar.low().min(quote.low());
+            let (high, low) = BarBuilderHelpers::update_high_low(bar.high(), bar.low(), quote.high(), quote.low());
 
             if true_range >= threshold {
-                let new_bar = Quote::from_parts(
-                    symbol.clone(),
-                    timeframe.clone(),
+                let new_bar = BarBuilderHelpers::create_quote(
+                    symbol,
+                    timeframe,
                     quote.timestamp(),
                     bar.open(),
                     high,
@@ -225,9 +292,9 @@ impl BarBuilder for VolatilityBarBuilder {
                 current_bar = Some(quote.clone());
                 previous_close = Some(quote.close());
             } else {
-                *bar = Quote::from_parts(
-                    symbol.clone(),
-                    timeframe.clone(),
+                *bar = BarBuilderHelpers::create_quote(
+                    symbol,
+                    timeframe,
                     bar.timestamp(),
                     bar.open(),
                     high,
@@ -268,8 +335,21 @@ impl BarBuilder for RenkoBarBuilder {
         &mut self,
         source_frame: &QuoteFrame,
     ) -> Result<QuoteFrame, BarBuilderError> {
-        let symbol = self.symbol.clone();
-        let timeframe = self.target_timeframe.clone();
+        if source_frame.is_empty() {
+            return Ok(QuoteFrame::new(
+                self.symbol.clone(),
+                self.target_timeframe.clone(),
+            ));
+        }
+
+        if self.brick_size == 0 {
+            return Err(BarBuilderError::UnsupportedBarType(
+                "Brick size must be greater than 0".to_string(),
+            ));
+        }
+
+        let symbol = &self.symbol;
+        let timeframe = &self.target_timeframe;
         let mut result = QuoteFrame::new(symbol.clone(), timeframe.clone());
         let brick_size = self.brick_size as Price;
 
@@ -341,8 +421,15 @@ impl BarBuilder for HeikinAshiBarBuilder {
         &mut self,
         source_frame: &QuoteFrame,
     ) -> Result<QuoteFrame, BarBuilderError> {
-        let symbol = self.symbol.clone();
-        let timeframe = self.target_timeframe.clone();
+        if source_frame.is_empty() {
+            return Ok(QuoteFrame::new(
+                self.symbol.clone(),
+                self.target_timeframe.clone(),
+            ));
+        }
+
+        let symbol = &self.symbol;
+        let timeframe = &self.target_timeframe;
         let mut result = QuoteFrame::new(symbol.clone(), timeframe.clone());
         let mut previous_ha: Option<Quote> = None;
 
@@ -433,4 +520,272 @@ pub enum BarBuilderError {
     QuoteFrameError(#[from] QuoteFrameError),
     #[error("Unsupported bar type: {0}")]
     UnsupportedBarType(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_model::types::{Symbol, TimeFrame};
+    use chrono::{DateTime, Utc};
+
+    fn create_test_quote_frame(symbol: Symbol, timeframe: TimeFrame, count: usize) -> QuoteFrame {
+        let mut frame = QuoteFrame::new(symbol, timeframe);
+        let base_time = DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        for i in 0..count {
+            let timestamp = base_time + chrono::Duration::minutes(i as i64);
+            let base_price = 100.0 + (i as f32 * 0.5);
+            let quote = Quote::from_parts(
+                frame.symbol().clone(),
+                frame.timeframe().clone(),
+                timestamp,
+                base_price,
+                base_price + 1.0,
+                base_price - 1.0,
+                base_price + 0.5,
+                1000.0,
+            );
+            frame.push(quote).unwrap();
+        }
+        frame
+    }
+
+    #[test]
+    fn test_range_bar_builder() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let source_frame = create_test_quote_frame(symbol.clone(), timeframe.clone(), 10);
+
+        let mut builder = RangeBarBuilder::new(symbol, timeframe, 5);
+        let result = builder.build_from_quotes(&source_frame).unwrap();
+
+        assert!(!result.is_empty());
+        assert!(result.len() <= source_frame.len());
+    }
+
+    #[test]
+    fn test_range_bar_builder_empty_frame() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let source_frame = QuoteFrame::new(symbol.clone(), timeframe.clone());
+
+        let mut builder = RangeBarBuilder::new(symbol, timeframe, 5);
+        let result = builder.build_from_quotes(&source_frame).unwrap();
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_volume_bar_builder() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let source_frame = create_test_quote_frame(symbol.clone(), timeframe.clone(), 10);
+
+        let mut builder = VolumeBarBuilder::new(symbol, timeframe, 5000);
+        let result = builder.build_from_quotes(&source_frame).unwrap();
+
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_volatility_bar_builder() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let source_frame = create_test_quote_frame(symbol.clone(), timeframe.clone(), 10);
+
+        let mut builder = VolatilityBarBuilder::new(symbol, timeframe, 2);
+        let result = builder.build_from_quotes(&source_frame).unwrap();
+
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_renko_bar_builder() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let source_frame = create_test_quote_frame(symbol.clone(), timeframe.clone(), 10);
+
+        let mut builder = RenkoBarBuilder::new(symbol, timeframe, 5);
+        let result = builder.build_from_quotes(&source_frame).unwrap();
+
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_heikin_ashi_bar_builder() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let source_frame = create_test_quote_frame(symbol.clone(), timeframe.clone(), 10);
+
+        let mut builder = HeikinAshiBarBuilder::new(symbol, timeframe);
+        let result = builder.build_from_quotes(&source_frame).unwrap();
+
+        assert_eq!(result.len(), source_frame.len());
+    }
+
+    #[test]
+    fn test_bar_builder_factory_range() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let bar_type = BarType::Range { range_size: 100 };
+
+        let builder = BarBuilderFactory::create_builder(&bar_type, symbol, timeframe);
+        assert!(builder.is_ok());
+    }
+
+    #[test]
+    fn test_bar_builder_factory_volume() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let bar_type = BarType::Volume { volume_size: 1000 };
+
+        let builder = BarBuilderFactory::create_builder(&bar_type, symbol, timeframe);
+        assert!(builder.is_ok());
+    }
+
+    #[test]
+    fn test_bar_builder_factory_time_error() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let bar_type = BarType::Time;
+
+        let builder_result = BarBuilderFactory::create_builder(&bar_type, symbol, timeframe);
+        assert!(builder_result.is_err());
+        match builder_result {
+            Err(e) => {
+                let error_msg = e.to_string();
+                assert!(error_msg.contains("Time bars"));
+            }
+            Ok(_) => panic!("Expected error"),
+        }
+    }
+
+    #[test]
+    fn test_bar_builder_factory_custom_error() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let bar_type = BarType::Custom {
+            name: "Custom".to_string(),
+            parameters: vec![],
+        };
+
+        let builder_result = BarBuilderFactory::create_builder(&bar_type, symbol, timeframe);
+        assert!(builder_result.is_err());
+        match builder_result {
+            Err(e) => {
+                let error_msg = e.to_string();
+                assert!(error_msg.contains("Custom bar types"));
+            }
+            Ok(_) => panic!("Expected error"),
+        }
+    }
+
+    #[test]
+    fn test_range_bar_builder_range_size() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let mut source_frame = QuoteFrame::new(symbol.clone(), timeframe.clone());
+
+        let base_time = DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        for i in 0..5 {
+            let timestamp = base_time + chrono::Duration::minutes(i as i64);
+            let quote = Quote::from_parts(
+                symbol.clone(),
+                timeframe.clone(),
+                timestamp,
+                100.0 + (i as f32 * 2.0),
+                105.0 + (i as f32 * 2.0),
+                95.0 + (i as f32 * 2.0),
+                102.0 + (i as f32 * 2.0),
+                1000.0,
+            );
+            source_frame.push(quote).unwrap();
+        }
+
+        let mut builder = RangeBarBuilder::new(symbol, timeframe, 10);
+        let result = builder.build_from_quotes(&source_frame).unwrap();
+
+        assert!(!result.is_empty());
+        let quotes: Vec<_> = result.iter().collect();
+        let last_index = quotes.len() - 1;
+
+        for (idx, quote) in quotes.iter().enumerate() {
+            let range = quote.high() - quote.low();
+            let is_last = idx == last_index;
+            if !is_last {
+                assert!(
+                    range >= 10.0,
+                    "Non-last bar should have range >= 10.0, got {}",
+                    range
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_range_bar_builder_zero_range_size() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let source_frame = create_test_quote_frame(symbol.clone(), timeframe.clone(), 10);
+
+        let mut builder = RangeBarBuilder::new(symbol, timeframe, 0);
+        let result = builder.build_from_quotes(&source_frame);
+        assert!(result.is_err());
+        match result {
+            Err(e) => assert!(e.to_string().contains("Range size must be greater than 0")),
+            Ok(_) => panic!("Expected error"),
+        }
+    }
+
+    #[test]
+    fn test_volume_bar_builder_zero_volume_size() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let source_frame = create_test_quote_frame(symbol.clone(), timeframe.clone(), 10);
+
+        let mut builder = VolumeBarBuilder::new(symbol, timeframe, 0);
+        let result = builder.build_from_quotes(&source_frame);
+        assert!(result.is_err());
+        match result {
+            Err(e) => assert!(e.to_string().contains("Volume size must be greater than 0")),
+            Ok(_) => panic!("Expected error"),
+        }
+    }
+
+    #[test]
+    fn test_volatility_bar_builder_zero_threshold() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let source_frame = create_test_quote_frame(symbol.clone(), timeframe.clone(), 10);
+
+        let mut builder = VolatilityBarBuilder::new(symbol, timeframe, 0);
+        let result = builder.build_from_quotes(&source_frame);
+        assert!(result.is_err());
+        match result {
+            Err(e) => assert!(e
+                .to_string()
+                .contains("Volatility threshold must be greater than 0")),
+            Ok(_) => panic!("Expected error"),
+        }
+    }
+
+    #[test]
+    fn test_renko_bar_builder_zero_brick_size() {
+        let symbol = Symbol::new("BTCUSDT".to_string());
+        let timeframe = TimeFrame::Minutes(5);
+        let source_frame = create_test_quote_frame(symbol.clone(), timeframe.clone(), 10);
+
+        let mut builder = RenkoBarBuilder::new(symbol, timeframe, 0);
+        let result = builder.build_from_quotes(&source_frame);
+        assert!(result.is_err());
+        match result {
+            Err(e) => assert!(e.to_string().contains("Brick size must be greater than 0")),
+            Ok(_) => panic!("Expected error"),
+        }
+    }
 }

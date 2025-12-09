@@ -65,19 +65,16 @@ impl IndicatorEngine {
                                     name, err
                                 ))
                             })?;
-                        Self::store_indicator_series(
-                            context,
-                            &timeframe,
-                            &binding.alias,
-                            values.clone(),
-                        )?;
-                        computed.insert(binding.alias.clone(), values);
+                        let alias = &binding.alias;
+                        Self::store_indicator_series(context, &timeframe, alias, values.clone())?;
+                        computed.insert(alias.clone(), values);
                     }
                     IndicatorSourceSpec::Formula { .. } => {
-                        let definition = plan.formula(&binding.alias).ok_or_else(|| {
+                        let alias = &binding.alias;
+                        let definition = plan.formula(alias).ok_or_else(|| {
                             BacktestError::Feed(format!(
                                 "missing formula definition for alias {}",
-                                binding.alias
+                                alias
                             ))
                         })?;
                         let eval_context = FormulaEvaluationContext::new(&ohlc, &computed);
@@ -85,13 +82,8 @@ impl IndicatorEngine {
                             .runtime
                             .compute_formula(&timeframe, definition, &eval_context)
                             .map_err(|err| BacktestError::Feed(err.to_string()))?;
-                        Self::store_indicator_series(
-                            context,
-                            &timeframe,
-                            &binding.alias,
-                            values.clone(),
-                        )?;
-                        computed.insert(binding.alias.clone(), values);
+                        Self::store_indicator_series(context, &timeframe, alias, values.clone())?;
+                        computed.insert(alias.clone(), values);
                     }
                 }
             }
