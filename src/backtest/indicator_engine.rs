@@ -9,7 +9,7 @@ use crate::strategy::base::Strategy;
 use crate::strategy::context::StrategyContext;
 use crate::strategy::types::{IndicatorBindingSpec, IndicatorSourceSpec, StrategyError};
 
-use super::BacktestError;
+use super::{constants, helpers, traits::IndicatorComputer, BacktestError};
 
 pub struct IndicatorEngine {
     runtime: IndicatorRuntimeEngine,
@@ -29,8 +29,10 @@ impl IndicatorEngine {
         context: &mut StrategyContext,
     ) -> Result<(), BacktestError> {
         let bindings_count = strategy.indicator_bindings().len();
-        let mut grouped: HashMap<TimeFrame, Vec<IndicatorBindingSpec>> =
-            HashMap::with_capacity(bindings_count / 2 + 1);
+        let mut grouped: HashMap<TimeFrame, Vec<IndicatorBindingSpec>> = HashMap::with_capacity(
+            bindings_count / constants::HASHMAP_INITIAL_CAPACITY_DIVISOR
+                + constants::HASHMAP_INITIAL_CAPACITY_OFFSET,
+        );
 
         for binding in strategy.indicator_bindings() {
             grouped
@@ -121,10 +123,8 @@ impl IndicatorEngine {
 
         let ohlc = frame.to_indicator_ohlc();
 
-        let computed =
-            crate::risk::compute_auxiliary_indicators(auxiliary_specs, &ohlc).map_err(|e| {
-                BacktestError::Feed(format!("Auxiliary indicator error: {}", e))
-            })?;
+        let computed = crate::risk::compute_auxiliary_indicators(auxiliary_specs, &ohlc)
+            .map_err(|e| BacktestError::Feed(format!("Auxiliary indicator error: {}", e)))?;
 
         let data = context
             .timeframe_mut(&timeframe)
@@ -187,7 +187,9 @@ impl IndicatorEngine {
                     }
                 }
                 crate::strategy::types::ConditionInputSpec::DualWithPercent {
-                    primary, secondary, ..
+                    primary,
+                    secondary,
+                    ..
                 } => {
                     if let Some((key, value)) = extract_constants(primary) {
                         constants_by_timeframe
@@ -266,11 +268,7 @@ impl IndicatorEngine {
         timeframe: &TimeFrame,
         frame: &Arc<QuoteFrame>,
     ) {
-        use crate::strategy::context::TimeframeData;
-        if context.timeframe(timeframe).is_err() {
-            let data = TimeframeData::with_quote_frame(frame.as_ref(), 0);
-            context.insert_timeframe(timeframe.clone(), data);
-        }
+        helpers::ensure_timeframe_in_context(context, timeframe, frame);
     }
 
     fn store_indicator_series(
@@ -290,6 +288,35 @@ impl IndicatorEngine {
 impl Default for IndicatorEngine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl IndicatorComputer for IndicatorEngine {
+    fn populate_indicators(
+        &mut self,
+        strategy: &dyn Strategy,
+        frames: &HashMap<TimeFrame, Arc<QuoteFrame>>,
+        context: &mut StrategyContext,
+    ) -> Result<(), BacktestError> {
+        self.populate_indicators(strategy, frames, context)
+    }
+
+    fn populate_auxiliary_indicators(
+        &mut self,
+        strategy: &dyn Strategy,
+        frames: &HashMap<TimeFrame, Arc<QuoteFrame>>,
+        context: &mut StrategyContext,
+    ) -> Result<(), BacktestError> {
+        self.populate_auxiliary_indicators(strategy, frames, context)
+    }
+
+    fn populate_custom_data(
+        &mut self,
+        strategy: &dyn Strategy,
+        frames: &HashMap<TimeFrame, Arc<QuoteFrame>>,
+        context: &mut StrategyContext,
+    ) -> Result<(), BacktestError> {
+        self.populate_custom_data(strategy, frames, context)
     }
 }
 

@@ -8,7 +8,7 @@ use crate::strategy::base::Strategy;
 use crate::strategy::context::{StrategyContext, TimeframeData};
 use crate::strategy::types::StrategyError;
 
-use super::BacktestError;
+use super::{constants, helpers, traits::ConditionEvaluatorTrait, BacktestError};
 
 pub struct ConditionEvaluator;
 
@@ -25,7 +25,7 @@ impl ConditionEvaluator {
     ) -> Result<(), BacktestError> {
         let conditions_count = strategy.conditions().len();
         let mut grouped: HashMap<TimeFrame, Vec<usize>> =
-            HashMap::with_capacity(conditions_count / 2 + 1);
+            HashMap::with_capacity(conditions_count / constants::HASHMAP_INITIAL_CAPACITY_DIVISOR + constants::HASHMAP_INITIAL_CAPACITY_OFFSET);
 
         for (idx, condition) in strategy.conditions().iter().enumerate() {
             grouped
@@ -91,7 +91,7 @@ impl ConditionEvaluator {
         frame: &Arc<QuoteFrame>,
     ) {
         if context.timeframe(timeframe).is_err() {
-            let data = TimeframeData::with_quote_frame(frame.as_ref(), 0);
+            let data = helpers::create_initial_timeframe_data(frame);
             context.insert_timeframe(timeframe.clone(), data);
         }
     }
@@ -100,5 +100,16 @@ impl ConditionEvaluator {
 impl Default for ConditionEvaluator {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl ConditionEvaluatorTrait for ConditionEvaluator {
+    fn populate_conditions(
+        &self,
+        strategy: &dyn Strategy,
+        frames: &HashMap<TimeFrame, Arc<QuoteFrame>>,
+        context: &mut StrategyContext,
+    ) -> Result<(), BacktestError> {
+        self.populate_conditions(strategy, frames, context)
     }
 }

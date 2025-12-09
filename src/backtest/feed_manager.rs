@@ -5,6 +5,8 @@ use crate::data_model::quote_frame::QuoteFrame;
 use crate::data_model::types::TimeFrame;
 use crate::strategy::context::{StrategyContext, TimeframeData};
 
+use super::{constants, helpers, traits::FeedProvider};
+
 pub struct FeedManager {
     frames: HashMap<TimeFrame, Arc<QuoteFrame>>,
     indices: HashMap<TimeFrame, usize>,
@@ -57,7 +59,7 @@ impl FeedManager {
     pub fn initialize_context_ordered(&self, timeframe_order: &[TimeFrame]) -> StrategyContext {
         let mut map = HashMap::with_capacity(self.frames.len());
         for (timeframe, frame) in &self.frames {
-            let data = TimeframeData::with_quote_frame(frame.as_ref(), 0);
+            let data = helpers::create_initial_timeframe_data(frame);
             map.insert(timeframe.clone(), data);
         }
         StrategyContext::with_timeframes_ordered(timeframe_order, map)
@@ -81,7 +83,10 @@ impl FeedManager {
             None => return false,
         };
 
-        let current_idx = *self.indices.get(primary_tf).unwrap_or(&0);
+        let current_idx = *self
+            .indices
+            .get(primary_tf)
+            .unwrap_or(&constants::INITIAL_INDEX);
         if current_idx >= primary_frame.len() {
             return false;
         }
@@ -129,7 +134,7 @@ impl FeedManager {
                     let higher_idx = timestamps
                         .iter()
                         .rposition(|&ts| ts <= target_ts)
-                        .unwrap_or(0);
+                        .unwrap_or(constants::INITIAL_INDEX);
 
                     if let Ok(data) = context.timeframe_mut(tf) {
                         data.set_index(higher_idx);
@@ -145,23 +150,36 @@ impl FeedManager {
     pub fn timeframe_to_minutes(tf: &TimeFrame) -> Option<u32> {
         match tf {
             TimeFrame::Minutes(m) => Some(*m),
-            TimeFrame::Hours(h) => Some(h * 60),
-            TimeFrame::Days(d) => Some(d * 24 * 60),
-            TimeFrame::Weeks(w) => Some(w * 7 * 24 * 60),
-            TimeFrame::Months(m) => Some(m * 30 * 24 * 60),
+            TimeFrame::Hours(h) => Some(h * constants::MINUTES_PER_HOUR as u32),
+            TimeFrame::Days(d) => {
+                Some(d * constants::HOURS_PER_DAY as u32 * constants::MINUTES_PER_HOUR as u32)
+            }
+            TimeFrame::Weeks(w) => Some(
+                w * constants::DAYS_PER_WEEK as u32
+                    * constants::HOURS_PER_DAY as u32
+                    * constants::MINUTES_PER_HOUR as u32,
+            ),
+            TimeFrame::Months(m) => Some(
+                m * constants::DAYS_PER_MONTH as u32
+                    * constants::HOURS_PER_DAY as u32
+                    * constants::MINUTES_PER_HOUR as u32,
+            ),
             TimeFrame::Custom(_) => None,
         }
     }
 
     pub fn is_higher_timeframe(higher: &TimeFrame, lower: &TimeFrame) -> bool {
-        let higher_min = Self::timeframe_to_minutes(higher).unwrap_or(0);
-        let lower_min = Self::timeframe_to_minutes(lower).unwrap_or(0);
+        let higher_min =
+            Self::timeframe_to_minutes(higher).unwrap_or(constants::INITIAL_INDEX as u32);
+        let lower_min =
+            Self::timeframe_to_minutes(lower).unwrap_or(constants::INITIAL_INDEX as u32);
         higher_min > lower_min
     }
 
     pub fn is_multiple_of(base: &TimeFrame, target: &TimeFrame) -> bool {
-        let base_min = Self::timeframe_to_minutes(base).unwrap_or(0);
-        let target_min = Self::timeframe_to_minutes(target).unwrap_or(0);
+        let base_min = Self::timeframe_to_minutes(base).unwrap_or(constants::INITIAL_INDEX as u32);
+        let target_min =
+            Self::timeframe_to_minutes(target).unwrap_or(constants::INITIAL_INDEX as u32);
         if base_min == 0 || target_min == 0 {
             return false;
         }
@@ -210,5 +228,27 @@ impl FeedManager {
 impl Default for FeedManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl FeedProvider for FeedManager {
+    fn frames(&self) -> &HashMap<TimeFrame, Arc<QuoteFrame>> {
+        self.frames()
+    }
+
+    fn primary_timeframe(&self) -> Option<&TimeFrame> {
+        self.primary_timeframe()
+    }
+
+    fn get_frame(&self, timeframe: &TimeFrame) -> Option<&Arc<QuoteFrame>> {
+        self.get_frame(timeframe)
+    }
+
+    fn step(&mut self, context: &mut StrategyContext) -> bool {
+        self.step(context)
+    }
+
+    fn reset(&mut self) {
+        self.reset()
     }
 }

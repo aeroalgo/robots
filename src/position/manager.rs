@@ -966,7 +966,6 @@ mod tests {
             direction: PositionDirection::Long,
             timeframe: timeframe.clone(),
             strength: SignalStrength::Strong,
-            trend: None,
             quantity: Some(1.0),
             entry_rule_id: Some("enter-long".to_string()),
             tags: Vec::new(),
@@ -982,7 +981,6 @@ mod tests {
             direction: PositionDirection::Long,
             timeframe: timeframe.clone(),
             strength: SignalStrength::Strong,
-            trend: None,
             quantity: Some(1.0),
             entry_rule_id: None,
             tags: Vec::new(),
@@ -1006,7 +1004,6 @@ mod tests {
         decision.entries.push(entry_signal(&timeframe));
         let report = manager
             .process_decision(&mut context, &decision)
-            .await
             .expect("entry processing failed");
         assert_eq!(report.opened_positions.len(), 1);
         assert_eq!(manager.open_position_count(), 1);
@@ -1017,7 +1014,6 @@ mod tests {
         let mut exit_context = build_context(&[105.0, 105.0], &symbol, &timeframe);
         let exit_report = manager
             .process_decision(&mut exit_context, &exit_decision)
-            .await
             .expect("exit processing failed");
         assert_eq!(exit_report.closed_positions.len(), 1);
         assert_eq!(manager.open_position_count(), 0);
@@ -1041,7 +1037,6 @@ mod tests {
         decision.entries.push(entry_signal(&timeframe));
         manager
             .process_decision(&mut context, &decision)
-            .await
             .expect("entry failed");
 
         let mut stop_decision = StrategyDecision::empty();
@@ -1062,7 +1057,6 @@ mod tests {
         let mut exit_context = build_context(&[110.0, 110.0], &symbol, &timeframe);
         manager
             .process_decision(&mut exit_context, &stop_decision)
-            .await
             .expect("stop exit failed");
         assert_eq!(manager.open_position_count(), 0);
         assert!(exit_context.active_positions().is_empty());
