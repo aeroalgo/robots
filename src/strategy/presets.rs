@@ -5,17 +5,139 @@ use crate::data_model::types::TimeFrame;
 use super::types::{
     ConditionBindingSpec, ConditionDeclarativeSpec, ConditionInputSpec, ConditionOperator,
     DataSeriesSource, IndicatorBindingSpec, IndicatorSourceSpec, PositionDirection, PriceField,
-    StopHandlerSpec, StrategyDefinition, StrategyMetadata, StrategyParamValue,
-    StrategyParameterMap, StrategyParameterSpec, StrategyRuleSpec, StrategySignalType,
-    TakeHandlerSpec, UserFormulaMetadata,
+    RuleLogic, StopHandlerSpec, StrategyCategory, StrategyDefinition, StrategyMetadata,
+    StrategyParamValue, StrategyParameterMap, StrategyParameterSpec, StrategyRuleSpec,
+    StrategySignalType, TakeHandlerSpec, UserFormulaMetadata,
 };
 
 pub fn default_strategy_definitions() -> Vec<StrategyDefinition> {
     vec![
+        sma_crossover_long_definition(),
         sinewma_rising_trend_definition(),
         amma_rising_trend_definition(),
         vtrand_falling_trend_definition(),
     ]
+}
+
+fn sma_crossover_long_definition() -> StrategyDefinition {
+    let timeframe = TimeFrame::minutes(60);
+
+    let fast_sma_alias = "fast_sma".to_string();
+    let slow_sma_alias = "slow_sma".to_string();
+
+    let indicator_bindings = vec![
+        IndicatorBindingSpec {
+            alias: fast_sma_alias.clone(),
+            timeframe: timeframe.clone(),
+            source: IndicatorSourceSpec::Registry {
+                name: "SMA".to_string(),
+                parameters: HashMap::from([("period".to_string(), 10.0)]),
+            },
+            tags: vec!["fast".to_string()],
+        },
+        IndicatorBindingSpec {
+            alias: slow_sma_alias.clone(),
+            timeframe: timeframe.clone(),
+            source: IndicatorSourceSpec::Registry {
+                name: "SMA".to_string(),
+                parameters: HashMap::from([("period".to_string(), 20.0)]),
+            },
+            tags: vec!["slow".to_string()],
+        },
+    ];
+
+    let entry_input = ConditionInputSpec::Dual {
+        primary: DataSeriesSource::indicator(fast_sma_alias.clone()),
+        secondary: DataSeriesSource::indicator(slow_sma_alias.clone()),
+    };
+
+    let exit_input = ConditionInputSpec::Dual {
+        primary: DataSeriesSource::indicator(fast_sma_alias.clone()),
+        secondary: DataSeriesSource::indicator(slow_sma_alias.clone()),
+    };
+
+    let condition_bindings = vec![
+        ConditionBindingSpec {
+            id: "entry_crossover".to_string(),
+            name: "Fast SMA Above Slow SMA".to_string(),
+            timeframe: timeframe.clone(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::Above,
+                &entry_input,
+            ),
+            parameters: HashMap::new(),
+            input: entry_input,
+            weight: 1.0,
+            tags: vec!["crossover".to_string()],
+            user_formula: None,
+        },
+        ConditionBindingSpec {
+            id: "exit_crossover".to_string(),
+            name: "Fast SMA Below Slow SMA".to_string(),
+            timeframe: timeframe.clone(),
+            declarative: ConditionDeclarativeSpec::from_input(
+                ConditionOperator::Below,
+                &exit_input,
+            ),
+            parameters: HashMap::new(),
+            input: exit_input,
+            weight: 1.0,
+            tags: vec!["crossover".to_string()],
+            user_formula: None,
+        },
+    ];
+
+    let entry_rules = vec![StrategyRuleSpec {
+        id: "enter_long".to_string(),
+        name: "Enter Long".to_string(),
+        logic: RuleLogic::All,
+        conditions: vec!["entry_crossover".to_string()],
+        signal: StrategySignalType::Entry,
+        direction: PositionDirection::Long,
+        quantity: None,
+        tags: vec!["entry".to_string()],
+        position_group: None,
+        target_entry_ids: Vec::new(),
+    }];
+
+    let exit_rules = vec![StrategyRuleSpec {
+        id: "exit_long".to_string(),
+        name: "Exit Long".to_string(),
+        logic: RuleLogic::All,
+        conditions: vec!["exit_crossover".to_string()],
+        signal: StrategySignalType::Exit,
+        direction: PositionDirection::Long,
+        quantity: None,
+        tags: vec!["exit".to_string()],
+        position_group: None,
+        target_entry_ids: vec!["enter_long".to_string()],
+    }];
+
+    StrategyDefinition::new(
+        StrategyMetadata {
+            id: "SMA_CROSSOVER_LONG".to_string(),
+            name: "SMA Crossover Long".to_string(),
+            description: Some(
+                "Simple Moving Average Crossover Strategy for Long positions".to_string(),
+            ),
+            version: Some("1.0.0".to_string()),
+            author: Some("Test Strategy".to_string()),
+            categories: vec![StrategyCategory::TrendFollowing],
+            tags: vec!["sma".to_string(), "crossover".to_string()],
+            created_at: None,
+            updated_at: None,
+        },
+        Vec::new(),
+        indicator_bindings,
+        Vec::new(),
+        condition_bindings,
+        entry_rules,
+        exit_rules,
+        Vec::new(),
+        Vec::new(),
+        StrategyParameterMap::new(),
+        BTreeMap::new(),
+    )
 }
 
 fn sinewma_rising_trend_definition() -> StrategyDefinition {

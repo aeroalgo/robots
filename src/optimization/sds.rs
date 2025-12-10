@@ -244,3 +244,85 @@ struct AgentState {
     active: bool,
     fitness: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::optimization::types::{EvaluatedStrategy, GeneticIndividual};
+    use crate::strategy::types::StrategyParamValue;
+    use std::collections::HashMap;
+
+    fn create_test_config() -> GeneticAlgorithmConfig {
+        GeneticAlgorithmConfig {
+            enable_sds: true,
+            sds_agents_ratio: 0.5,
+            sds_iterations: 3,
+            sds_test_threshold: 0.5,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_stochastic_diffusion_search_new() {
+        let config = create_test_config();
+        let sds = StochasticDiffusionSearch::new(config);
+        assert!(true);
+    }
+
+    #[test]
+    fn test_create_hypothesis_signature() {
+        let config = create_test_config();
+        let sds = StochasticDiffusionSearch::new(config);
+        let mut params = HashMap::new();
+        params.insert("param1".to_string(), StrategyParamValue::Number(10.0));
+        params.insert("param2".to_string(), StrategyParamValue::Number(20.0));
+        let signature = sds.create_hypothesis_signature(&params);
+        assert!(signature.contains("param1"));
+        assert!(signature.contains("param2"));
+    }
+
+    #[test]
+    fn test_create_hypothesis_signature_empty() {
+        let config = create_test_config();
+        let sds = StochasticDiffusionSearch::new(config);
+        let params = HashMap::new();
+        let signature = sds.create_hypothesis_signature(&params);
+        assert_eq!(signature, "");
+    }
+
+    #[test]
+    fn test_partial_evaluation_no_fitness() {
+        let config = create_test_config();
+        let sds = StochasticDiffusionSearch::new(config);
+        let individual = GeneticIndividual {
+            strategy: EvaluatedStrategy {
+                candidate: None,
+                parameters: HashMap::new(),
+                fitness: None,
+                backtest_report: None,
+            },
+            generation: 0,
+            island_id: None,
+        };
+        let result = sds.partial_evaluation(&individual);
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_partial_evaluation_negative_fitness() {
+        let config = create_test_config();
+        let sds = StochasticDiffusionSearch::new(config);
+        let individual = GeneticIndividual {
+            strategy: EvaluatedStrategy {
+                candidate: None,
+                parameters: HashMap::new(),
+                fitness: Some(-1.0),
+                backtest_report: None,
+            },
+            generation: 0,
+            island_id: None,
+        };
+        let result = sds.partial_evaluation(&individual);
+        assert_eq!(result, 0.0);
+    }
+}

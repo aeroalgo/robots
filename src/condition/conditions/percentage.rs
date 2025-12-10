@@ -80,11 +80,8 @@ impl Condition for GreaterPercentCondition {
             directions.push(ConditionHelpers::direction_from_signal(signal));
         }
 
-        let metadata = ConditionHelpers::create_condition_metadata(
-            start_time.elapsed(),
-            min_len,
-            0.8,
-        );
+        let metadata =
+            ConditionHelpers::create_condition_metadata(start_time.elapsed(), min_len, 0.8);
 
         Ok(ConditionResultData {
             signals,
@@ -199,11 +196,8 @@ impl Condition for LowerPercentCondition {
             directions.push(ConditionHelpers::direction_from_signal_reverse(signal));
         }
 
-        let metadata = ConditionHelpers::create_condition_metadata(
-            start_time.elapsed(),
-            min_len,
-            0.8,
-        );
+        let metadata =
+            ConditionHelpers::create_condition_metadata(start_time.elapsed(), min_len, 0.8);
 
         Ok(ConditionResultData {
             signals,

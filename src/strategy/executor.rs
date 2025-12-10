@@ -43,7 +43,7 @@ pub struct BacktestConfig {
 impl Default for BacktestConfig {
     fn default() -> Self {
         Self {
-            initial_capital: 10000.0,
+            initial_capital: 0.0,
             use_full_capital: false,
             reinvest_profits: false,
         }
@@ -633,7 +633,7 @@ impl BacktestExecutor {
             .equity_curve()
             .first()
             .copied()
-            .unwrap_or(10000.0);
+            .unwrap_or(0.0);
 
         let start_date = self
             .feed

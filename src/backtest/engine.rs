@@ -251,19 +251,19 @@ impl BacktestEngine {
         Ok(engine)
     }
 
-    pub(crate) fn context(&self) -> &StrategyContext {
+    pub fn context(&self) -> &StrategyContext {
         &self.context
     }
 
-    pub(crate) fn context_mut(&mut self) -> &mut StrategyContext {
+    pub fn context_mut(&mut self) -> &mut StrategyContext {
         &mut self.context
     }
 
-    pub(crate) fn position_manager(&self) -> &PositionManager {
+    pub fn position_manager(&self) -> &PositionManager {
         &self.position_manager
     }
 
-    pub(crate) fn position_manager_mut(&mut self) -> &mut PositionManager {
+    pub fn position_manager_mut(&mut self) -> &mut PositionManager {
         &mut self.position_manager
     }
 
@@ -458,7 +458,7 @@ impl BacktestEngine {
             .equity_curve()
             .first()
             .copied()
-            .unwrap_or(10000.0);
+            .unwrap_or(0.0);
 
         let primary_tf = self.feed_manager.primary_timeframe();
         let primary_frame = primary_tf.and_then(|tf| self.feed_manager.get_frame(tf));

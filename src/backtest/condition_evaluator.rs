@@ -24,8 +24,10 @@ impl ConditionEvaluator {
         context: &mut StrategyContext,
     ) -> Result<(), BacktestError> {
         let conditions_count = strategy.conditions().len();
-        let mut grouped: HashMap<TimeFrame, Vec<usize>> =
-            HashMap::with_capacity(conditions_count / constants::HASHMAP_INITIAL_CAPACITY_DIVISOR + constants::HASHMAP_INITIAL_CAPACITY_OFFSET);
+        let mut grouped: HashMap<TimeFrame, Vec<usize>> = HashMap::with_capacity(
+            conditions_count / constants::HASHMAP_INITIAL_CAPACITY_DIVISOR
+                + constants::HASHMAP_INITIAL_CAPACITY_OFFSET,
+        );
 
         for (idx, condition) in strategy.conditions().iter().enumerate() {
             grouped

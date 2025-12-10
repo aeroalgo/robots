@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use crate::data_model::types::TimeFrame;
 use crate::discovery::engine::StrategyCandidate;
 use crate::discovery::types::StopHandlerInfo;
-use crate::strategy::types::{PositionDirection, PriceField, StopHandlerSpec, StrategyParamValue, TakeHandlerSpec};
+use crate::strategy::types::{
+    PositionDirection, PriceField, StopHandlerSpec, StrategyParamValue, TakeHandlerSpec,
+};
 
 use super::main::StrategyConversionError;
 use super::parameter_extractor::ParameterExtractor;
@@ -20,7 +22,8 @@ impl HandlerBuilder {
         for stop_handler in &candidate.stop_handlers {
             let (normalized_name_for_defaults, _) =
                 crate::risk::extract_indicator_from_handler_name(&stop_handler.handler_name);
-            let mut parameters = ParameterExtractor::get_default_stop_params(&normalized_name_for_defaults);
+            let mut parameters =
+                ParameterExtractor::get_default_stop_params(&normalized_name_for_defaults);
 
             let normalized_handler_name = crate::risk::process_stop_handler_indicator(
                 &stop_handler.handler_name,

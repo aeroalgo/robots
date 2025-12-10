@@ -8,6 +8,7 @@ use crate::strategy::types::{
     IndicatorBindingSpec, PriceField,
 };
 
+use super::condition_converters::ConditionConverterFactory;
 use super::helpers::ConverterHelpers;
 use super::main::StrategyConversionError;
 
@@ -21,7 +22,7 @@ impl ConditionBuilder {
         base_timeframe: TimeFrame,
         prefix: &str,
     ) -> Result<Vec<ConditionBindingSpec>, StrategyConversionError> {
-        let mut bindings = Vec::new();
+        let mut bindings = Vec::with_capacity(conditions.len());
 
         for condition in conditions {
             let input = Self::create_condition_input(condition, candidate, indicator_bindings)?;
@@ -46,9 +47,10 @@ impl ConditionBuilder {
                 condition.name.clone()
             };
 
-            let mut tags = vec![condition.condition_type.clone()];
+            let mut tags = Vec::with_capacity(2);
+            tags.push(condition.condition_type.clone());
             if prefix == "exit" {
-                tags.push("exit".to_string());
+                tags.push("exit".into());
             }
 
             bindings.push(ConditionBindingSpec {
@@ -85,7 +87,7 @@ impl ConditionBuilder {
             if let Some(_percent_param) = percent_param {
                 let range = crate::condition::parameters::ConditionParameterPresets::percentage();
                 let percent_value = ((range.min + range.max) / 2.0) as f32;
-                parameters.insert("percent".to_string(), percent_value);
+                parameters.insert("percent".into(), percent_value);
             } else {
                 return Err(StrategyConversionError::InvalidConditionFormat {
                     condition_id: condition.id.clone(),
@@ -107,7 +109,7 @@ impl ConditionBuilder {
             if let Some(_period_param) = period_param {
                 let range = crate::condition::parameters::ConditionParameterPresets::trend_period();
                 let period_value = ((range.min + range.max) / 2.0) as f32;
-                parameters.insert("period".to_string(), period_value);
+                parameters.insert("period".into(), period_value);
             } else {
                 return Err(StrategyConversionError::InvalidConditionFormat {
                     condition_id: condition.id.clone(),
@@ -124,138 +126,384 @@ impl ConditionBuilder {
 
     pub fn create_condition_input(
         condition: &ConditionInfo,
-        candidate: &StrategyCandidate,
+        _candidate: &StrategyCandidate,
         indicator_bindings: &[IndicatorBindingSpec],
     ) -> Result<ConditionInputSpec, StrategyConversionError> {
-        let alias_to_timeframes = ConverterHelpers::build_alias_to_timeframes_map(indicator_bindings);
+        let alias_to_timeframes =
+            ConverterHelpers::build_alias_to_timeframes_map(indicator_bindings);
 
-        match condition.condition_type.as_str() {
-            "indicator_price" => {
-                Self::create_indicator_price_input(condition, &alias_to_timeframes)
-            }
-            "indicator_indicator" => {
-                Self::create_indicator_indicator_input(condition, &alias_to_timeframes)
-            }
-            "trend_condition" => {
-                Self::create_trend_condition_input(condition, &alias_to_timeframes)
-            }
-            "indicator_constant" => {
-                Self::create_indicator_constant_input(condition, &alias_to_timeframes)
-            }
-            _ => Err(StrategyConversionError::UnsupportedConditionType {
-                condition_type: condition.condition_type.clone(),
-            }),
+        let converter = ConditionConverterFactory::get_converter(&condition.condition_type)?;
+        converter.convert_to_input(condition, &alias_to_timeframes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_model::types::TimeFrame;
+    use crate::discovery::config::StrategyDiscoveryConfig;
+    use crate::discovery::engine::StrategyCandidate;
+    use crate::discovery::types::{
+        ConditionInfo, ConditionParamInfo, IndicatorInfo,
+        IndicatorParamInfo as DiscoveryIndicatorParamInfo,
+    };
+    use crate::indicators::types::ParameterType;
+    use crate::strategy::types::{ConditionOperator, IndicatorBindingSpec, IndicatorSourceSpec};
+
+    fn create_test_indicator(name: &str, alias: &str) -> IndicatorInfo {
+        IndicatorInfo {
+            name: name.to_string(),
+            alias: alias.to_string(),
+            parameters: vec![DiscoveryIndicatorParamInfo {
+                name: "period".to_string(),
+                param_type: ParameterType::Period,
+                optimizable: true,
+                mutatable: true,
+                global_param_name: Some("period".to_string()),
+            }],
+            can_use_indicator_input: false,
+            input_type: "price".to_string(),
+            indicator_type: "trend".to_string(),
         }
     }
 
-    fn create_indicator_price_input(
-        condition: &ConditionInfo,
-        alias_to_timeframes: &HashMap<String, HashSet<TimeFrame>>,
-    ) -> Result<ConditionInputSpec, StrategyConversionError> {
-        let indicator_alias = &condition.primary_indicator_alias;
-        let price_field = ConverterHelpers::get_price_field_for_condition(condition);
-
-        let primary_source = ConverterHelpers::create_indicator_source(
-            indicator_alias,
-            condition.primary_timeframe.as_ref(),
-            alias_to_timeframes,
-        );
-
-        let secondary_source = ConverterHelpers::create_price_source(
-            price_field,
-            condition.secondary_timeframe.as_ref(),
-        );
-
-        if let Some(percent_value) = ConverterHelpers::extract_percent_param(condition) {
-            Ok(ConditionInputSpec::DualWithPercent {
-                primary: primary_source,
-                secondary: secondary_source,
-                percent: percent_value,
-            })
-        } else {
-            Ok(ConditionInputSpec::Dual {
-                primary: primary_source,
-                secondary: secondary_source,
-            })
+    fn create_test_condition(
+        id: &str,
+        condition_type: &str,
+        operator: ConditionOperator,
+    ) -> ConditionInfo {
+        ConditionInfo {
+            id: id.to_string(),
+            name: format!("Test {}", id),
+            operator,
+            condition_type: condition_type.to_string(),
+            optimization_params: vec![],
+            constant_value: None,
+            primary_indicator_alias: "sma".to_string(),
+            secondary_indicator_alias: None,
+            primary_timeframe: None,
+            secondary_timeframe: None,
+            price_field: None,
         }
     }
 
-    fn create_indicator_indicator_input(
-        condition: &ConditionInfo,
-        alias_to_timeframes: &HashMap<String, HashSet<TimeFrame>>,
-    ) -> Result<ConditionInputSpec, StrategyConversionError> {
-        let primary_alias = &condition.primary_indicator_alias;
-        let secondary_alias = condition.secondary_indicator_alias.as_ref().ok_or_else(
-            || StrategyConversionError::InvalidConditionFormat {
-                condition_id: condition.id.clone(),
-                reason:
-                    "Missing secondary_indicator_alias for indicator_indicator condition"
-                        .to_string(),
+    fn create_test_indicator_binding(alias: &str) -> IndicatorBindingSpec {
+        IndicatorBindingSpec {
+            alias: alias.to_string(),
+            timeframe: TimeFrame::Minutes(60),
+            source: IndicatorSourceSpec::Registry {
+                name: "SMA".to_string(),
+                parameters: std::collections::HashMap::new(),
             },
-        )?;
-
-        let primary_source = ConverterHelpers::create_indicator_source(
-            primary_alias,
-            condition.primary_timeframe.as_ref(),
-            alias_to_timeframes,
-        );
-
-        let secondary_source = ConverterHelpers::create_indicator_source(
-            secondary_alias,
-            condition.secondary_timeframe.as_ref(),
-            alias_to_timeframes,
-        );
-
-        if let Some(percent_value) = ConverterHelpers::extract_percent_param(condition) {
-            Ok(ConditionInputSpec::DualWithPercent {
-                primary: primary_source,
-                secondary: secondary_source,
-                percent: percent_value,
-            })
-        } else {
-            Ok(ConditionInputSpec::Dual {
-                primary: primary_source,
-                secondary: secondary_source,
-            })
+            tags: vec![],
         }
     }
 
-    fn create_trend_condition_input(
-        condition: &ConditionInfo,
-        alias_to_timeframes: &HashMap<String, HashSet<TimeFrame>>,
-    ) -> Result<ConditionInputSpec, StrategyConversionError> {
-        let indicator_alias = &condition.primary_indicator_alias;
-        let primary_source = ConverterHelpers::create_indicator_source(
-            indicator_alias,
-            condition.primary_timeframe.as_ref(),
-            alias_to_timeframes,
-        );
-
-        Ok(ConditionInputSpec::Single {
-            source: primary_source,
-        })
+    fn create_test_candidate() -> StrategyCandidate {
+        StrategyCandidate {
+            indicators: vec![create_test_indicator("SMA", "sma")],
+            nested_indicators: vec![],
+            conditions: vec![],
+            exit_conditions: vec![],
+            stop_handlers: vec![],
+            take_handlers: vec![],
+            timeframes: vec![TimeFrame::Minutes(60)],
+            config: StrategyDiscoveryConfig::default(),
+        }
     }
 
-    fn create_indicator_constant_input(
-        condition: &ConditionInfo,
-        alias_to_timeframes: &HashMap<String, HashSet<TimeFrame>>,
-    ) -> Result<ConditionInputSpec, StrategyConversionError> {
-        let indicator_alias = &condition.primary_indicator_alias;
-        let constant_value = condition.constant_value.unwrap_or(0.0) as f32;
+    #[test]
+    fn test_create_bindings_indicator_price() {
+        let candidate = create_test_candidate();
+        let indicator_bindings = vec![create_test_indicator_binding("sma")];
+        let mut condition =
+            create_test_condition("cond1", "indicator_price", ConditionOperator::Above);
+        condition.price_field = Some("Close".to_string());
 
-        let primary_source = ConverterHelpers::create_indicator_source(
-            indicator_alias,
-            condition.primary_timeframe.as_ref(),
-            alias_to_timeframes,
+        let result = ConditionBuilder::create_bindings(
+            &[condition],
+            &candidate,
+            &indicator_bindings,
+            TimeFrame::Minutes(60),
+            "entry",
         );
 
-        Ok(ConditionInputSpec::Dual {
-            primary: primary_source,
-            secondary: crate::strategy::types::DataSeriesSource::custom(format!(
-                "constant_{}",
-                constant_value
-            )),
-        })
+        assert!(result.is_ok());
+        let bindings = result.unwrap();
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].id, "cond1");
     }
 
+    #[test]
+    fn test_create_bindings_indicator_indicator() {
+        let candidate = create_test_candidate();
+        let indicator_bindings = vec![
+            create_test_indicator_binding("sma"),
+            create_test_indicator_binding("ema"),
+        ];
+        let mut condition =
+            create_test_condition("cond1", "indicator_indicator", ConditionOperator::Above);
+        condition.secondary_indicator_alias = Some("ema".to_string());
+
+        let result = ConditionBuilder::create_bindings(
+            &[condition],
+            &candidate,
+            &indicator_bindings,
+            TimeFrame::Minutes(60),
+            "entry",
+        );
+
+        assert!(result.is_ok());
+        let bindings = result.unwrap();
+        assert_eq!(bindings.len(), 1);
+    }
+
+    #[test]
+    fn test_create_bindings_trend_condition() {
+        let candidate = create_test_candidate();
+        let indicator_bindings = vec![create_test_indicator_binding("sma")];
+        let mut condition =
+            create_test_condition("cond1", "trend_condition", ConditionOperator::RisingTrend);
+        condition.optimization_params = vec![ConditionParamInfo {
+            name: "period".to_string(),
+            optimizable: true,
+            mutatable: true,
+            global_param_name: None,
+        }];
+
+        let result = ConditionBuilder::create_bindings(
+            &[condition],
+            &candidate,
+            &indicator_bindings,
+            TimeFrame::Minutes(60),
+            "entry",
+        );
+
+        assert!(result.is_ok());
+        let bindings = result.unwrap();
+        assert_eq!(bindings.len(), 1);
+        assert!(bindings[0].parameters.contains_key("period"));
+    }
+
+    #[test]
+    fn test_create_bindings_indicator_constant() {
+        let candidate = create_test_candidate();
+        let indicator_bindings = vec![create_test_indicator_binding("sma")];
+        let mut condition =
+            create_test_condition("cond1", "indicator_constant", ConditionOperator::Above);
+        condition.constant_value = Some(70.0);
+
+        let result = ConditionBuilder::create_bindings(
+            &[condition],
+            &candidate,
+            &indicator_bindings,
+            TimeFrame::Minutes(60),
+            "entry",
+        );
+
+        assert!(result.is_ok());
+        let bindings = result.unwrap();
+        assert_eq!(bindings.len(), 1);
+    }
+
+    #[test]
+    fn test_create_bindings_exit_prefix() {
+        let candidate = create_test_candidate();
+        let indicator_bindings = vec![create_test_indicator_binding("sma")];
+        let mut condition =
+            create_test_condition("cond1", "indicator_price", ConditionOperator::Below);
+        condition.price_field = Some("Close".to_string());
+
+        let result = ConditionBuilder::create_bindings(
+            &[condition],
+            &candidate,
+            &indicator_bindings,
+            TimeFrame::Minutes(60),
+            "exit",
+        );
+
+        assert!(result.is_ok());
+        let bindings = result.unwrap();
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].id, "exit_cond1");
+        assert!(bindings[0].name.contains("Exit:"));
+        assert!(bindings[0].tags.contains(&"exit".to_string()));
+    }
+
+    #[test]
+    fn test_create_bindings_empty_conditions() {
+        let candidate = create_test_candidate();
+        let indicator_bindings = vec![create_test_indicator_binding("sma")];
+
+        let result = ConditionBuilder::create_bindings(
+            &[],
+            &candidate,
+            &indicator_bindings,
+            TimeFrame::Minutes(60),
+            "entry",
+        );
+
+        assert!(result.is_ok());
+        let bindings = result.unwrap();
+        assert!(bindings.is_empty());
+    }
+
+    #[test]
+    fn test_extract_condition_parameters_percentage() {
+        let mut condition = create_test_condition(
+            "cond1",
+            "indicator_price",
+            ConditionOperator::GreaterPercent,
+        );
+        condition.optimization_params = vec![ConditionParamInfo {
+            name: "percent".to_string(),
+            optimizable: true,
+            mutatable: true,
+            global_param_name: None,
+        }];
+
+        let result =
+            ConditionBuilder::extract_condition_parameters(&condition.operator, &condition);
+
+        assert!(result.is_ok());
+        let params = result.unwrap();
+        assert!(params.contains_key("percent"));
+    }
+
+    #[test]
+    fn test_extract_condition_parameters_percentage_missing() {
+        let condition = create_test_condition(
+            "cond1",
+            "indicator_price",
+            ConditionOperator::GreaterPercent,
+        );
+
+        let result =
+            ConditionBuilder::extract_condition_parameters(&condition.operator, &condition);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_condition_parameters_trend() {
+        let mut condition =
+            create_test_condition("cond1", "trend_condition", ConditionOperator::RisingTrend);
+        condition.optimization_params = vec![ConditionParamInfo {
+            name: "period".to_string(),
+            optimizable: true,
+            mutatable: true,
+            global_param_name: None,
+        }];
+
+        let result =
+            ConditionBuilder::extract_condition_parameters(&condition.operator, &condition);
+
+        assert!(result.is_ok());
+        let params = result.unwrap();
+        assert!(params.contains_key("period"));
+    }
+
+    #[test]
+    fn test_extract_condition_parameters_trend_missing() {
+        let condition =
+            create_test_condition("cond1", "trend_condition", ConditionOperator::RisingTrend);
+
+        let result =
+            ConditionBuilder::extract_condition_parameters(&condition.operator, &condition);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_condition_input_indicator_price() {
+        let candidate = create_test_candidate();
+        let indicator_bindings = vec![create_test_indicator_binding("sma")];
+        let mut condition =
+            create_test_condition("cond1", "indicator_price", ConditionOperator::Above);
+        condition.price_field = Some("Close".to_string());
+
+        let result =
+            ConditionBuilder::create_condition_input(&condition, &candidate, &indicator_bindings);
+
+        assert!(result.is_ok());
+        let input = result.unwrap();
+        assert!(matches!(input, ConditionInputSpec::Dual { .. }));
+    }
+
+    #[test]
+    fn test_create_condition_input_indicator_indicator() {
+        let candidate = create_test_candidate();
+        let indicator_bindings = vec![
+            create_test_indicator_binding("sma"),
+            create_test_indicator_binding("ema"),
+        ];
+        let mut condition =
+            create_test_condition("cond1", "indicator_indicator", ConditionOperator::Above);
+        condition.secondary_indicator_alias = Some("ema".to_string());
+
+        let result =
+            ConditionBuilder::create_condition_input(&condition, &candidate, &indicator_bindings);
+
+        assert!(result.is_ok());
+        let input = result.unwrap();
+        assert!(matches!(input, ConditionInputSpec::Dual { .. }));
+    }
+
+    #[test]
+    fn test_create_condition_input_indicator_indicator_missing_secondary() {
+        let candidate = create_test_candidate();
+        let indicator_bindings = vec![create_test_indicator_binding("sma")];
+        let condition =
+            create_test_condition("cond1", "indicator_indicator", ConditionOperator::Above);
+
+        let result =
+            ConditionBuilder::create_condition_input(&condition, &candidate, &indicator_bindings);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_condition_input_trend_condition() {
+        let candidate = create_test_candidate();
+        let indicator_bindings = vec![create_test_indicator_binding("sma")];
+        let condition =
+            create_test_condition("cond1", "trend_condition", ConditionOperator::RisingTrend);
+
+        let result =
+            ConditionBuilder::create_condition_input(&condition, &candidate, &indicator_bindings);
+
+        assert!(result.is_ok());
+        let input = result.unwrap();
+        assert!(matches!(input, ConditionInputSpec::Single { .. }));
+    }
+
+    #[test]
+    fn test_create_condition_input_indicator_constant() {
+        let candidate = create_test_candidate();
+        let indicator_bindings = vec![create_test_indicator_binding("sma")];
+        let mut condition =
+            create_test_condition("cond1", "indicator_constant", ConditionOperator::Above);
+        condition.constant_value = Some(70.0);
+
+        let result =
+            ConditionBuilder::create_condition_input(&condition, &candidate, &indicator_bindings);
+
+        assert!(result.is_ok());
+        let input = result.unwrap();
+        assert!(matches!(input, ConditionInputSpec::Dual { .. }));
+    }
+
+    #[test]
+    fn test_create_condition_input_unsupported_type() {
+        let candidate = create_test_candidate();
+        let indicator_bindings = vec![create_test_indicator_binding("sma")];
+        let mut condition =
+            create_test_condition("cond1", "unknown_type", ConditionOperator::Above);
+        condition.condition_type = "unknown_type".to_string();
+
+        let result =
+            ConditionBuilder::create_condition_input(&condition, &candidate, &indicator_bindings);
+
+        assert!(result.is_err());
+    }
 }

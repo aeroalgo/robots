@@ -621,3 +621,191 @@ impl PopulationManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::optimization::types::{EvaluatedStrategy, GeneticIndividual, Population};
+    use crate::strategy::types::StrategyParamValue;
+
+    fn create_test_individual(fitness: f64, params: StrategyParameterMap) -> GeneticIndividual {
+        GeneticIndividual {
+            strategy: EvaluatedStrategy {
+                candidate: None,
+                parameters: params,
+                fitness: Some(fitness),
+                backtest_report: None,
+            },
+            generation: 0,
+            island_id: None,
+        }
+    }
+
+    fn create_test_population(individuals: Vec<GeneticIndividual>) -> Population {
+        Population {
+            individuals,
+            generation: 0,
+            island_id: None,
+        }
+    }
+
+    #[test]
+    fn test_population_config_default() {
+        let config = PopulationConfig::default();
+        assert_eq!(config.size, 100);
+        assert_eq!(config.elitism_count, 5);
+        assert_eq!(config.crossover_rate, 0.7);
+        assert_eq!(config.mutation_rate, 0.1);
+    }
+
+    #[test]
+    fn test_population_manager_new() {
+        let config = PopulationConfig::default();
+        let manager = PopulationManager::new(config);
+        assert_eq!(manager.config.size, 100);
+    }
+
+    #[test]
+    fn test_select_parents_with_fitness() {
+        let config = PopulationConfig::default();
+        let manager = PopulationManager::new(config);
+
+        let mut params1 = HashMap::new();
+        params1.insert("param1".to_string(), StrategyParamValue::Number(10.0));
+        let mut params2 = HashMap::new();
+        params2.insert("param2".to_string(), StrategyParamValue::Number(20.0));
+        let mut params3 = HashMap::new();
+        params3.insert("param3".to_string(), StrategyParamValue::Number(30.0));
+
+        let individuals = vec![
+            create_test_individual(1.0, params1),
+            create_test_individual(2.0, params2),
+            create_test_individual(3.0, params3),
+        ];
+        let population = create_test_population(individuals);
+
+        let parents = manager.select_parents(&population, 2);
+        assert_eq!(parents.len(), 2);
+    }
+
+    #[test]
+    fn test_select_parents_zero_fitness() {
+        let config = PopulationConfig::default();
+        let manager = PopulationManager::new(config);
+
+        let mut params1 = HashMap::new();
+        params1.insert("param1".to_string(), StrategyParamValue::Number(10.0));
+        let mut params2 = HashMap::new();
+        params2.insert("param2".to_string(), StrategyParamValue::Number(20.0));
+
+        let individuals = vec![
+            create_test_individual(0.0, params1),
+            create_test_individual(0.0, params2),
+        ];
+        let population = create_test_population(individuals);
+
+        let parents = manager.select_parents(&population, 2);
+        assert_eq!(parents.len(), 2);
+    }
+
+    #[test]
+    fn test_select_parents_empty_population() {
+        let config = PopulationConfig::default();
+        let manager = PopulationManager::new(config);
+        let population = create_test_population(vec![]);
+
+        let parents = manager.select_parents(&population, 0);
+        assert_eq!(parents.len(), 0);
+    }
+
+    #[test]
+    fn test_crossover_success() {
+        let config = PopulationConfig {
+            crossover_rate: 1.0,
+            ..Default::default()
+        };
+        let manager = PopulationManager::new(config);
+
+        let mut params1 = HashMap::new();
+        params1.insert("param1".to_string(), StrategyParamValue::Number(10.0));
+        params1.insert("param2".to_string(), StrategyParamValue::Number(20.0));
+
+        let mut params2 = HashMap::new();
+        params2.insert("param1".to_string(), StrategyParamValue::Number(15.0));
+        params2.insert("param3".to_string(), StrategyParamValue::Number(30.0));
+
+        let parent1 = create_test_individual(1.0, params1);
+        let parent2 = create_test_individual(2.0, params2);
+
+        let result = manager.crossover(&parent1, &parent2);
+        assert!(result.is_some());
+
+        let (child1, child2) = result.unwrap();
+        assert!(!child1.is_empty() || !child2.is_empty());
+    }
+
+    #[test]
+    fn test_crossover_fails_rate() {
+        let config = PopulationConfig {
+            crossover_rate: 0.0,
+            ..Default::default()
+        };
+        let manager = PopulationManager::new(config);
+
+        let mut params1 = HashMap::new();
+        params1.insert("param1".to_string(), StrategyParamValue::Number(10.0));
+        let mut params2 = HashMap::new();
+        params2.insert("param2".to_string(), StrategyParamValue::Number(20.0));
+
+        let parent1 = create_test_individual(1.0, params1);
+        let parent2 = create_test_individual(2.0, params2);
+
+        let result = manager.crossover(&parent1, &parent2);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_apply_elitism() {
+        let config = PopulationConfig {
+            elitism_count: 2,
+            ..Default::default()
+        };
+        let manager = PopulationManager::new(config);
+
+        let mut params1 = HashMap::new();
+        params1.insert("param1".to_string(), StrategyParamValue::Number(10.0));
+        let mut params2 = HashMap::new();
+        params2.insert("param2".to_string(), StrategyParamValue::Number(20.0));
+        let mut params3 = HashMap::new();
+        params3.insert("param3".to_string(), StrategyParamValue::Number(30.0));
+
+        let individuals = vec![
+            create_test_individual(1.0, params1),
+            create_test_individual(2.0, params2),
+            create_test_individual(3.0, params3),
+        ];
+        let mut population = create_test_population(individuals);
+
+        let elites = vec![
+            create_test_individual(10.0, HashMap::new()),
+            create_test_individual(20.0, HashMap::new()),
+        ];
+
+        manager.apply_elitism(&mut population, elites);
+
+        assert_eq!(population.individuals.len(), 3);
+        assert_eq!(population.individuals[0].strategy.fitness, Some(10.0));
+        assert_eq!(population.individuals[1].strategy.fitness, Some(20.0));
+    }
+
+    #[test]
+    fn test_apply_elitism_empty_population() {
+        let config = PopulationConfig::default();
+        let manager = PopulationManager::new(config);
+        let mut population = create_test_population(vec![]);
+        let elites = vec![create_test_individual(10.0, HashMap::new())];
+
+        manager.apply_elitism(&mut population, elites);
+        assert_eq!(population.individuals.len(), 0);
+    }
+}

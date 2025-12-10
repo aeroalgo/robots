@@ -2,9 +2,8 @@
 mod tests {
     use super::*;
     use crate::backtest::{
-        BacktestConfig, BacktestEngine, BacktestError, ConditionEvaluator,
-        EquityCalculator, FeedManager, IndicatorEngine, SessionManager, SessionState,
-        TimeFrameAggregationService,
+        BacktestConfig, BacktestEngine, BacktestError, ConditionEvaluator, EquityCalculator,
+        FeedManager, IndicatorEngine, SessionManager, SessionState, TimeFrameAggregationService,
     };
     use crate::data_model::quote::Quote;
     use crate::data_model::quote_frame::QuoteFrame;
@@ -140,7 +139,7 @@ mod tests {
     #[test]
     fn test_backtest_config_default() {
         let config = BacktestConfig::default();
-        assert_eq!(config.initial_capital, 10000.0);
+        assert_eq!(config.initial_capital, 0.0);
         assert_eq!(config.use_full_capital, false);
         assert_eq!(config.reinvest_profits, false);
     }
@@ -200,7 +199,7 @@ mod tests {
 
         let engine = BacktestEngine::new(strategy, frames).unwrap();
         let config = engine.config();
-        assert_eq!(config.initial_capital, 10000.0);
+        assert_eq!(config.initial_capital, 0.0);
 
         let custom_config = BacktestConfig {
             initial_capital: 5000.0,
@@ -304,7 +303,7 @@ mod tests {
 
         let report = result.unwrap();
         assert!(report.metrics.total_bars > 0);
-        assert_eq!(report.metrics.initial_capital, 10000.0);
+        assert_eq!(report.metrics.initial_capital, 0.0);
     }
 
     #[test]
@@ -433,7 +432,6 @@ mod tests {
         assert_eq!(report1.metrics.total_bars, report2.metrics.total_bars);
     }
 
-
     #[test]
     fn test_feed_manager_with_frames() {
         let symbol = Symbol::from_descriptor("TEST");
@@ -508,7 +506,6 @@ mod tests {
         assert!(!FeedManager::is_multiple_of(&tf_240, &tf_60));
     }
 
-
     #[test]
     fn test_feed_manager_step() {
         let symbol = Symbol::from_descriptor("TEST");
@@ -578,7 +575,6 @@ mod tests {
         assert_eq!(equity1, equity2);
     }
 
-
     #[test]
     fn test_session_manager_new() {
         let _manager = SessionManager::new(None);
@@ -591,7 +587,6 @@ mod tests {
         let _manager = SessionManager::new(duration);
         assert!(true);
     }
-
 
     #[test]
     fn test_session_state_default() {
@@ -707,5 +702,4 @@ mod tests {
         let aggregated = result.unwrap();
         assert!(aggregated.is_empty());
     }
-
 }

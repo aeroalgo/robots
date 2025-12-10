@@ -227,3 +227,294 @@ impl FitnessFunction {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_model::types::{Symbol, TimeFrame};
+    use crate::metrics::backtest::{BacktestMetrics, BacktestReport, StrategyTrade};
+    use crate::strategy::types::PositionDirection;
+    use chrono::Utc;
+
+    fn create_test_report(trades: Vec<StrategyTrade>, metrics: BacktestMetrics) -> BacktestReport {
+        BacktestReport::new(
+            trades,
+            metrics,
+            vec![1000.0, 1100.0, 1200.0, 1150.0, 1300.0],
+        )
+    }
+
+    fn create_test_metrics() -> BacktestMetrics {
+        let mut metrics = BacktestMetrics::default();
+        metrics.sharpe_ratio = Some(2.0);
+        metrics.profit_factor = Some(2.5);
+        metrics.winning_percentage = 0.6;
+        metrics.cagr = Some(15.0);
+        metrics.drawdown_percent = Some(10.0);
+        metrics.total_trades = 50;
+        metrics.total_profit = 5000.0;
+        metrics
+    }
+
+    fn create_test_trade(pnl: f64) -> StrategyTrade {
+        StrategyTrade {
+            position_id: "test_1".to_string(),
+            symbol: Symbol::new("BTCUSDT".to_string()),
+            timeframe: TimeFrame::from_identifier("60"),
+            direction: PositionDirection::Long,
+            quantity: 1.0,
+            entry_price: 50000.0,
+            exit_price: 51000.0,
+            entry_time: Some(Utc::now()),
+            exit_time: Some(Utc::now()),
+            pnl,
+            entry_rule_id: None,
+            exit_rule_id: None,
+            stop_history: vec![],
+        }
+    }
+
+    #[test]
+    fn test_passes_thresholds_all_pass() {
+        let metrics = create_test_metrics();
+        let trades = vec![create_test_trade(100.0); 50];
+        let report = create_test_report(trades, metrics);
+        let thresholds = FitnessThresholds::default();
+
+        assert!(FitnessFunction::passes_thresholds(&report, &thresholds));
+    }
+
+    #[test]
+    fn test_passes_thresholds_sharpe_fails() {
+        let mut metrics = create_test_metrics();
+        metrics.sharpe_ratio = Some(0.5);
+        let trades = vec![create_test_trade(100.0); 50];
+        let report = create_test_report(trades, metrics);
+        let thresholds = FitnessThresholds::default();
+
+        assert!(!FitnessFunction::passes_thresholds(&report, &thresholds));
+    }
+
+    #[test]
+    fn test_passes_thresholds_drawdown_fails() {
+        let mut metrics = create_test_metrics();
+        metrics.drawdown_percent = Some(25.0);
+        let trades = vec![create_test_trade(100.0); 50];
+        let report = create_test_report(trades, metrics);
+        let thresholds = FitnessThresholds::default();
+
+        assert!(!FitnessFunction::passes_thresholds(&report, &thresholds));
+    }
+
+    #[test]
+    fn test_passes_thresholds_win_rate_fails() {
+        let mut metrics = create_test_metrics();
+        metrics.winning_percentage = 0.4;
+        let trades = vec![create_test_trade(100.0); 50];
+        let report = create_test_report(trades, metrics);
+        let thresholds = FitnessThresholds::default();
+
+        assert!(!FitnessFunction::passes_thresholds(&report, &thresholds));
+    }
+
+    #[test]
+    fn test_passes_thresholds_profit_factor_fails() {
+        let mut metrics = create_test_metrics();
+        metrics.profit_factor = Some(1.2);
+        let trades = vec![create_test_trade(100.0); 50];
+        let report = create_test_report(trades, metrics);
+        let thresholds = FitnessThresholds::default();
+
+        assert!(!FitnessFunction::passes_thresholds(&report, &thresholds));
+    }
+
+    #[test]
+    fn test_passes_thresholds_trades_count_fails() {
+        let metrics = create_test_metrics();
+        let trades = vec![create_test_trade(100.0); 20];
+        let report = create_test_report(trades, metrics);
+        let thresholds = FitnessThresholds::default();
+
+        assert!(!FitnessFunction::passes_thresholds(&report, &thresholds));
+    }
+
+    #[test]
+    fn test_passes_thresholds_cagr_fails() {
+        let mut metrics = create_test_metrics();
+        metrics.cagr = Some(5.0);
+        let trades = vec![create_test_trade(100.0); 50];
+        let report = create_test_report(trades, metrics);
+        let thresholds = FitnessThresholds::default();
+
+        assert!(!FitnessFunction::passes_thresholds(&report, &thresholds));
+    }
+
+    #[test]
+    fn test_passes_thresholds_recovery_factor_fails() {
+        let mut metrics = create_test_metrics();
+        metrics.cagr = Some(5.0);
+        metrics.drawdown_percent = Some(10.0);
+        let trades = vec![create_test_trade(100.0); 50];
+        let report = create_test_report(trades, metrics);
+        let thresholds = FitnessThresholds::default();
+
+        assert!(!FitnessFunction::passes_thresholds(&report, &thresholds));
+    }
+
+    #[test]
+    fn test_passes_thresholds_missing_sharpe() {
+        let mut metrics = create_test_metrics();
+        metrics.sharpe_ratio = None;
+        let trades = vec![create_test_trade(100.0); 50];
+        let report = create_test_report(trades, metrics);
+        let thresholds = FitnessThresholds::default();
+
+        assert!(!FitnessFunction::passes_thresholds(&report, &thresholds));
+    }
+
+    #[test]
+    fn test_calculate_fitness() {
+        let metrics = create_test_metrics();
+        let trades = vec![create_test_trade(100.0); 50];
+        let report = create_test_report(trades, metrics);
+        let weights = FitnessWeights::default();
+
+        let fitness = FitnessFunction::calculate_fitness(&report, &weights);
+
+        assert!(fitness > 0.0);
+        assert!(fitness <= 1.0);
+    }
+
+    #[test]
+    fn test_calculate_fitness_zero_weights() {
+        let metrics = create_test_metrics();
+        let trades = vec![create_test_trade(100.0); 50];
+        let report = create_test_report(trades, metrics);
+        let weights = FitnessWeights {
+            sharpe_ratio_weight: 0.0,
+            profit_factor_weight: 0.0,
+            win_rate_weight: 0.0,
+            cagr_weight: 0.0,
+            recovery_factor_weight: 0.0,
+            drawdown_penalty: 0.0,
+            trades_count_bonus: 0.0,
+        };
+
+        let fitness = FitnessFunction::calculate_fitness(&report, &weights);
+
+        assert_eq!(fitness, 0.0);
+    }
+
+    #[test]
+    fn test_evaluate_strategy_passes() {
+        let metrics = create_test_metrics();
+        let trades = vec![create_test_trade(100.0); 50];
+        let report = create_test_report(trades, metrics);
+        let thresholds = FitnessThresholds::default();
+        let weights = FitnessWeights::default();
+
+        let result = FitnessFunction::evaluate_strategy(&report, &thresholds, &weights);
+
+        assert!(result.is_some());
+        assert!(result.unwrap() > 0.0);
+    }
+
+    #[test]
+    fn test_evaluate_strategy_fails() {
+        let mut metrics = create_test_metrics();
+        metrics.sharpe_ratio = Some(0.5);
+        let trades = vec![create_test_trade(100.0); 50];
+        let report = create_test_report(trades, metrics);
+        let thresholds = FitnessThresholds::default();
+        let weights = FitnessWeights::default();
+
+        let result = FitnessFunction::evaluate_strategy(&report, &thresholds, &weights);
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_normalize_sharpe_ratio() {
+        assert_eq!(FitnessFunction::normalize_sharpe_ratio(Some(3.0)), 1.0);
+        assert_eq!(FitnessFunction::normalize_sharpe_ratio(Some(1.5)), 0.5);
+        assert_eq!(FitnessFunction::normalize_sharpe_ratio(Some(-1.0)), 0.0);
+        assert_eq!(FitnessFunction::normalize_sharpe_ratio(None), 0.0);
+    }
+
+    #[test]
+    fn test_normalize_profit_factor() {
+        assert_eq!(FitnessFunction::normalize_profit_factor(Some(5.0)), 1.0);
+        assert_eq!(FitnessFunction::normalize_profit_factor(Some(2.5)), 0.5);
+        assert_eq!(FitnessFunction::normalize_profit_factor(Some(-1.0)), 0.0);
+        assert_eq!(FitnessFunction::normalize_profit_factor(None), 0.0);
+    }
+
+    #[test]
+    fn test_normalize_cagr() {
+        assert_eq!(FitnessFunction::normalize_cagr(Some(100.0)), 1.0);
+        assert_eq!(FitnessFunction::normalize_cagr(Some(50.0)), 0.5);
+        assert_eq!(FitnessFunction::normalize_cagr(Some(-10.0)), 0.0);
+        assert_eq!(FitnessFunction::normalize_cagr(None), 0.0);
+    }
+
+    #[test]
+    fn test_normalize_recovery_factor() {
+        assert_eq!(
+            FitnessFunction::normalize_recovery_factor(Some(10.0), Some(2.0)),
+            1.0
+        );
+        assert_eq!(
+            FitnessFunction::normalize_recovery_factor(Some(5.0), Some(2.0)),
+            0.5
+        );
+        assert_eq!(
+            FitnessFunction::normalize_recovery_factor(Some(0.0), Some(2.0)),
+            0.0
+        );
+        assert_eq!(
+            FitnessFunction::normalize_recovery_factor(None, Some(2.0)),
+            0.0
+        );
+    }
+
+    #[test]
+    fn test_calculate_drawdown_penalty() {
+        assert_eq!(FitnessFunction::calculate_drawdown_penalty(Some(50.0)), 1.0);
+        assert_eq!(FitnessFunction::calculate_drawdown_penalty(Some(25.0)), 0.5);
+        assert_eq!(FitnessFunction::calculate_drawdown_penalty(Some(0.0)), 0.0);
+        assert_eq!(FitnessFunction::calculate_drawdown_penalty(None), 0.0);
+    }
+
+    #[test]
+    fn test_calculate_trades_bonus() {
+        assert_eq!(FitnessFunction::calculate_trades_bonus(100), 1.0);
+        assert_eq!(FitnessFunction::calculate_trades_bonus(75), 0.75);
+        assert_eq!(FitnessFunction::calculate_trades_bonus(40), 0.5);
+        assert_eq!(FitnessFunction::calculate_trades_bonus(15), 0.5);
+        assert_eq!(FitnessFunction::calculate_trades_bonus(0), 0.0);
+    }
+
+    #[test]
+    fn test_fitness_thresholds_default() {
+        let thresholds = FitnessThresholds::default();
+        assert_eq!(thresholds.min_sharpe_ratio, Some(1.0));
+        assert_eq!(thresholds.max_drawdown_pct, Some(20.0));
+        assert_eq!(thresholds.min_win_rate, Some(0.45));
+        assert_eq!(thresholds.min_profit_factor, Some(1.5));
+        assert_eq!(thresholds.min_trades_count, Some(30));
+        assert_eq!(thresholds.min_cagr, Some(10.0));
+        assert_eq!(thresholds.min_recovery_factor, Some(1.0));
+    }
+
+    #[test]
+    fn test_fitness_weights_default() {
+        let weights = FitnessWeights::default();
+        assert_eq!(weights.sharpe_ratio_weight, 0.25);
+        assert_eq!(weights.profit_factor_weight, 0.20);
+        assert_eq!(weights.win_rate_weight, 0.10);
+        assert_eq!(weights.cagr_weight, 0.15);
+        assert_eq!(weights.recovery_factor_weight, 0.20);
+        assert_eq!(weights.drawdown_penalty, 0.05);
+        assert_eq!(weights.trades_count_bonus, 0.05);
+    }
+}

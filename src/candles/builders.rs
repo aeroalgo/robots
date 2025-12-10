@@ -38,7 +38,12 @@ impl BarBuilderHelpers {
         )
     }
 
-    fn update_high_low(bar_high: Price, bar_low: Price, quote_high: Price, quote_low: Price) -> (Price, Price) {
+    fn update_high_low(
+        bar_high: Price,
+        bar_low: Price,
+        quote_high: Price,
+        quote_low: Price,
+    ) -> (Price, Price) {
         (bar_high.max(quote_high), bar_low.min(quote_low))
     }
 }
@@ -91,7 +96,12 @@ impl BarBuilder for RangeBarBuilder {
             }
 
             let bar = current_bar.as_mut().unwrap();
-            let (high, low) = BarBuilderHelpers::update_high_low(bar.high(), bar.low(), quote.high(), quote.low());
+            let (high, low) = BarBuilderHelpers::update_high_low(
+                bar.high(),
+                bar.low(),
+                quote.high(),
+                quote.low(),
+            );
             let range = high - low;
 
             if range >= range_size {
@@ -186,7 +196,12 @@ impl BarBuilder for VolumeBarBuilder {
             let bar = current_bar.as_mut().unwrap();
             accumulated_volume += quote.volume();
 
-            let (high, low) = BarBuilderHelpers::update_high_low(bar.high(), bar.low(), quote.high(), quote.low());
+            let (high, low) = BarBuilderHelpers::update_high_low(
+                bar.high(),
+                bar.low(),
+                quote.high(),
+                quote.low(),
+            );
 
             if accumulated_volume >= volume_size {
                 let new_bar = BarBuilderHelpers::create_quote(
@@ -275,7 +290,12 @@ impl BarBuilder for VolatilityBarBuilder {
 
             let bar = current_bar.as_mut().unwrap();
             let true_range = quote.true_range(previous_close);
-            let (high, low) = BarBuilderHelpers::update_high_low(bar.high(), bar.low(), quote.high(), quote.low());
+            let (high, low) = BarBuilderHelpers::update_high_low(
+                bar.high(),
+                bar.low(),
+                quote.high(),
+                quote.low(),
+            );
 
             if true_range >= threshold {
                 let new_bar = BarBuilderHelpers::create_quote(

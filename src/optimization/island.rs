@@ -25,7 +25,6 @@ impl IslandManager {
         Self { config, islands }
     }
 
-
     pub fn get_all_islands(&self) -> &[Population] {
         &self.islands
     }
@@ -40,5 +39,73 @@ impl IslandManager {
 
     pub fn should_migrate(&self, generation: usize) -> bool {
         generation > 0 && generation % self.config.migration_interval == 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::optimization::types::{EvaluatedStrategy, GeneticIndividual, Population};
+
+    fn create_test_population(id: usize) -> Population {
+        Population {
+            individuals: vec![],
+            generation: 0,
+            island_id: Some(id),
+        }
+    }
+
+    fn create_test_config() -> GeneticAlgorithmConfig {
+        GeneticAlgorithmConfig {
+            islands_count: 3,
+            migration_interval: 5,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_island_manager_new() {
+        let config = create_test_config();
+        let populations = vec![
+            create_test_population(0),
+            create_test_population(1),
+            create_test_population(2),
+        ];
+        let manager = IslandManager::new(config, populations);
+        assert_eq!(manager.islands_count(), 3);
+    }
+
+    #[test]
+    fn test_island_manager_limits_islands() {
+        let config = create_test_config();
+        let populations = vec![
+            create_test_population(0),
+            create_test_population(1),
+            create_test_population(2),
+            create_test_population(3),
+        ];
+        let manager = IslandManager::new(config, populations);
+        assert_eq!(manager.islands_count(), 3);
+    }
+
+    #[test]
+    fn test_get_all_islands() {
+        let config = create_test_config();
+        let populations = vec![create_test_population(0), create_test_population(1)];
+        let manager = IslandManager::new(config, populations);
+        let islands = manager.get_all_islands();
+        assert_eq!(islands.len(), 2);
+    }
+
+    #[test]
+    fn test_should_migrate() {
+        let config = create_test_config();
+        let populations = vec![create_test_population(0)];
+        let manager = IslandManager::new(config, populations);
+        assert!(!manager.should_migrate(0));
+        assert!(!manager.should_migrate(4));
+        assert!(manager.should_migrate(5));
+        assert!(!manager.should_migrate(6));
+        assert!(manager.should_migrate(10));
     }
 }

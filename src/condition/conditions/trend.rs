@@ -51,7 +51,10 @@ impl RisingTrendCondition {
         (last - first) / (period - 1.0)
     }
 
-    fn check_optimized(&self, data: &[f32]) -> (Vec<bool>, Vec<SignalStrength>, Vec<TrendDirection>) {
+    fn check_optimized(
+        &self,
+        data: &[f32],
+    ) -> (Vec<bool>, Vec<SignalStrength>, Vec<TrendDirection>) {
         let period = self.period;
         let mut signals = Vec::with_capacity(data.len());
         let mut strengths = Vec::with_capacity(data.len());
@@ -152,11 +155,8 @@ impl Condition for RisingTrendCondition {
         let start_time = Instant::now();
         let (signals, strengths, directions) = self.check_optimized(data);
 
-        let metadata = ConditionHelpers::create_condition_metadata(
-            start_time.elapsed(),
-            data.len(),
-            0.75,
-        );
+        let metadata =
+            ConditionHelpers::create_condition_metadata(start_time.elapsed(), data.len(), 0.75);
 
         Ok(ConditionResultData {
             signals,
@@ -242,7 +242,10 @@ impl FallingTrendCondition {
         (first - last) / (period - 1.0)
     }
 
-    fn check_optimized(&self, data: &[f32]) -> (Vec<bool>, Vec<SignalStrength>, Vec<TrendDirection>) {
+    fn check_optimized(
+        &self,
+        data: &[f32],
+    ) -> (Vec<bool>, Vec<SignalStrength>, Vec<TrendDirection>) {
         let period = self.period;
         let mut signals = Vec::with_capacity(data.len());
         let mut strengths = Vec::with_capacity(data.len());
@@ -343,11 +346,8 @@ impl Condition for FallingTrendCondition {
         let start_time = Instant::now();
         let (signals, strengths, directions) = self.check_optimized(data);
 
-        let metadata = ConditionHelpers::create_condition_metadata(
-            start_time.elapsed(),
-            data.len(),
-            0.75,
-        );
+        let metadata =
+            ConditionHelpers::create_condition_metadata(start_time.elapsed(), data.len(), 0.75);
 
         Ok(ConditionResultData {
             signals,

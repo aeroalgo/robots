@@ -114,3 +114,67 @@ impl PerStructureOptimizer {
         Ok(results)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::discovery::config::StrategyDiscoveryConfig;
+
+    fn create_test_config() -> GeneticAlgorithmConfig {
+        GeneticAlgorithmConfig {
+            max_generations: 5,
+            ..Default::default()
+        }
+    }
+
+    fn create_test_candidate() -> StrategyCandidate {
+        StrategyCandidate {
+            indicators: vec![],
+            nested_indicators: vec![],
+            conditions: vec![],
+            exit_conditions: vec![],
+            stop_handlers: vec![],
+            take_handlers: vec![],
+            timeframes: vec![],
+            config: StrategyDiscoveryConfig::default(),
+        }
+    }
+
+    fn create_test_frames() -> HashMap<TimeFrame, QuoteFrame> {
+        let mut frames = HashMap::new();
+        let tf = TimeFrame::from_identifier("60");
+        let frame = QuoteFrame::new(
+            crate::data_model::types::Symbol::new("BTCUSDT".to_string()),
+            tf.clone(),
+        );
+        frames.insert(tf, frame);
+        frames
+    }
+
+    #[test]
+    fn test_per_structure_optimizer_new() {
+        let config = create_test_config();
+        let frames = create_test_frames();
+        let base_tf = TimeFrame::from_identifier("60");
+        let discovery_config = StrategyDiscoveryConfig::default();
+        let optimizer = PerStructureOptimizer::new(config, frames, base_tf, discovery_config);
+        assert!(true);
+    }
+
+    #[test]
+    fn test_optimized_strategy_result() {
+        let candidate = create_test_candidate();
+        let params = HashMap::new();
+        let result = OptimizedStrategyResult {
+            candidate,
+            parameters: params,
+            fitness: 1.5,
+            backtest_report: crate::metrics::backtest::BacktestReport::new(
+                vec![],
+                crate::metrics::backtest::BacktestMetrics::default(),
+                vec![],
+            ),
+        };
+        assert_eq!(result.fitness, 1.5);
+    }
+}

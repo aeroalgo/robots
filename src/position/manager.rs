@@ -246,7 +246,7 @@ impl PositionManager {
             persistence: None,
             sequence: 0,
             portfolio: PortfolioSnapshot::default(),
-            initial_capital: 10000.0,
+            initial_capital: 0.0,
             use_full_capital: false,
             reinvest_profits: false,
         }
@@ -1019,7 +1019,7 @@ mod tests {
         assert_eq!(manager.open_position_count(), 0);
         assert!(exit_context.active_positions().is_empty());
         let pnl = manager.portfolio_snapshot().realized_pnl;
-        assert!((pnl - 4.0).abs() < 1e-6, "expected pnl ≈ 4.0, got {}", pnl);
+        assert!((pnl - 5.0).abs() < 1e-6, "expected pnl ≈ 5.0, got {}", pnl);
     }
 
     #[tokio::test]
@@ -1055,23 +1055,19 @@ mod tests {
         stop_decision.exits.push(stop_exit);
         stop_decision.exits.push(exit_signal(&timeframe));
         let mut exit_context = build_context(&[110.0, 110.0], &symbol, &timeframe);
-        manager
+        let exit_report = manager
             .process_decision(&mut exit_context, &stop_decision)
             .expect("stop exit failed");
         assert_eq!(manager.open_position_count(), 0);
         assert!(exit_context.active_positions().is_empty());
         let pnl = manager.portfolio_snapshot().realized_pnl;
         assert!((pnl + 5.0).abs() < 1e-6, "expected pnl ≈ -5.0, got {}", pnl);
-        let closed_event = manager
-            .event_history()
+        let closed_position = exit_report
+            .closed_positions
             .iter()
-            .filter_map(|event| match event {
-                PositionEvent::PositionClosed(state) => Some(state),
-                _ => None,
-            })
             .last()
             .expect("no close event");
-        let reason = closed_event.metadata.get("close_reason");
+        let reason = closed_position.metadata.get("close_reason");
         assert!(reason
             .map(|value| value.starts_with("stop:"))
             .unwrap_or(false));

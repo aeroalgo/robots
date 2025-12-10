@@ -118,3 +118,104 @@ impl FreshBloodSystem {
         parts.join("|")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::optimization::types::{EvaluatedStrategy, GeneticIndividual, Population};
+    use crate::strategy::types::StrategyParamValue;
+    use std::collections::HashMap;
+
+    fn create_test_individual(fitness: f64) -> GeneticIndividual {
+        let mut params = HashMap::new();
+        params.insert("param1".to_string(), StrategyParamValue::Number(10.0));
+        GeneticIndividual {
+            strategy: EvaluatedStrategy {
+                candidate: None,
+                parameters: params,
+                fitness: Some(fitness),
+                backtest_report: None,
+            },
+            generation: 0,
+            island_id: None,
+        }
+    }
+
+    fn create_test_population(individuals: Vec<GeneticIndividual>) -> Population {
+        Population {
+            individuals,
+            generation: 0,
+            island_id: None,
+        }
+    }
+
+    fn create_test_config() -> GeneticAlgorithmConfig {
+        GeneticAlgorithmConfig {
+            detect_duplicates: true,
+            fresh_blood_rate: 0.1,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_fresh_blood_system_new() {
+        let config = create_test_config();
+        let system = FreshBloodSystem::new(config);
+        assert!(true);
+    }
+
+    #[test]
+    fn test_detect_duplicates_disabled() {
+        let config = GeneticAlgorithmConfig {
+            detect_duplicates: false,
+            ..Default::default()
+        };
+        let system = FreshBloodSystem::new(config);
+        let population = create_test_population(vec![
+            create_test_individual(1.0),
+            create_test_individual(2.0),
+        ]);
+        let duplicates = system.detect_duplicates(&population);
+        assert_eq!(duplicates.len(), 0);
+    }
+
+    #[test]
+    fn test_detect_duplicates_no_duplicates() {
+        let config = create_test_config();
+        let system = FreshBloodSystem::new(config);
+        let mut ind1 = create_test_individual(1.0);
+        let mut ind2 = create_test_individual(2.0);
+        ind1.strategy.parameters.insert("param1".to_string(), StrategyParamValue::Number(10.0));
+        ind2.strategy.parameters.insert("param2".to_string(), StrategyParamValue::Number(20.0));
+        let population = create_test_population(vec![ind1, ind2]);
+        let duplicates = system.detect_duplicates(&population);
+        assert_eq!(duplicates.len(), 0);
+    }
+
+    #[test]
+    fn test_replace_weakest() {
+        let config = create_test_config();
+        let system = FreshBloodSystem::new(config);
+        let mut population = create_test_population(vec![
+            create_test_individual(1.0),
+            create_test_individual(2.0),
+            create_test_individual(3.0),
+        ]);
+        let new_individuals = vec![create_test_individual(10.0)];
+        system.replace_weakest(&mut population, new_individuals);
+        assert_eq!(population.individuals.len(), 3);
+    }
+
+    #[test]
+    fn test_replace_weakest_empty_new() {
+        let config = create_test_config();
+        let system = FreshBloodSystem::new(config);
+        let mut population = create_test_population(vec![
+            create_test_individual(1.0),
+            create_test_individual(2.0),
+        ]);
+        let new_individuals = vec![];
+        system.replace_weakest(&mut population, new_individuals);
+        assert_eq!(population.individuals.len(), 2);
+    }
+}

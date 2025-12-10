@@ -1,6 +1,6 @@
-use chrono::Utc;
 use crate::discovery::engine::StrategyCandidate;
 use crate::strategy::types::{StrategyCategory, StrategyMetadata};
+use chrono::Utc;
 
 pub struct MetadataBuilder;
 
