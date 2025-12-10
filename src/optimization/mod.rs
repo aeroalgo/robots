@@ -1,8 +1,8 @@
 pub mod build_rules_provider;
 pub mod builders;
 pub mod candidate_builder;
-pub mod condition_id;
 pub mod candidate_builder_config;
+pub mod condition_id;
 pub mod evaluator;
 pub mod evolution;
 pub mod fitness;
@@ -15,6 +15,7 @@ pub mod per_structure_optimizer;
 pub mod population;
 pub mod sds;
 pub mod types;
+pub mod utils;
 
 pub use candidate_builder::CandidateBuilder;
 pub use candidate_builder_config::CandidateBuilderConfig;
@@ -33,3 +34,4 @@ pub use types::*;
 
 pub mod strategy_saver;
 pub use strategy_saver::StrategySaver;
+pub use utils::ConditionIdGenerator;

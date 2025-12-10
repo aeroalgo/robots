@@ -12,6 +12,7 @@ use crate::optimization::builders::OperatorSelectorFactory;
 use crate::optimization::candidate_builder_config::{
     CandidateBuilderConfig, ConditionProbabilities, ParameterConstraint,
 };
+use crate::optimization::utils::ConditionIdGenerator;
 
 pub struct ConditionBuilder<'a> {
     config: &'a CandidateBuilderConfig,
@@ -201,11 +202,11 @@ impl<'a> ConditionBuilder<'a> {
             self.rng.gen_range(0.0..=100.0)
         };
 
-        let id = format!(
-            "{}_{}_{}",
-            if is_entry { "entry" } else { "exit" },
-            primary_indicator.alias,
-            self.rng.gen::<u32>()
+        let prefix = ConditionIdGenerator::prefix_for(is_entry);
+        let id = ConditionIdGenerator::indicator_constant(
+            prefix,
+            &primary_indicator.alias,
+            &mut *self.rng,
         );
         let name = if primary_indicator.indicator_type == "volatility" {
             format!(
@@ -244,12 +245,12 @@ impl<'a> ConditionBuilder<'a> {
             _ => crate::optimization::condition_id::TrendType::Rising,
         };
         let trend_name = trend_type.display_name();
-        let prefix = ConditionId::prefix_for(is_entry);
-        let id = ConditionId::trend_condition(
+        let prefix = ConditionIdGenerator::prefix_for(is_entry);
+        let id = ConditionIdGenerator::trend_condition(
             prefix,
             &primary_indicator.alias,
             trend_type,
-            self.rng.gen::<u32>(),
+            &mut *self.rng,
         );
         let name = format!(
             "{} {} (period: {:.0})",
@@ -290,12 +291,12 @@ impl<'a> ConditionBuilder<'a> {
             .collect();
 
         if let Some(secondary) = available_secondary.choose(&mut *self.rng) {
-            let id = format!(
-                "{}_{}::{}_{}",
-                if is_entry { "entry" } else { "exit" },
-                primary_indicator.alias,
-                secondary.alias,
-                self.rng.gen::<u32>()
+            let prefix = ConditionIdGenerator::prefix_for(is_entry);
+            let id = ConditionIdGenerator::indicator_indicator(
+                prefix,
+                &primary_indicator.alias,
+                &secondary.alias,
+                &mut *self.rng,
             );
             let name = format!(
                 "{} {:?} {}",
@@ -353,11 +354,11 @@ impl<'a> ConditionBuilder<'a> {
                 (Vec::new(), None)
             };
 
-        let id = format!(
-            "{}_{}_{}",
-            if is_entry { "entry" } else { "exit" },
-            primary_indicator.alias,
-            self.rng.gen::<u32>()
+        let prefix = ConditionIdGenerator::prefix_for(is_entry);
+        let id = ConditionIdGenerator::indicator_constant(
+            prefix,
+            &primary_indicator.alias,
+            &mut *self.rng,
         );
         let name = if let Some(percent) = percent_val {
             format!(
@@ -397,12 +398,9 @@ impl<'a> ConditionBuilder<'a> {
             ConditionOperator::Below
         };
 
-        let condition_id = format!(
-            "{}_{}_{}",
-            if is_entry { "entry" } else { "exit" },
-            indicator.alias,
-            self.rng.gen::<u32>()
-        );
+        let prefix = ConditionIdGenerator::prefix_for(is_entry);
+        let condition_id =
+            ConditionIdGenerator::indicator_price(prefix, &indicator.alias, &mut *self.rng);
 
         let (condition_type, condition_name, constant_value, price_field, optimization_params) =
             if indicator.indicator_type == "oscillator" {
@@ -952,12 +950,8 @@ impl<'a> ConditionBuilder<'a> {
             rng.gen_range(0.0..=100.0)
         };
 
-        let id = format!(
-            "{}_{}_{}",
-            if is_entry { "entry" } else { "exit" },
-            primary_indicator.alias,
-            rng.gen::<u32>()
-        );
+        let prefix = ConditionIdGenerator::prefix_for(is_entry);
+        let id = ConditionIdGenerator::indicator_constant(prefix, &primary_indicator.alias, rng);
         let name = if primary_indicator.indicator_type == "volatility" {
             format!(
                 "{} {:?} Close * {:.2}%",
@@ -1011,12 +1005,12 @@ impl<'a> ConditionBuilder<'a> {
             _ => crate::optimization::condition_id::TrendType::Rising,
         };
         let trend_name = trend_type.display_name();
-        let prefix = ConditionId::prefix_for(is_entry);
-        let id = ConditionId::trend_condition(
+        let prefix = ConditionIdGenerator::prefix_for(is_entry);
+        let id = ConditionIdGenerator::trend_condition(
             prefix,
             &primary_indicator.alias,
             trend_type,
-            rng.gen::<u32>(),
+            rng,
         );
         let name = format!(
             "{} {} (period: {:.0})",
@@ -1063,12 +1057,12 @@ impl<'a> ConditionBuilder<'a> {
             .collect();
 
         if let Some(secondary) = available_secondary.choose(rng) {
-            let id = format!(
-                "{}_{}_{}_{}",
-                if is_entry { "entry" } else { "exit" },
-                primary_indicator.alias,
-                secondary.alias,
-                rng.gen::<u32>()
+            let prefix = ConditionIdGenerator::prefix_for(is_entry);
+            let id = ConditionIdGenerator::indicator_indicator(
+                prefix,
+                &primary_indicator.alias,
+                &secondary.alias,
+                rng,
             );
             let name = format!(
                 "{} {:?} {}",
@@ -1139,12 +1133,8 @@ impl<'a> ConditionBuilder<'a> {
                 (Vec::new(), None)
             };
 
-        let id = format!(
-            "{}_{}_{}",
-            if is_entry { "entry" } else { "exit" },
-            primary_indicator.alias,
-            rng.gen::<u32>()
-        );
+        let prefix = ConditionIdGenerator::prefix_for(is_entry);
+        let id = ConditionIdGenerator::indicator_price(prefix, &primary_indicator.alias, rng);
         let name = if let Some(percent) = percent_val {
             format!(
                 "{} {:?} {} на {:.2}%",

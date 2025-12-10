@@ -2,7 +2,7 @@
 mod tests {
     use super::*;
     use crate::backtest::{
-        BacktestConfig, BacktestConfigBuilder, BacktestEngine, BacktestError, ConditionEvaluator,
+        BacktestConfig, BacktestEngine, BacktestError, ConditionEvaluator,
         EquityCalculator, FeedManager, IndicatorEngine, SessionManager, SessionState,
         TimeFrameAggregationService,
     };
@@ -433,12 +433,6 @@ mod tests {
         assert_eq!(report1.metrics.total_bars, report2.metrics.total_bars);
     }
 
-    #[test]
-    fn test_feed_manager_new() {
-        let manager = FeedManager::new();
-        assert!(manager.frames().is_empty());
-        assert!(manager.primary_timeframe().is_none());
-    }
 
     #[test]
     fn test_feed_manager_with_frames() {
@@ -514,18 +508,6 @@ mod tests {
         assert!(!FeedManager::is_multiple_of(&tf_240, &tf_60));
     }
 
-    #[test]
-    fn test_feed_manager_create_derived_timeframe() {
-        let tf_60 = TimeFrame::Minutes(60);
-        let tf_120 = FeedManager::create_derived_timeframe(&tf_60, 2);
-        assert_eq!(tf_120, Some(TimeFrame::Hours(2)));
-
-        let tf_60_result = FeedManager::create_derived_timeframe(&tf_60, 1);
-        assert_eq!(tf_60_result, Some(TimeFrame::Hours(1)));
-
-        let tf_90 = FeedManager::create_derived_timeframe(&TimeFrame::Minutes(30), 3);
-        assert_eq!(tf_90, Some(TimeFrame::Minutes(90)));
-    }
 
     #[test]
     fn test_feed_manager_step() {
@@ -582,8 +564,7 @@ mod tests {
     #[test]
     fn test_equity_calculator_new() {
         let calculator = EquityCalculator::new(10000.0);
-        let mut calculator2 = EquityCalculator::new(5000.0);
-        calculator2.set_initial_capital(10000.0);
+        let calculator2 = EquityCalculator::new(5000.0);
         assert!(true);
     }
 
@@ -597,14 +578,6 @@ mod tests {
         assert_eq!(equity1, equity2);
     }
 
-    #[test]
-    fn test_equity_calculator_set_initial_capital() {
-        let mut calculator = EquityCalculator::new(10000.0);
-        calculator.set_initial_capital(5000.0);
-        let mut position_manager = crate::position::PositionManager::new("test".to_string());
-        let equity = calculator.calculate(&position_manager, false, false, 0);
-        assert!(equity >= 0.0);
-    }
 
     #[test]
     fn test_session_manager_new() {
@@ -619,13 +592,6 @@ mod tests {
         assert!(true);
     }
 
-    #[test]
-    fn test_session_manager_set_duration() {
-        let mut manager = SessionManager::new(None);
-        let duration = Some(chrono::Duration::hours(1));
-        manager.set_duration(duration);
-        assert!(true);
-    }
 
     #[test]
     fn test_session_state_default() {
@@ -742,59 +708,4 @@ mod tests {
         assert!(aggregated.is_empty());
     }
 
-    #[test]
-    fn test_backtest_config_builder_new() {
-        let builder = BacktestConfigBuilder::new();
-        let config = builder.build();
-        assert_eq!(config.initial_capital, 10000.0);
-        assert_eq!(config.use_full_capital, false);
-        assert_eq!(config.reinvest_profits, false);
-    }
-
-    #[test]
-    fn test_backtest_config_builder_default() {
-        let builder = BacktestConfigBuilder::default();
-        let config = builder.build();
-        assert_eq!(config.initial_capital, 10000.0);
-    }
-
-    #[test]
-    fn test_backtest_config_builder_with_initial_capital() {
-        let config = BacktestConfigBuilder::new()
-            .with_initial_capital(50000.0)
-            .build();
-        assert_eq!(config.initial_capital, 50000.0);
-        assert_eq!(config.use_full_capital, false);
-        assert_eq!(config.reinvest_profits, false);
-    }
-
-    #[test]
-    fn test_backtest_config_builder_with_full_capital() {
-        let config = BacktestConfigBuilder::new().with_full_capital(true).build();
-        assert_eq!(config.initial_capital, 10000.0);
-        assert_eq!(config.use_full_capital, true);
-        assert_eq!(config.reinvest_profits, false);
-    }
-
-    #[test]
-    fn test_backtest_config_builder_with_reinvest_profits() {
-        let config = BacktestConfigBuilder::new()
-            .with_reinvest_profits(true)
-            .build();
-        assert_eq!(config.initial_capital, 10000.0);
-        assert_eq!(config.use_full_capital, false);
-        assert_eq!(config.reinvest_profits, true);
-    }
-
-    #[test]
-    fn test_backtest_config_builder_all_options() {
-        let config = BacktestConfigBuilder::new()
-            .with_initial_capital(75000.0)
-            .with_full_capital(true)
-            .with_reinvest_profits(true)
-            .build();
-        assert_eq!(config.initial_capital, 75000.0);
-        assert_eq!(config.use_full_capital, true);
-        assert_eq!(config.reinvest_profits, true);
-    }
 }

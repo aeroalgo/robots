@@ -171,7 +171,7 @@ async fn run() -> Result<()> {
     print_quick_summary(&report, strategy_name);
 
     println!("\n=== ГЕНЕТИЧЕСКАЯ ОПТИМИЗАЦИЯ ===");
-    // run_genetic_optimization(&symbol, &timeframe, candles, config).await?;
+    run_genetic_optimization(&symbol, &timeframe, candles, config).await?;
 
     Ok(())
 }

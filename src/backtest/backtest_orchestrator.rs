@@ -15,10 +15,6 @@ use super::{
 pub struct BacktestOrchestrator;
 
 impl BacktestOrchestrator {
-    pub fn new() -> Self {
-        Self
-    }
-
     pub fn initialize_context(
         feed_manager: &mut FeedManager,
         timeframe_order: &[crate::data_model::types::TimeFrame],
@@ -235,11 +231,5 @@ impl BacktestOrchestrator {
         }
 
         Ok(())
-    }
-}
-
-impl Default for BacktestOrchestrator {
-    fn default() -> Self {
-        Self::new()
     }
 }

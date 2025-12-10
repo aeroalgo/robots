@@ -63,8 +63,4 @@ impl EquityCalculator {
         self.cached_equity = None;
         self.last_equity_bar = 0;
     }
-
-    pub fn set_initial_capital(&mut self, initial_capital: f64) {
-        self.initial_capital = initial_capital;
-    }
 }

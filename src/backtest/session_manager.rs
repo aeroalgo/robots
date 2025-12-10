@@ -75,8 +75,4 @@ impl SessionManager {
             }
         }
     }
-
-    pub fn set_duration(&mut self, duration: Option<chrono::Duration>) {
-        self.cached_duration = duration;
-    }
 }

@@ -1,6 +1,5 @@
 mod backtest_orchestrator;
 mod condition_evaluator;
-mod config_builder;
 mod constants;
 mod engine;
 mod equity_calculator;
@@ -16,7 +15,6 @@ mod tests;
 
 pub use backtest_orchestrator::BacktestOrchestrator;
 pub use condition_evaluator::ConditionEvaluator;
-pub use config_builder::BacktestConfigBuilder;
 pub use engine::BacktestEngine;
 pub use equity_calculator::EquityCalculator;
 pub use feed_manager::FeedManager;

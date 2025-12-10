@@ -16,16 +16,6 @@ pub struct FeedManager {
 }
 
 impl FeedManager {
-    pub fn new() -> Self {
-        Self {
-            frames: HashMap::new(),
-            indices: HashMap::new(),
-            primary_timeframe: None,
-            higher_timeframe_timestamps: HashMap::new(),
-            cached_aligned_timestamps: HashMap::new(),
-        }
-    }
-
     pub fn with_frames(frames: HashMap<TimeFrame, Arc<QuoteFrame>>) -> Self {
         Self {
             frames,
@@ -50,10 +40,6 @@ impl FeedManager {
 
     pub fn get_frame(&self, timeframe: &TimeFrame) -> Option<&Arc<QuoteFrame>> {
         self.frames.get(timeframe)
-    }
-
-    pub fn insert_frame(&mut self, timeframe: TimeFrame, frame: Arc<QuoteFrame>) {
-        self.frames.insert(timeframe, frame);
     }
 
     pub fn initialize_context_ordered(&self, timeframe_order: &[TimeFrame]) -> StrategyContext {
@@ -198,40 +184,6 @@ impl FeedManager {
         let total_minutes = timestamp_millis / (60 * 1000);
         let aligned_minutes = (total_minutes / minutes as i64) * minutes as i64;
         Some(aligned_minutes * 60 * 1000)
-    }
-
-    pub fn create_derived_timeframe(base: &TimeFrame, multiplier: u32) -> Option<TimeFrame> {
-        let base_minutes = Self::timeframe_to_minutes(base)?;
-        let target_minutes = base_minutes * multiplier;
-        Self::minutes_to_timeframe(target_minutes)
-    }
-
-    pub fn minutes_to_timeframe(minutes: u32) -> Option<TimeFrame> {
-        if minutes < 60 {
-            Some(TimeFrame::Minutes(minutes))
-        } else if minutes < 24 * 60 {
-            let hours = minutes / 60;
-            if minutes % 60 == 0 {
-                Some(TimeFrame::Hours(hours))
-            } else {
-                Some(TimeFrame::Minutes(minutes))
-            }
-        } else if minutes < 7 * 24 * 60 {
-            let days = minutes / (24 * 60);
-            if minutes % (24 * 60) == 0 {
-                Some(TimeFrame::Days(days))
-            } else {
-                Some(TimeFrame::Minutes(minutes))
-            }
-        } else {
-            None
-        }
-    }
-}
-
-impl Default for FeedManager {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

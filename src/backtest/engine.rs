@@ -226,8 +226,7 @@ impl BacktestEngine {
             config.use_full_capital,
             config.reinvest_profits,
         );
-        self.equity_calculator
-            .set_initial_capital(config.initial_capital);
+        self.equity_calculator = EquityCalculator::new(config.initial_capital);
         self.config = config;
         self
     }
@@ -252,19 +251,19 @@ impl BacktestEngine {
         Ok(engine)
     }
 
-    pub fn context(&self) -> &StrategyContext {
+    pub(crate) fn context(&self) -> &StrategyContext {
         &self.context
     }
 
-    pub fn context_mut(&mut self) -> &mut StrategyContext {
+    pub(crate) fn context_mut(&mut self) -> &mut StrategyContext {
         &mut self.context
     }
 
-    pub fn position_manager(&self) -> &PositionManager {
+    pub(crate) fn position_manager(&self) -> &PositionManager {
         &self.position_manager
     }
 
-    pub fn position_manager_mut(&mut self) -> &mut PositionManager {
+    pub(crate) fn position_manager_mut(&mut self) -> &mut PositionManager {
         &mut self.position_manager
     }
 
@@ -347,7 +346,7 @@ impl BacktestEngine {
         self.run_backtest()
     }
 
-    pub fn run_backtest(&mut self) -> Result<BacktestReport, BacktestError> {
+    fn run_backtest(&mut self) -> Result<BacktestReport, BacktestError> {
         if self.warmup_bars == 0 {
             self.warmup_bars = self.compute_warmup_bars();
         }
