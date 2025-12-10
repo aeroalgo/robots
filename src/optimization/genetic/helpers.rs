@@ -127,15 +127,6 @@ pub fn get_safe_flipped_operator(
     }
 }
 
-pub fn can_compare_indicators_for_mutation(
-    primary: &crate::discovery::IndicatorInfo,
-    secondary: &crate::discovery::IndicatorInfo,
-    nested_indicators: &[crate::discovery::NestedIndicator],
-    all_indicators: &[crate::discovery::IndicatorInfo],
-) -> bool {
-    ConditionBuilder::can_compare_indicators(primary, secondary, nested_indicators, all_indicators)
-}
-
 pub fn log_strategy_details(
     candidate: &StrategyCandidate,
     parameters: &crate::strategy::types::StrategyParameterMap,

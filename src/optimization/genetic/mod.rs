@@ -108,7 +108,7 @@ impl GeneticAlgorithmV3 {
                         &self.config,
                     );
 
-                let (child1_params, child2_params) = if let Some(params) =
+                let (mut child1_params, mut child2_params) = if let Some(params) =
                     self.population_manager.crossover(parents[0], parents[1])
                 {
                     params
@@ -118,9 +118,6 @@ impl GeneticAlgorithmV3 {
                         parents[1].strategy.parameters.clone(),
                     )
                 };
-
-                let mut child1_params = child1_params;
-                let mut child2_params = child2_params;
 
                 mutation::mutate_structure(
                     &mut child1_candidate,
