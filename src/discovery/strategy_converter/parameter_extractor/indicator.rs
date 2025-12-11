@@ -66,3 +66,4 @@ pub fn extract_nested_indicator_parameters(
         .collect();
     extract_indicator_parameters(&indicators, true)
 }
+

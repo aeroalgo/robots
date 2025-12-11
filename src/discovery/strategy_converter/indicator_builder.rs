@@ -186,3 +186,4 @@ impl IndicatorBuilder {
         Ok(HashMap::new())
     }
 }
+

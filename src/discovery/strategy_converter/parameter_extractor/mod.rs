@@ -327,3 +327,4 @@ mod tests {
         assert!(matches!(multiplier_val, StrategyParamValue::Number(2.5)));
     }
 }
+

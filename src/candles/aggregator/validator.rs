@@ -76,3 +76,4 @@ impl TimeFrameValidator {
         Ok(())
     }
 }
+

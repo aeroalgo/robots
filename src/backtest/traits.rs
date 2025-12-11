@@ -46,3 +46,4 @@ pub trait ConditionEvaluatorTrait: Send + Sync {
         context: &mut StrategyContext,
     ) -> Result<(), BacktestError>;
 }
+

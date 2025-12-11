@@ -131,4 +131,3 @@ mod tests {
         assert!(manager.best_fitness_history.is_empty());
     }
 }
-

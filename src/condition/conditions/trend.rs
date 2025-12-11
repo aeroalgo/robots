@@ -383,3 +383,4 @@ impl Condition for FallingTrendCondition {
         Box::new(Self::new(self.period as f32).unwrap())
     }
 }
+

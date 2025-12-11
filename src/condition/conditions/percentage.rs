@@ -233,3 +233,4 @@ impl Condition for LowerPercentCondition {
         Box::new(Self::new().unwrap())
     }
 }
+

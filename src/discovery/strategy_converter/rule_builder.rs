@@ -60,3 +60,4 @@ impl RuleBuilder {
         Ok(exit_rules)
     }
 }
+

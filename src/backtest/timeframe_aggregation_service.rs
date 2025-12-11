@@ -80,3 +80,4 @@ impl Default for TimeFrameAggregationService {
         Self::new()
     }
 }
+
